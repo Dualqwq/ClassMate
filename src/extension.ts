@@ -1,11 +1,8 @@
 import * as vscode from 'vscode';
+import { ChatPanel } from './ui/ChatPanel';
 
 // Placeholder command handlers. These will be replaced by real implementations
 // in later tasks as the codebase grows under src/commands and src/ui.
-function openChatHandler(): void {
-	void vscode.window.showInformationMessage('ClassMate chat panel will open here.');
-}
-
 function compileHandler(): void {
 	void vscode.window.showInformationMessage('ClassMate compile command will run here.');
 }
@@ -35,7 +32,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	// Register all commands declared in package.json.
 	const commands: { id: string; handler: (...args: unknown[]) => void }[] = [
-		{ id: 'classmate.openChat', handler: openChatHandler },
+		{ id: 'classmate.openChat', handler: () => ChatPanel.createOrShow(context.extensionUri) },
 		{ id: 'classmate.compile', handler: compileHandler },
 		{ id: 'classmate.runCode', handler: runCodeHandler },
 		{ id: 'classmate.explainSelection', handler: explainSelectionHandler },
