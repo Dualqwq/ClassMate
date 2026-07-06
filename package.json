@@ -1,0 +1,138 @@
+{
+  "name": "classmate",
+  "displayName": "ClassMate",
+  "description": "AI tutor for C/C++ beginners",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "C++",
+    "education",
+    "AI",
+    "tutor",
+    "debug"
+  ],
+  "activationEvents": [
+    "onLanguage:cpp",
+    "onCommand:classmate.openChat",
+    "onCommand:classmate.compile",
+    "onCommand:classmate.runCode",
+    "onCommand:classmate.explainSelection",
+    "onCommand:classmate.explainError",
+    "onCommand:classmate.debugJourney",
+    "onCommand:classmate.setupApiKey"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "classmate.openChat",
+        "title": "Open Chat",
+        "category": "ClassMate",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "classmate.compile",
+        "title": "Compile",
+        "category": "ClassMate",
+        "icon": "$(play)"
+      },
+      {
+        "command": "classmate.runCode",
+        "title": "Compile & Run",
+        "category": "ClassMate",
+        "icon": "$(run)"
+      },
+      {
+        "command": "classmate.explainSelection",
+        "title": "Explain Selected Code",
+        "category": "ClassMate",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "classmate.explainError",
+        "title": "Explain Error",
+        "category": "ClassMate",
+        "icon": "$(error)"
+      },
+      {
+        "command": "classmate.debugJourney",
+        "title": "Open Debug Journey",
+        "category": "ClassMate",
+        "icon": "$(history)"
+      },
+      {
+        "command": "classmate.setupApiKey",
+        "title": "Set API Key",
+        "category": "ClassMate",
+        "icon": "$(key)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "classmate.openChat" },
+        { "command": "classmate.compile" },
+        { "command": "classmate.runCode" },
+        { "command": "classmate.explainSelection" },
+        {
+          "command": "classmate.explainError",
+          "when": "false"
+        },
+        { "command": "classmate.debugJourney" },
+        { "command": "classmate.setupApiKey" }
+      ],
+      "editor/title": [
+        {
+          "command": "classmate.compile",
+          "group": "navigation@1",
+          "when": "editorLangId == cpp"
+        },
+        {
+          "command": "classmate.runCode",
+          "group": "navigation@2",
+          "when": "editorLangId == cpp"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "classmate.explainSelection",
+          "group": "2_classmate@1",
+          "when": "editorHasSelection && editorLangId == cpp"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.125.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "typescript-eslint": "^8.61.1",
+    "eslint": "^10.5.0",
+    "typescript": "^6.0.3",
+    "ts-loader": "^9.6.2",
+    "webpack": "^5.107.2",
+    "webpack-cli": "^7.0.3",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  }
+}
