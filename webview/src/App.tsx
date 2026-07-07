@@ -19,12 +19,27 @@ export const App: React.FC = () => {
 					setInput(message.state.inputDraft);
 					break;
 				case 'streamStart':
-				case 'streamEnd':
+					setState((prev) => ({
+						...prev,
+						messages: [...prev.messages, message.message],
+						isStreaming: true,
+						currentStreamMessageId: message.message.id,
+					}));
+					break;
 				case 'appendToken':
-					// State deltas are merged into the next stateSync; ignore here
-					// because ChatSession already broadcasts a full stateSync after
-					// streaming ends. Keeping this handler allows future optimistic
-					// append without stateSync if needed.
+					setState((prev) => ({
+						...prev,
+						messages: prev.messages.map((m) =>
+							m.id === message.messageId ? { ...m, content: m.content + message.token } : m
+						),
+					}));
+					break;
+				case 'streamEnd':
+					setState((prev) => ({
+						...prev,
+						isStreaming: false,
+						currentStreamMessageId: null,
+					}));
 					break;
 				case 'containerInfo':
 					setContainer(message.container);
