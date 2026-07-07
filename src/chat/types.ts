@@ -39,6 +39,6 @@ export type WebviewToExtensionMessage =
 export type ExtensionToWebviewMessage =
 	| { type: 'stateSync'; state: ChatState }
 	| { type: 'appendToken'; messageId: string; token: string }
-	| { type: 'streamStart'; messageId: string }
+	| { type: 'streamStart'; message: ChatMessage }
 	| { type: 'streamEnd'; messageId: string }
 	| { type: 'containerInfo'; container: 'view' | 'panel' };

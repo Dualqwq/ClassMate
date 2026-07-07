@@ -68,6 +68,14 @@ export class ChatPanel implements WebviewPresenter {
 		ChatPanel._currentPanel?.dispose();
 	}
 
+	public static hasCurrent(): boolean {
+		return ChatPanel._currentPanel !== undefined;
+	}
+
+	public static revealCurrent(preserveFocus?: boolean): void {
+		ChatPanel._currentPanel?._panel.reveal(undefined, preserveFocus ?? false);
+	}
+
 	private _isDisposed = false;
 
 	private constructor(

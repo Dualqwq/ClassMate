@@ -59,6 +59,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, WebviewPres
 
 	public reveal(preserveFocus?: boolean): void {
 		this._view?.show(preserveFocus ?? false);
+		// Re-sync state when the view is revealed after being hidden, so that
+		// draft text and messages updated in the panel are reflected here.
+		void this._view?.webview.postMessage({
+			type: 'stateSync',
+			state: ChatSession.getInstance().getState(),
+		});
 	}
 
 	public postMessage(message: unknown): void {

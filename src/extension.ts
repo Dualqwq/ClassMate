@@ -46,13 +46,18 @@ function showChatInContainer(
 	options?: { preserveFocus?: boolean }
 ): void {
 	if (container === 'panel') {
-		chatViewProvider.reveal(true);
-		createChatPanel(session, extensionUri, () => {
-			// When the panel is closed by the user, fall back to sidebar view.
-			void vscode.commands.executeCommand('classmate.focusChatView');
-		}, options);
-		// Defer closing sidebar so the panel has a moment to render and receive state.
-		setTimeout(() => void vscode.commands.executeCommand('workbench.action.closeSidebar'), 50);
+		if (ChatPanel.hasCurrent()) {
+			// Panel already exists; just reveal it without pulling the view back.
+			ChatPanel.revealCurrent(options?.preserveFocus ?? false);
+		} else {
+			chatViewProvider.reveal(true);
+			createChatPanel(session, extensionUri, () => {
+				// When the panel is closed by the user, fall back to sidebar view.
+				void vscode.commands.executeCommand('classmate.focusChatView');
+			}, options);
+			// Defer closing sidebar so the panel has a moment to render and receive state.
+			setTimeout(() => void vscode.commands.executeCommand('workbench.action.closeSidebar'), 50);
+		}
 	} else {
 		chatViewProvider.reveal(options?.preserveFocus ?? false);
 	}

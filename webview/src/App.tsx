@@ -2,12 +2,14 @@ import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatState, ExtensionToWebviewMessage, MessageIntent } from '../../src/chat/types';
 import { getInitialState, getContainer, sendMessage, subscribeToExtension } from './vscodeApi';
+import { MessageBubble } from './components/MessageBubble';
 
 export const App: React.FC = () => {
 	const [state, setState] = useState<ChatState>(getInitialState);
 	const [input, setInput] = useState(state.inputDraft);
 	const [container, setContainer] = useState<'view' | 'panel'>(getContainer);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const shouldScrollToBottomRef = useRef(true);
 
 	useEffect(() => {
 		return subscribeToExtension((message: ExtensionToWebviewMessage) => {
@@ -31,11 +33,27 @@ export const App: React.FC = () => {
 		});
 	}, []);
 
+	// Auto-scroll to bottom when new messages arrive or streaming continues,
+	// but only if the user is already near the bottom.
 	useEffect(() => {
-		if (scrollRef.current) {
-			scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+		const el = scrollRef.current;
+		if (!el) {
+			return;
+		}
+		if (shouldScrollToBottomRef.current) {
+			el.scrollTop = el.scrollHeight;
 		}
 	}, [state.messages, state.isStreaming]);
+
+	const handleScroll = useCallback(() => {
+		const el = scrollRef.current;
+		if (!el) {
+			return;
+		}
+		const nearBottomThreshold = 32;
+		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+		shouldScrollToBottomRef.current = distanceFromBottom <= nearBottomThreshold;
+	}, []);
 
 	const handleInputChange = useCallback(
 		(text: string) => {
@@ -50,6 +68,7 @@ export const App: React.FC = () => {
 			if (input.trim()) {
 				sendMessage({ type: 'sendMessage', text: input, intent });
 				setInput('');
+				shouldScrollToBottomRef.current = true;
 			}
 		},
 		[input]
@@ -60,9 +79,19 @@ export const App: React.FC = () => {
 	}, []);
 
 	return (
-		<div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'sans-serif' }}>
+		<div
+			style={{
+				display: 'flex',
+				flexDirection: 'column',
+				height: '100%',
+				fontFamily: 'var(--vscode-font-family), sans-serif',
+				background: 'var(--vscode-editor-background)',
+				color: 'var(--vscode-foreground)',
+			}}
+		>
 			<div
 				ref={scrollRef}
+				onScroll={handleScroll}
 				style={{
 					flex: 1,
 					overflowY: 'auto',
@@ -76,44 +105,27 @@ export const App: React.FC = () => {
 					</div>
 				)}
 				{state.messages.map((msg) => (
-					<div
+					<MessageBubble
 						key={msg.id}
-						style={{
-							display: 'flex',
-							justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-							marginBottom: '12px',
-						}}
-					>
-						<div
-							style={{
-								maxWidth: '80%',
-								padding: '10px 14px',
-								borderRadius: '12px',
-								background:
-									msg.role === 'user'
-										? 'var(--vscode-button-background)'
-										: 'var(--vscode-editor-inactiveSelectionBackground)',
-								color:
-									msg.role === 'user'
-										? 'var(--vscode-button-foreground)'
-										: 'var(--vscode-foreground)',
-								whiteSpace: 'pre-wrap',
-								wordBreak: 'break-word',
-							}}
-						>
-							{msg.content}
-							{msg.role === 'assistant' && msg.id === state.currentStreamMessageId && (
-								<span style={{ opacity: 0.6 }}>▋</span>
-							)}
-						</div>
-					</div>
+						message={msg}
+						isStreaming={state.isStreaming}
+						isCurrentStream={msg.id === state.currentStreamMessageId}
+					/>
 				))}
 			</div>
 
-			<div style={{ padding: '12px', borderTop: '1px solid var(--vscode-panel-border)' }}>
+			<div
+				style={{
+					padding: '12px',
+					borderTop: '1px solid var(--vscode-panel-border)',
+					background: 'var(--vscode-sideBar-background)',
+					flexShrink: 0,
+				}}
+			>
 				<div
 					style={{
 						display: 'flex',
+						flexWrap: 'wrap',
 						alignItems: 'center',
 						gap: '8px',
 						marginBottom: '8px',
@@ -128,6 +140,7 @@ export const App: React.FC = () => {
 							color: 'var(--vscode-foreground)',
 							cursor: 'pointer',
 							fontSize: '13px',
+							padding: '4px',
 						}}
 					>
 						{container === 'view' ? '⛶' : '☰'}
@@ -139,7 +152,14 @@ export const App: React.FC = () => {
 						</span>
 					)}
 				</div>
-				<div style={{ display: 'flex', gap: '8px' }}>
+				<div
+					style={{
+						display: 'flex',
+						flexWrap: 'wrap',
+						gap: '8px',
+						alignItems: 'stretch',
+					}}
+				>
 					<input
 						type="text"
 						value={input}
@@ -148,24 +168,29 @@ export const App: React.FC = () => {
 						placeholder="Ask ClassMate..."
 						disabled={state.isStreaming}
 						style={{
-							flex: 1,
+							flex: '1 1 0',
+							minWidth: '80px',
 							padding: '8px 12px',
 							borderRadius: '6px',
 							border: '1px solid var(--vscode-input-border)',
 							background: 'var(--vscode-input-background)',
 							color: 'var(--vscode-input-foreground)',
+							boxSizing: 'border-box',
 						}}
 					/>
 					<button
 						onClick={() => handleSend()}
 						disabled={state.isStreaming || !input.trim()}
 						style={{
-							padding: '8px 16px',
+							padding: '8px 12px',
 							borderRadius: '6px',
 							border: 'none',
 							background: 'var(--vscode-button-background)',
 							color: 'var(--vscode-button-foreground)',
 							cursor: 'pointer',
+							whiteSpace: 'nowrap',
+							minWidth: '48px',
+							boxSizing: 'border-box',
 						}}
 					>
 						Send

@@ -17,8 +17,10 @@ export function chooseContainer(
 	// preference === 'auto'
 	switch (intent) {
 		case 'hint':
-		case 'chat':
 			return 'view';
+		case 'chat':
+			// Keep free-form chat in whichever container the user is already using.
+			return currentContainer ?? 'view';
 		case 'code_explanation':
 		case 'concept_explanation':
 		case 'error_explanation':

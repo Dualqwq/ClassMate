@@ -86,7 +86,7 @@ export class ChatSession {
 			isStreaming: true,
 			currentStreamMessageId: message.id,
 		};
-		this._broadcast({ type: 'streamStart', messageId: message.id });
+		this._broadcast({ type: 'streamStart', message });
 		return message;
 	}
 
@@ -150,7 +150,8 @@ export class ChatSession {
 		// This will be replaced by the real LLM adapter in later tasks.
 		const assistantMessage = this.startAssistantMessage(intent);
 		this._onIntent?.(intent);
-		const tokens = ['Hello', '!', ' This', ' is', ' a', ' placeholder', ' response', '.'];
+		const text = 'Hello! This is a placeholder response.';
+		const tokens = text.split(/(?=\s)|(?<=\s)/).filter(Boolean);
 		let index = 0;
 		const interval = setInterval(() => {
 			if (index < tokens.length) {
@@ -160,7 +161,7 @@ export class ChatSession {
 				clearInterval(interval);
 				this.endStream();
 			}
-		}, 200);
+		}, 120);
 	}
 
 	private _broadcast(message: ExtensionToWebviewMessage): void {

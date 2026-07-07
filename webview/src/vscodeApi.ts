@@ -4,6 +4,10 @@ declare const acquireVsCodeApi: () => {
 	postMessage: (message: unknown) => void;
 };
 
+// VS Code only allows one call to acquireVsCodeApi() per webview. Keep a single
+// module-level instance so send/subscribe never trigger it again.
+const vscode = acquireVsCodeApi();
+
 declare global {
 	interface Window {
 		__CLASSMATE_INITIAL_STATE__?: ChatState;
@@ -27,12 +31,10 @@ export function getInitialState(): ChatState {
 }
 
 export function sendMessage(message: WebviewToExtensionMessage): void {
-	const vscode = acquireVsCodeApi();
 	vscode.postMessage(message);
 }
 
 export function subscribeToExtension(callback: (message: ExtensionToWebviewMessage) => void): () => void {
-	const vscode = acquireVsCodeApi();
 	const handler = (event: MessageEvent<ExtensionToWebviewMessage>) => {
 		callback(event.data);
 	};
