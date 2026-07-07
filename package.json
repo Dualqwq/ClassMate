@@ -20,7 +20,12 @@
   ],
   "activationEvents": [
     "onLanguage:cpp",
+    "onView:classmate.chatView",
     "onCommand:classmate.openChat",
+    "onCommand:classmate.openChatPanel",
+    "onCommand:classmate.focusChatView",
+    "onCommand:classmate.hideChatView",
+    "onCommand:classmate.toggleChatContainer",
     "onCommand:classmate.compile",
     "onCommand:classmate.runCode",
     "onCommand:classmate.explainSelection",
@@ -68,15 +73,80 @@
         "icon": "$(history)"
       },
       {
+        "command": "classmate.openChatPanel",
+        "title": "Open Chat in Panel",
+        "category": "ClassMate",
+        "icon": "$(screen-full)"
+      },
+      {
+        "command": "classmate.focusChatView",
+        "title": "Focus Chat in Sidebar",
+        "category": "ClassMate",
+        "icon": "$(layout-sidebar-left)"
+      },
+      {
+        "command": "classmate.toggleChatContainer",
+        "title": "Toggle Chat Container",
+        "category": "ClassMate"
+      },
+      {
+        "command": "classmate.hideChatView",
+        "title": "Hide Chat",
+        "category": "ClassMate",
+        "icon": "$(chevron-down)"
+      },
+      {
         "command": "classmate.setupApiKey",
         "title": "Set API Key",
         "category": "ClassMate",
         "icon": "$(key)"
       }
     ],
+    "configuration": {
+      "title": "ClassMate",
+      "properties": {
+        "classmate.defaultContainer": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "view",
+            "panel"
+          ],
+          "enumDescriptions": [
+            "Automatically choose sidebar for short chat/hints and panel for long explanations",
+            "Always open chat in the sidebar view",
+            "Always open chat in the editor panel"
+          ],
+          "description": "Default container for chat responses"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "classmate-sidebar",
+          "title": "ClassMate",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "classmate-sidebar": [
+        {
+          "id": "classmate.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
     "menus": {
       "commandPalette": [
         { "command": "classmate.openChat" },
+        { "command": "classmate.openChatPanel" },
+        { "command": "classmate.focusChatView" },
+        { "command": "classmate.hideChatView" },
+        { "command": "classmate.toggleChatContainer" },
         { "command": "classmate.compile" },
         { "command": "classmate.runCode" },
         { "command": "classmate.explainSelection" },
@@ -86,6 +156,18 @@
         },
         { "command": "classmate.debugJourney" },
         { "command": "classmate.setupApiKey" }
+      ],
+      "view/title": [
+        {
+          "command": "classmate.openChatPanel",
+          "group": "navigation@1",
+          "when": "view == classmate.chatView"
+        },
+        {
+          "command": "classmate.hideChatView",
+          "group": "navigation@2",
+          "when": "view == classmate.chatView"
+        }
       ],
       "editor/title": [
         {

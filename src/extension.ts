@@ -1,8 +1,73 @@
 import * as vscode from 'vscode';
 import { ChatPanel } from './ui/ChatPanel';
+import { ChatViewProvider } from './ui/ChatViewProvider';
+import { ChatSession } from './chat/ChatSession';
+import type { MessageIntent } from './chat/types';
+import { chooseContainer } from './chat/MessageRouter';
 
-// Placeholder command handlers. These will be replaced by real implementations
-// in later tasks as the codebase grows under src/commands and src/ui.
+type ChatContainer = 'view' | 'panel';
+
+function createChatPanel(
+	session: ChatSession,
+	extensionUri: vscode.Uri,
+	onDidClose?: () => void,
+	options?: { preserveFocus?: boolean }
+): ChatPanel {
+	let panel: ChatPanel;
+	panel = ChatPanel.createOrShow(
+		extensionUri,
+		(message) => session.handleWebviewMessage(message),
+		() => session.detach(panel),
+		{ ...options, onDidClose }
+	);
+	session.attach(panel);
+	return panel;
+}
+
+function createChatViewProvider(session: ChatSession, extensionUri: vscode.Uri): ChatViewProvider {
+	const provider = new ChatViewProvider(
+		extensionUri,
+		(message) => session.handleWebviewMessage(message),
+		() => session.detach(provider)
+	);
+	session.attach(provider);
+	return provider;
+}
+
+function getContainerPreference(): 'auto' | 'view' | 'panel' {
+	return vscode.workspace.getConfiguration('classmate').get('defaultContainer') ?? 'auto';
+}
+
+function showChatInContainer(
+	session: ChatSession,
+	extensionUri: vscode.Uri,
+	chatViewProvider: ChatViewProvider,
+	container: ChatContainer,
+	options?: { preserveFocus?: boolean }
+): void {
+	if (container === 'panel') {
+		chatViewProvider.reveal(true);
+		createChatPanel(session, extensionUri, () => {
+			// When the panel is closed by the user, fall back to sidebar view.
+			void vscode.commands.executeCommand('classmate.focusChatView');
+		}, options);
+		// Defer closing sidebar so the panel has a moment to render and receive state.
+		setTimeout(() => void vscode.commands.executeCommand('workbench.action.closeSidebar'), 50);
+	} else {
+		chatViewProvider.reveal(options?.preserveFocus ?? false);
+	}
+}
+
+function routeIntent(
+	session: ChatSession,
+	extensionUri: vscode.Uri,
+	chatViewProvider: ChatViewProvider,
+	intent: MessageIntent
+): void {
+	const container = chooseContainer(intent, getContainerPreference());
+	showChatInContainer(session, extensionUri, chatViewProvider, container);
+}
+
 function compileHandler(): void {
 	void vscode.window.showInformationMessage('ClassMate compile command will run here.');
 }
@@ -30,13 +95,71 @@ function setupApiKeyHandler(): void {
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('ClassMate extension is now active.');
 
+	const chatSession = ChatSession.getInstance();
+
+	// Register the sidebar WebviewView provider.
+	const chatViewProvider = createChatViewProvider(chatSession, context.extensionUri);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider)
+	);
+
+	// Track which container a message is currently targeting.
+	let currentContainer: ChatContainer = 'view';
+
+	// Route assistant message intents to the appropriate container.
+	chatSession.setOnIntent((intent) => {
+		const target = chooseContainer(intent, getContainerPreference(), currentContainer);
+		if (target !== currentContainer) {
+			currentContainer = target;
+			showChatInContainer(chatSession, context.extensionUri, chatViewProvider, target, { preserveFocus: true });
+		}
+	});
+
 	// Register all commands declared in package.json.
 	const commands: { id: string; handler: (...args: unknown[]) => void }[] = [
-		{ id: 'classmate.openChat', handler: () => ChatPanel.createOrShow(context.extensionUri) },
+		{
+			id: 'classmate.openChat',
+			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, currentContainer),
+		},
+		{
+			id: 'classmate.openChatPanel',
+			handler: () => {
+				currentContainer = 'panel';
+				showChatInContainer(chatSession, context.extensionUri, chatViewProvider, 'panel');
+			},
+		},
+		{
+			id: 'classmate.focusChatView',
+			handler: () => {
+				currentContainer = 'view';
+				ChatPanel.closeCurrent();
+				chatViewProvider.reveal(false);
+			},
+		},
+		{
+			id: 'classmate.hideChatView',
+			handler: () => {
+				ChatPanel.closeCurrent(true);
+				void vscode.commands.executeCommand('workbench.action.closeSidebar');
+			},
+		},
+		{
+			id: 'classmate.toggleChatContainer',
+			handler: () => {
+				currentContainer = currentContainer === 'view' ? 'panel' : 'view';
+				showChatInContainer(chatSession, context.extensionUri, chatViewProvider, currentContainer);
+			},
+		},
 		{ id: 'classmate.compile', handler: compileHandler },
 		{ id: 'classmate.runCode', handler: runCodeHandler },
-		{ id: 'classmate.explainSelection', handler: explainSelectionHandler },
-		{ id: 'classmate.explainError', handler: explainErrorHandler },
+		{
+			id: 'classmate.explainSelection',
+			handler: () => routeIntent(chatSession, context.extensionUri, chatViewProvider, 'code_explanation'),
+		},
+		{
+			id: 'classmate.explainError',
+			handler: () => routeIntent(chatSession, context.extensionUri, chatViewProvider, 'error_explanation'),
+		},
 		{ id: 'classmate.debugJourney', handler: debugJourneyHandler },
 		{ id: 'classmate.setupApiKey', handler: setupApiKeyHandler },
 	];
@@ -63,7 +186,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	);
 	chatStatusBarItem.command = 'classmate.openChat';
 	chatStatusBarItem.text = '$(comment-discussion) ClassMate';
-	chatStatusBarItem.tooltip = 'Open ClassMate chat panel';
+	chatStatusBarItem.tooltip = 'Open ClassMate chat';
 	chatStatusBarItem.show();
 	context.subscriptions.push(chatStatusBarItem);
 }
