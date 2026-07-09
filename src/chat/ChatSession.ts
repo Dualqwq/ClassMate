@@ -145,12 +145,18 @@ export class ChatSession {
 		}
 	}
 
+	public startIntentResponse(intent: MessageIntent, userPrompt?: string): void {
+		const prompt = userPrompt ?? `/${intent}`;
+		this.addUserMessage(prompt);
+		this._simulateAssistantResponse(intent);
+	}
+
 	private _simulateAssistantResponse(intent: MessageIntent = 'chat'): void {
 		// Temporary stub that streams a placeholder response after a short delay.
 		// This will be replaced by the real LLM adapter in later tasks.
 		const assistantMessage = this.startAssistantMessage(intent);
 		this._onIntent?.(intent);
-		const text = 'Hello! This is a placeholder response.';
+		const text = `[intent: ${intent}] Hello! This is a placeholder response.`;
 		const tokens = text.split(/(?=\s)|(?<=\s)/).filter(Boolean);
 		let index = 0;
 		const interval = setInterval(() => {

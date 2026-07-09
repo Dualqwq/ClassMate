@@ -67,10 +67,30 @@ function routeIntent(
 	session: ChatSession,
 	extensionUri: vscode.Uri,
 	chatViewProvider: ChatViewProvider,
-	intent: MessageIntent
+	intent: MessageIntent,
+	userPrompt?: string
 ): void {
 	const container = chooseContainer(intent, getContainerPreference());
 	showChatInContainer(session, extensionUri, chatViewProvider, container);
+	session.startIntentResponse(intent, userPrompt);
+}
+
+function createExplainSelectionHandler(
+	session: ChatSession,
+	extensionUri: vscode.Uri,
+	chatViewProvider: ChatViewProvider
+): () => void {
+	return () => {
+		const editor = vscode.window.activeTextEditor;
+		const selection = editor?.selection;
+		const selectedText = selection && !selection.isEmpty
+			? editor.document.getText(selection)
+			: '';
+		const prompt = selectedText
+			? `Explain this code:\n\n\`\`\`cpp\n${selectedText}\n\`\`\``
+			: 'Explain the selected code.';
+		routeIntent(session, extensionUri, chatViewProvider, 'code_explanation', prompt);
+	};
 }
 
 function compileHandler(): void {
@@ -159,14 +179,14 @@ export function activate(context: vscode.ExtensionContext): void {
 		{ id: 'classmate.runCode', handler: runCodeHandler },
 		{
 			id: 'classmate.explainSelection',
-			handler: () => routeIntent(chatSession, context.extensionUri, chatViewProvider, 'code_explanation'),
+			handler: createExplainSelectionHandler(chatSession, context.extensionUri, chatViewProvider),
 		},
 		{
 			id: 'classmate.explainError',
 			handler: () => routeIntent(chatSession, context.extensionUri, chatViewProvider, 'error_explanation'),
 		},
 		{ id: 'classmate.debugJourney', handler: debugJourneyHandler },
-		{ id: 'classmate.setupApiKey', handler: setupApiKeyHandler },
+		{ id: 'classmate.setupApiKey', handler: setupApiKeyHandler }, 
 	];
 
 	for (const { id, handler } of commands) {
