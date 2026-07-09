@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ChatMessage } from '../../../src/chat/types';
+import { getIntentDisplay } from '../utils/intentConfig';
 
 interface MessageBubbleProps {
 	message: ChatMessage;
@@ -12,6 +13,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 	isCurrentStream,
 }) => {
 	const isUser = message.role === 'user';
+	const intentDisplay = !isUser && message.intent ? getIntentDisplay(message.intent) : null;
 
 	return (
 		<div
@@ -24,7 +26,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 			<div
 				style={{
 					maxWidth: '85%',
-					padding: '10px 14px',
+					padding: '10px',
+					paddingLeft: intentDisplay ? '11px' : '14px',
 					borderRadius: '12px',
 					background: isUser
 						? 'var(--vscode-button-background)'
@@ -32,11 +35,32 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 					color: isUser
 						? 'var(--vscode-button-foreground)'
 						: 'var(--vscode-foreground)',
+					borderLeft: intentDisplay
+						? `3px solid ${intentDisplay.accentColor}`
+						: 'none',
 					whiteSpace: 'pre-wrap',
 					wordBreak: 'break-word',
 					lineHeight: '1.5',
 				}}
 			>
+				{intentDisplay && (
+					<div
+						style={{
+							display: 'flex',
+							alignItems: 'center',
+							gap: '6px',
+							marginBottom: '6px',
+							fontSize: '11px',
+							fontWeight: 600,
+							color: intentDisplay.accentColor,
+							textTransform: 'uppercase',
+							letterSpacing: '0.5px',
+						}}
+					>
+						<span>{intentDisplay.icon}</span>
+						<span>{intentDisplay.label}</span>
+					</div>
+				)}
 				{message.content}
 				{message.role === 'assistant' && isCurrentStream && (
 					<span style={{ opacity: 0.6, marginLeft: '2px' }}>▋</span>
