@@ -1,0 +1,256 @@
+import type { MessageIntent } from '../chat/types';
+
+export type RequestType =
+	| 'problem_understanding'
+	| 'problem_hint'
+	| 'concept_explanation'
+	| 'code_explanation'
+	| 'compile_error_help'
+	| 'runtime_error_help'
+	| 'wrong_output_help'
+	| 'oj_failure_help'
+	| 'oop_confusion'
+	| 'mistake_summary'
+	| 'solution_request'
+	| 'chat';
+
+/**
+ * Combines the frontend-declared intent with lightweight text analysis to
+ * decide which request type (and therefore which skill references) to use.
+ *
+ * Frontend intent is trusted when explicit; otherwise we fall back to keyword
+ * heuristics on the user text.
+ */
+export function classifyRequest(
+	frontendIntent: MessageIntent | undefined,
+	userText: string
+): RequestType {
+	const text = userText.toLowerCase();
+
+	// If the frontend explicitly chose a non-chat intent, treat it as authoritative
+	// but still allow the text analysis to refine the subtype.
+	if (frontendIntent && frontendIntent !== 'chat') {
+		switch (frontendIntent) {
+			case 'hint':
+				return 'problem_hint';
+			case 'code_explanation':
+				return 'code_explanation';
+			case 'concept_explanation':
+				return 'concept_explanation';
+			case 'error_explanation':
+				return inferErrorType(text);
+			case 'debug_suggestion':
+				return inferDebugType(text);
+			case 'summary':
+				return 'mistake_summary';
+			default:
+				return 'chat';
+		}
+	}
+
+	// No explicit frontend intent: infer from the text itself.
+	return inferFromText(text);
+}
+
+function inferFromText(text: string): RequestType {
+	if (looksLikeError(text)) {
+		return inferErrorType(text);
+	}
+
+	if (looksLikeRuntimeError(text)) {
+		return 'runtime_error_help';
+	}
+
+	if (looksLikeWrongOutput(text)) {
+		return 'wrong_output_help';
+	}
+
+	if (looksLikeOjFailure(text)) {
+		return 'oj_failure_help';
+	}
+
+	if (looksLikeConceptQuestion(text)) {
+		return 'concept_explanation';
+	}
+
+	if (looksLikeCodeExplanation(text)) {
+		return 'code_explanation';
+	}
+
+	if (looksLikeNoIdea(text)) {
+		return 'problem_hint';
+	}
+
+	if (looksLikeProblemUnderstanding(text)) {
+		return 'problem_understanding';
+	}
+
+	if (looksLikeOopConfusion(text)) {
+		return 'oop_confusion';
+	}
+
+	if (looksLikeSolutionRequest(text)) {
+		return 'solution_request';
+	}
+
+	return 'chat';
+}
+
+function inferErrorType(text: string): RequestType {
+	if (
+		text.includes('runtime error') ||
+		text.includes('segmentation fault') ||
+		text.includes('segfault') ||
+		text.includes('signal') ||
+		text.includes('abort') ||
+		text.includes('exception')
+	) {
+		return 'runtime_error_help';
+	}
+	if (
+		text.includes('undefined reference') ||
+		text.includes('linker') ||
+		text.includes('ld:') ||
+		text.includes('unresolved external')
+	) {
+		return 'compile_error_help';
+	}
+	return 'compile_error_help';
+}
+
+function inferDebugType(text: string): RequestType {
+	if (looksLikeError(text)) {
+		return inferErrorType(text);
+	}
+	if (looksLikeWrongOutput(text)) {
+		return 'wrong_output_help';
+	}
+	return 'runtime_error_help';
+}
+
+function looksLikeError(text: string): boolean {
+	return (
+		text.includes('error:') ||
+		text.includes('编译错误') ||
+		text.includes('编译报错') ||
+		text.includes('编译不过') ||
+		text.includes('编译失败') ||
+		text.includes('报错') ||
+		text.includes('expected') ||
+		text.includes('undeclared') ||
+		text.includes('undefined reference') ||
+		text.includes('cannot find') ||
+		text.includes('no matching function') ||
+		text.includes('invalid')
+	);
+}
+
+function looksLikeRuntimeError(text: string): boolean {
+	return (
+		text.includes('运行时错误') ||
+		text.includes('运行错误') ||
+		text.includes('崩溃') ||
+		text.includes('闪退') ||
+		text.includes('segmentation fault') ||
+		text.includes('segfault') ||
+		text.includes('signal') ||
+		text.includes('exception') ||
+		text.includes('abort')
+	);
+}
+
+function looksLikeWrongOutput(text: string): boolean {
+	return (
+		text.includes('输出不对') ||
+		text.includes('输出错误') ||
+		text.includes('结果不对') ||
+		text.includes('答案错误') ||
+		text.includes('wrong output') ||
+		text.includes('output wrong')
+	);
+}
+
+function looksLikeOjFailure(text: string): boolean {
+	return (
+		text.includes('oj') ||
+		text.includes('online judge') ||
+		text.includes('样例通过') ||
+		text.includes('本地通过') ||
+		text.includes('提交失败') ||
+		text.includes('tle') ||
+		text.includes('time limit') ||
+		text.includes('mle') ||
+		text.includes('memory limit')
+	);
+}
+
+function looksLikeConceptQuestion(text: string): boolean {
+	return (
+		text.includes('什么是') ||
+		text.includes('什么叫') ||
+		text.includes('解释一下') ||
+		text.includes('什么是') ||
+		text.includes('给我讲讲') ||
+		text.includes('讲讲') ||
+		text.includes('介绍一下') ||
+		text.includes('概念')
+	);
+}
+
+function looksLikeCodeExplanation(text: string): boolean {
+	return (
+		text.includes('这段代码') ||
+		text.includes('这行代码') ||
+		text.includes('这个函数') ||
+		text.includes('这段程序') ||
+		text.includes('explain this code') ||
+		text.includes('what does this code')
+	);
+}
+
+function looksLikeNoIdea(text: string): boolean {
+	return (
+		text.includes('没思路') ||
+		text.includes('不会写') ||
+		text.includes('不知道') ||
+		text.includes('怎么做') ||
+		text.includes('怎么办') ||
+		text.includes('从哪开始') ||
+		text.includes('完全没有')
+	);
+}
+
+function looksLikeProblemUnderstanding(text: string): boolean {
+	return (
+		text.includes('题意') ||
+		text.includes('题目') ||
+		text.includes('输入') ||
+		text.includes('输出') ||
+		text.includes('约束') ||
+		text.includes('条件') ||
+		text.includes('看不懂')
+	);
+}
+
+function looksLikeOopConfusion(text: string): boolean {
+	return (
+		text.includes('类') ||
+		text.includes('对象') ||
+		text.includes('继承') ||
+		text.includes('多态') ||
+		text.includes('封装') ||
+		text.includes('构造函数') ||
+		text.includes('运算符重载')
+	);
+}
+
+function looksLikeSolutionRequest(text: string): boolean {
+	return (
+		text.includes('完整代码') ||
+		text.includes('完整答案') ||
+		text.includes('全部代码') ||
+		text.includes('给我代码') ||
+		text.includes('solution') ||
+		text.includes('完整实现')
+	);
+}

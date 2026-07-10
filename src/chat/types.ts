@@ -23,6 +23,7 @@ export interface ChatMessage {
 	role: MessageRole;
 	content: string;
 	intent?: MessageIntent;
+	isCommandGenerated?: boolean;
 	timestamp: number;
 }
 

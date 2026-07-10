@@ -8,6 +8,17 @@ interface MessageBubbleProps {
 	isCurrentStream: boolean;
 }
 
+function getDisplayContent(message: ChatMessage): string {
+	if (
+		message.role === 'user' &&
+		message.isCommandGenerated &&
+		message.intent === 'code_explanation'
+	) {
+		return 'Explain selected code';
+	}
+	return message.content;
+}
+
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
 	message,
 	isCurrentStream,
@@ -61,7 +72,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 						<span>{intentDisplay.label}</span>
 					</div>
 				)}
-				{message.content}
+				{getDisplayContent(message)}
 				{message.role === 'assistant' && isCurrentStream && (
 					<span style={{ opacity: 0.6, marginLeft: '2px' }}>▋</span>
 				)}

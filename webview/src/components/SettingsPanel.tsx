@@ -19,6 +19,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ config, onClose })
 	const [apiKey, setApiKey] = React.useState('');
 	const [apiUrl, setApiUrl] = React.useState(config?.apiUrl ?? '');
 
+	// Always reset the API key field when the panel opens so a stale value from
+	// a previous session cannot be concatenated with a newly typed key.
+	React.useEffect(() => {
+		setApiKey('');
+	}, []);
+
+	const handleClose = () => {
+		setApiKey('');
+		onClose();
+	};
+
 	const handleProviderChange = (next: LLMProvider) => {
 		setProvider(next);
 		const def = PROVIDERS.find((p) => p.value === next)?.defaultModel ?? '';
@@ -33,7 +44,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ config, onClose })
 			apiKey: apiKey.trim() || undefined,
 			apiUrl: apiUrl.trim() || undefined,
 		});
-		onClose();
+		handleClose();
 	};
 
 	return (
@@ -129,7 +140,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ config, onClose })
 				<label style={{ display: 'block', marginBottom: '16px', fontSize: '12px' }}>
 					API Key
 					<input
-						type="password"
+						type="text"
 						value={apiKey}
 						onChange={(e) => setApiKey(e.target.value)}
 						placeholder={config?.apiKeySet ? 'Leave blank to keep current key' : 'sk-...'}
@@ -149,7 +160,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ config, onClose })
 
 				<div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
 					<button
-						onClick={onClose}
+						onClick={handleClose}
 						style={{
 							padding: '6px 16px',
 							borderRadius: '4px',

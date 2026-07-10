@@ -3,6 +3,12 @@ import type { LLMAdapter, LLMMessage, LLMRequest, LLMStreamCallbacks } from './t
 // We avoid importing the full Anthropic SDK at the top level so this file can
 // be parsed even if the dependency is missing. The SDK is loaded lazily inside
 // streamResponse.
+//
+// Future: Claude has a native beta "skills" feature (container.skills) that
+// requires the code_execution tool and beta headers. If ClassMate later decides
+// to bind only to Claude, skill files could be uploaded via
+// client.beta.skills.create(...) and referenced by ID. For now we keep the
+// implementation provider-agnostic by injecting skill content as system blocks.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnthropicSDK = any;
 

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ChatMessage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from '../llm/types';
+import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
 import { ClaudeAdapter } from '../llm/ClaudeAdapter';
 import { OpenAIAdapter } from '../llm/OpenAIAdapter';
 import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
@@ -24,6 +25,7 @@ export class ChatSession {
 	private _onGetApiKey?: () => Promise<string | undefined>;
 	private _llmConfig?: LLMConfig;
 	private _currentAdapter?: LLMAdapter;
+	private _promptBuilder?: SystemPromptBuilder;
 
 	public static getInstance(): ChatSession {
 		if (!ChatSession._instance) {
@@ -46,6 +48,10 @@ export class ChatSession {
 
 	public setOnSaveLLMConfig(callback: (provider: string, model: string, apiKey?: string, apiUrl?: string) => void): void {
 		this._onSaveLLMConfig = callback;
+	}
+
+	public setPromptBuilder(builder: SystemPromptBuilder): void {
+		this._promptBuilder = builder;
 	}
 
 	public setLLMConfig(config: LLMConfig): void {
@@ -83,11 +89,13 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
-	public addUserMessage(text: string): ChatMessage {
+	public addUserMessage(text: string, options?: { intent?: MessageIntent; isCommandGenerated?: boolean }): ChatMessage {
 		const message: ChatMessage = {
 			id: this._generateId(),
 			role: 'user',
 			content: text,
+			intent: options?.intent,
+			isCommandGenerated: options?.isCommandGenerated,
 			timestamp: Date.now(),
 		};
 		this._state = {
@@ -159,8 +167,8 @@ export class ChatSession {
 				this.setInputDraft(message.text);
 				break;
 			case 'sendMessage':
-				this.addUserMessage(message.text);
-				void this._callLLM(message.text);
+				this.addUserMessage(message.text, { intent: message.intent });
+				void this._callLLM(message.text, message.intent);
 				break;
 			case 'requestContainerToggle':
 				// The extension host decides actual container switching.
@@ -181,13 +189,15 @@ export class ChatSession {
 
 	public startIntentResponse(intent: MessageIntent, userPrompt?: string): void {
 		const prompt = userPrompt ?? `/${intent}`;
-		this.addUserMessage(prompt);
+		this.addUserMessage(prompt, { intent, isCommandGenerated: true });
 		this._onIntent?.(intent);
-		void this._callLLM(prompt);
+		// Defer the LLM call by one tick so the webview has time to render the
+		// user bubble before the assistant message starts streaming.
+		setTimeout(() => void this._callLLM(prompt, intent), 50);
 	}
 
-	private async _callLLM(userText: string): Promise<void> {
-		const assistantMessage = this.startAssistantMessage();
+	private async _callLLM(userText: string, frontendIntent?: MessageIntent): Promise<void> {
+		const assistantMessage = this.startAssistantMessage(frontendIntent);
 
 		const cfg = this._llmConfig;
 		if (!cfg) {
@@ -212,8 +222,21 @@ export class ChatSession {
 
 		this._currentAdapter = adapter;
 
+		let messages: LLMRequest['messages'] = [];
+		try {
+			if (this._promptBuilder) {
+				const systemMessages = await this._promptBuilder.build(frontendIntent, userText);
+				messages = [...systemMessages, { role: 'user', content: userText }];
+			} else {
+				messages = [{ role: 'user', content: userText }];
+			}
+		} catch (error) {
+			console.error('Failed to build system prompt:', error);
+			messages = [{ role: 'user', content: userText }];
+		}
+
 		const request: LLMRequest = {
-			messages: [{ role: 'user', content: userText }],
+			messages,
 			model: cfg.model,
 		};
 

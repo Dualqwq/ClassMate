@@ -24,12 +24,15 @@ export async function saveLLMConfig(
 ): Promise<void> {
 	await context.globalState.update(PROVIDER_STATE_KEY, provider);
 	await context.globalState.update(MODEL_STATE_KEY, model);
-	if (apiUrl) {
-		await context.globalState.update(API_URL_STATE_KEY, apiUrl.trim() || undefined);
+	await context.globalState.update(API_URL_STATE_KEY, apiUrl?.trim() || undefined);
+
+	if (apiKey === undefined || apiKey.trim().length === 0) {
+		// An empty/undefined key means the user wants to keep the existing key.
+		// Do nothing; SecretStorage is left untouched.
+		return;
 	}
-	if (apiKey) {
-		await context.secrets.store(API_KEY_SECRET_KEY, apiKey);
-	}
+
+	await context.secrets.store(API_KEY_SECRET_KEY, apiKey.trim());
 }
 
 function getDefaultModel(provider: LLMProvider): string {

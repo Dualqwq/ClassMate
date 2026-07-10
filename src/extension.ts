@@ -6,6 +6,8 @@ import type { MessageIntent } from './chat/types';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
+import { createSkillLoader } from './prompts/promptLoader';
+import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 
 type ChatContainer = 'view' | 'panel';
 
@@ -123,6 +125,12 @@ export function activate(context: vscode.ExtensionContext): void {
 	console.log('ClassMate extension is now active.');
 
 	const chatSession = ChatSession.getInstance();
+
+	// Initialize the skill-based system prompt builder.
+	const skillDir = vscode.Uri.joinPath(context.extensionUri, 'skill', 'classmate');
+	const loader = createSkillLoader();
+	const promptBuilder = new SystemPromptBuilder(loader, skillDir);
+	chatSession.setPromptBuilder(promptBuilder);
 
 	// Register the sidebar WebviewView provider.
 	const chatViewProvider = createChatViewProvider(chatSession, context.extensionUri);

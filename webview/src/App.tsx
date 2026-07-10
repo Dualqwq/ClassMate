@@ -248,7 +248,11 @@ export const App: React.FC = () => {
 			</div>
 
 			{showSettings && (
-				<SettingsPanel config={llmConfig} onClose={() => setShowSettings(false)} />
+				<SettingsPanel
+					key={`settings-${Date.now()}`}
+					config={llmConfig}
+					onClose={() => setShowSettings(false)}
+				/>
 			)}
 		</div>
 	);

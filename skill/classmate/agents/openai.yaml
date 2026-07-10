@@ -1,0 +1,3 @@
+display_name: OOP Learning Tutor
+short_description: 面向程设与 OOP 入门学生的中文学习助教
+default_prompt: 请用 OOP Learning Tutor 帮我解释这道程设/OOP题目、代码或报错。
