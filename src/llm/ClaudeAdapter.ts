@@ -1,0 +1,114 @@
+import type { LLMAdapter, LLMMessage, LLMRequest, LLMStreamCallbacks } from './types';
+
+// We avoid importing the full Anthropic SDK at the top level so this file can
+// be parsed even if the dependency is missing. The SDK is loaded lazily inside
+// streamResponse.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnthropicSDK = any;
+
+export interface ClaudeAdapterOptions {
+	apiKey: string;
+	model?: string;
+	baseURL?: string;
+}
+
+export class ClaudeAdapter implements LLMAdapter {
+	public readonly name = 'Claude';
+
+	private readonly _apiKey: string;
+	private readonly _model: string;
+	private readonly _baseURL?: string;
+
+	constructor(options: ClaudeAdapterOptions) {
+		this._apiKey = options.apiKey;
+		this._model = options.model ?? 'claude-sonnet-4-7-20251001';
+		this._baseURL = options.baseURL;
+	}
+
+	public buildRequest(req: LLMRequest): unknown {
+		const systemBlocks = this._buildSystemBlocks(req.messages);
+		const conversationMessages = req.messages
+			.filter((m): m is LLMMessage & { role: 'user' | 'assistant' } => m.role !== 'system')
+			.map((m) => ({ role: m.role, content: m.content }));
+
+		const body: Record<string, unknown> = {
+			model: req.model ?? this._model,
+			max_tokens: req.maxTokens ?? 4096,
+			messages: conversationMessages,
+			stream: true,
+		};
+
+		if (systemBlocks.length > 0) {
+			body.system = systemBlocks;
+		}
+
+		if (req.temperature !== undefined) {
+			body.temperature = req.temperature;
+		}
+
+		return body;
+	}
+
+	public streamResponse(request: unknown, callbacks: LLMStreamCallbacks): void {
+		const Anthropic = this._loadSDK();
+		const client = new Anthropic({
+			apiKey: this._apiKey,
+			baseURL: this._baseURL,
+		});
+
+		// The Anthropic SDK can accept the raw request body for streaming.
+		const stream = client.messages.create(request as Record<string, unknown>);
+
+		this._consumeStream(stream, callbacks);
+	}
+
+	private async _consumeStream(
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		stream: Promise<AsyncIterable<any>>,
+		callbacks: LLMStreamCallbacks
+	): Promise<void> {
+		try {
+			for await (const event of await stream) {
+				if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+					callbacks.onToken(event.delta.text ?? '');
+				}
+			}
+			callbacks.onComplete?.();
+		} catch (error) {
+			callbacks.onError?.(error instanceof Error ? error : new Error(String(error)));
+		}
+	}
+
+	private _buildSystemBlocks(messages: LLMMessage[]): unknown[] {
+		const systemMessages = messages.filter((m) => m.role === 'system');
+		if (systemMessages.length === 0) {
+			return [];
+		}
+
+		// Place cache_control on the last system block so the stable teaching
+		// methodology / few-shot examples are cached. Dynamic context after the
+		// breakpoint should not be cached.
+		return systemMessages.map((m, index) => {
+			const isLast = index === systemMessages.length - 1;
+			const block: Record<string, unknown> = {
+				type: 'text',
+				text: m.content,
+			};
+			if (isLast) {
+				block.cache_control = { type: 'ephemeral' };
+			}
+			return block;
+		});
+	}
+
+	private _loadSDK(): AnthropicSDK {
+		try {
+			// eslint-disable-next-line @typescript-eslint/no-var-requires
+			return require('@anthropic-ai/sdk');
+		} catch {
+			throw new Error(
+				'Anthropic SDK is not installed. Please run "npm install @anthropic-ai/sdk" in code/classmate/.'
+			);
+		}
+	}
+}

@@ -1,17 +1,23 @@
 import * as React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatState, ExtensionToWebviewMessage, MessageIntent } from '../../src/chat/types';
+import type { ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent } from '../../src/chat/types';
 import { getInitialState, getContainer, sendMessage, subscribeToExtension } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
+import { SettingsPanel } from './components/SettingsPanel';
 
 export const App: React.FC = () => {
 	const [state, setState] = useState<ChatState>(getInitialState);
 	const [input, setInput] = useState(state.inputDraft);
 	const [container, setContainer] = useState<'view' | 'panel'>(getContainer);
+	const [llmConfig, setLlmConfig] = useState<LLMConfig | null>(null);
+	const [showSettings, setShowSettings] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const shouldScrollToBottomRef = useRef(true);
 
 	useEffect(() => {
+		// Request LLM config on mount.
+		sendMessage({ type: 'requestLLMConfig' });
+
 		return subscribeToExtension((message: ExtensionToWebviewMessage) => {
 			switch (message.type) {
 				case 'stateSync':
@@ -43,6 +49,9 @@ export const App: React.FC = () => {
 					break;
 				case 'containerInfo':
 					setContainer(message.container);
+					break;
+				case 'llmConfig':
+					setLlmConfig(message.config);
 					break;
 			}
 		});
@@ -160,6 +169,31 @@ export const App: React.FC = () => {
 					>
 						{container === 'view' ? '⛶' : '☰'}
 					</button>
+					<button
+						onClick={() => setShowSettings(true)}
+						title="LLM Settings"
+						style={{
+							background: 'transparent',
+							border: 'none',
+							color: 'var(--vscode-foreground)',
+							cursor: 'pointer',
+							fontSize: '13px',
+							padding: '4px',
+						}}
+					>
+						⚙
+					</button>
+					{llmConfig && (
+						<span
+							style={{
+								color: 'var(--vscode-descriptionForeground)',
+								fontSize: '11px',
+								flex: 1,
+							}}
+						>
+							{llmConfig.provider} · {llmConfig.model}
+						</span>
+					)}
 					<span style={{ flex: 1 }} />
 					{state.isStreaming && (
 						<span style={{ color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
@@ -212,6 +246,10 @@ export const App: React.FC = () => {
 					</button>
 				</div>
 			</div>
+
+			{showSettings && (
+				<SettingsPanel config={llmConfig} onClose={() => setShowSettings(false)} />
+			)}
 		</div>
 	);
 };

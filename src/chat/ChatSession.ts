@@ -1,5 +1,10 @@
 import * as vscode from 'vscode';
-import type { ChatMessage, ChatState, ExtensionToWebviewMessage, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
+import type { ChatMessage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
+import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from '../llm/types';
+import { ClaudeAdapter } from '../llm/ClaudeAdapter';
+import { OpenAIAdapter } from '../llm/OpenAIAdapter';
+import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
+import { getApiKey } from '../config/apiKey';
 
 export class ChatSession {
 	private static _instance: ChatSession | undefined;
@@ -14,6 +19,11 @@ export class ChatSession {
 	private _presenters: Set<WebviewPresenter> = new Set();
 
 	private _onIntent?: (intent: MessageIntent) => void;
+	private _onRequestLLMConfig?: () => Promise<LLMConfig>;
+	private _onSaveLLMConfig?: (provider: string, model: string, apiKey?: string, apiUrl?: string) => void;
+	private _onGetApiKey?: () => Promise<string | undefined>;
+	private _llmConfig?: LLMConfig;
+	private _currentAdapter?: LLMAdapter;
 
 	public static getInstance(): ChatSession {
 		if (!ChatSession._instance) {
@@ -24,6 +34,23 @@ export class ChatSession {
 
 	public setOnIntent(callback: (intent: MessageIntent) => void): void {
 		this._onIntent = callback;
+	}
+
+	public setOnRequestLLMConfig(callback: () => Promise<LLMConfig>): void {
+		this._onRequestLLMConfig = callback;
+	}
+
+	public setOnGetApiKey(callback: () => Promise<string | undefined>): void {
+		this._onGetApiKey = callback;
+	}
+
+	public setOnSaveLLMConfig(callback: (provider: string, model: string, apiKey?: string, apiUrl?: string) => void): void {
+		this._onSaveLLMConfig = callback;
+	}
+
+	public setLLMConfig(config: LLMConfig): void {
+		this._llmConfig = config;
+		this._broadcast({ type: 'llmConfig', config });
 	}
 
 	public static resetInstance(): void {
@@ -132,13 +159,20 @@ export class ChatSession {
 				this.setInputDraft(message.text);
 				break;
 			case 'sendMessage':
-				// TODO: wire up to LLM adapter in later tasks.
 				this.addUserMessage(message.text);
-				this._simulateAssistantResponse(message.intent ?? 'chat');
+				void this._callLLM(message.text);
 				break;
 			case 'requestContainerToggle':
 				// The extension host decides actual container switching.
 				void vscode.commands.executeCommand('classmate.toggleChatContainer');
+				break;
+			case 'requestLLMConfig':
+				void this._onRequestLLMConfig?.().then((config) =>
+					this._broadcast({ type: 'llmConfig', config })
+				);
+				break;
+			case 'saveLLMConfig':
+				this._onSaveLLMConfig?.(message.provider, message.model, message.apiKey, message.apiUrl);
 				break;
 			default:
 				console.log('Unhandled webview message:', message);
@@ -148,26 +182,84 @@ export class ChatSession {
 	public startIntentResponse(intent: MessageIntent, userPrompt?: string): void {
 		const prompt = userPrompt ?? `/${intent}`;
 		this.addUserMessage(prompt);
-		this._simulateAssistantResponse(intent);
+		this._onIntent?.(intent);
+		void this._callLLM(prompt);
 	}
 
-	private _simulateAssistantResponse(intent: MessageIntent = 'chat'): void {
-		// Temporary stub that streams a placeholder response after a short delay.
-		// This will be replaced by the real LLM adapter in later tasks.
-		const assistantMessage = this.startAssistantMessage(intent);
-		this._onIntent?.(intent);
-		const text = `[intent: ${intent}] Hello! This is a placeholder response.`;
-		const tokens = text.split(/(?=\s)|(?<=\s)/).filter(Boolean);
-		let index = 0;
-		const interval = setInterval(() => {
-			if (index < tokens.length) {
-				this.appendToken(assistantMessage.id, tokens[index]);
-				index++;
-			} else {
-				clearInterval(interval);
+	private async _callLLM(userText: string): Promise<void> {
+		const assistantMessage = this.startAssistantMessage();
+
+		const cfg = this._llmConfig;
+		if (!cfg) {
+			this.appendToken(assistantMessage.id, 'LLM config is not available.');
+			this.endStream();
+			return;
+		}
+
+		const apiKey = await this._onGetApiKey?.();
+		if (!apiKey && !cfg.apiKeySet) {
+			this.appendToken(assistantMessage.id, 'API key is not configured.');
+			this.endStream();
+			return;
+		}
+
+		const adapter = this._createAdapter(cfg, apiKey);
+		if (!adapter) {
+			this.appendToken(assistantMessage.id, 'Failed to create LLM adapter.');
+			this.endStream();
+			return;
+		}
+
+		this._currentAdapter = adapter;
+
+		const request: LLMRequest = {
+			messages: [{ role: 'user', content: userText }],
+			model: cfg.model,
+		};
+
+		const body = adapter.buildRequest(request);
+
+		adapter.streamResponse(body, {
+			onToken: (token) => {
+				this.appendToken(assistantMessage.id, token);
+			},
+			onError: (error) => {
+				console.error('LLM stream error:', error);
+				this.appendToken(assistantMessage.id, `\n\n[Error: ${error.message}]`);
 				this.endStream();
-			}
-		}, 120);
+			},
+			onComplete: () => {
+				this.endStream();
+			},
+		});
+	}
+
+	private _createAdapter(cfg: LLMConfig, apiKey: string | undefined): LLMAdapter | undefined {
+		const key = apiKey || '';
+		const apiUrl = cfg.apiUrl || undefined;
+
+		switch (cfg.provider) {
+			case 'claude':
+				return new ClaudeAdapter({
+					apiKey: key,
+					model: cfg.model,
+					baseURL: apiUrl,
+				});
+			case 'openai':
+				return new OpenAIAdapter({
+					apiKey: key,
+					model: cfg.model,
+					baseURL: apiUrl,
+				});
+			case 'deepseek':
+				return new DeepSeekAdapter({
+					apiKey: key,
+					model: cfg.model,
+					baseURL: apiUrl,
+				});
+			default:
+				return undefined;
+		}
 	}
 
 	private _broadcast(message: ExtensionToWebviewMessage): void {

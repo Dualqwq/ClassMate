@@ -1,3 +1,12 @@
+export type LLMProvider = 'claude' | 'openai' | 'deepseek';
+
+export interface LLMConfig {
+	provider: LLMProvider;
+	model: string;
+	apiKeySet: boolean;
+	apiUrl?: string;
+}
+
 export type MessageRole = 'user' | 'assistant';
 
 export type MessageIntent =
@@ -33,7 +42,9 @@ export interface WebviewPresenter {
 export type WebviewToExtensionMessage =
 	| { type: 'sendMessage'; text: string; intent?: MessageIntent }
 	| { type: 'inputDraftChanged'; text: string }
-	| { type: 'requestContainerToggle' };
+	| { type: 'requestContainerToggle' }
+	| { type: 'requestLLMConfig' }
+	| { type: 'saveLLMConfig'; provider: LLMProvider; model: string; apiKey?: string; apiUrl?: string };
 
 // Messages sent from the extension host to the webview frontend.
 export type ExtensionToWebviewMessage =
@@ -41,4 +52,5 @@ export type ExtensionToWebviewMessage =
 	| { type: 'appendToken'; messageId: string; token: string }
 	| { type: 'streamStart'; message: ChatMessage }
 	| { type: 'streamEnd'; messageId: string }
-	| { type: 'containerInfo'; container: 'view' | 'panel' };
+	| { type: 'containerInfo'; container: 'view' | 'panel' }
+	| { type: 'llmConfig'; config: LLMConfig };

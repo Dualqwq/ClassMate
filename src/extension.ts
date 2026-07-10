@@ -4,6 +4,8 @@ import { ChatViewProvider } from './ui/ChatViewProvider';
 import { ChatSession } from './chat/ChatSession';
 import type { MessageIntent } from './chat/types';
 import { chooseContainer } from './chat/MessageRouter';
+import { setupApiKey, getApiKey } from './config/apiKey';
+import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
 
 type ChatContainer = 'view' | 'panel';
 
@@ -113,8 +115,8 @@ function debugJourneyHandler(): void {
 	void vscode.window.showInformationMessage('ClassMate Debug Journey will open here.');
 }
 
-function setupApiKeyHandler(): void {
-	void vscode.window.showInformationMessage('ClassMate API key setup will run here.');
+async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promise<void> {
+	await setupApiKey(context);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -139,6 +141,24 @@ export function activate(context: vscode.ExtensionContext): void {
 			showChatInContainer(chatSession, context.extensionUri, chatViewProvider, target, { preserveFocus: true });
 		}
 	});
+
+	// Provide LLM config to webviews on request.
+	chatSession.setOnRequestLLMConfig(() => getLLMConfig(context));
+
+	// Save LLM config from webview to SecretStorage / globalState.
+	chatSession.setOnSaveLLMConfig((provider, model, apiKey, apiUrl) => {
+		void saveLLMConfig(context, provider as 'claude' | 'openai' | 'deepseek', model, apiKey, apiUrl)
+			.then(() => getLLMConfig(context))
+			.then((config) => {
+				chatSession.setLLMConfig(config);
+			});
+	});
+
+	// Seed initial LLM config into the session for placeholder debugging.
+	void getLLMConfig(context).then((config) => chatSession.setLLMConfig(config));
+
+	// Provide API key to ChatSession for LLM calls.
+	chatSession.setOnGetApiKey(() => getApiKey(context));
 
 	// Register all commands declared in package.json.
 	const commands: { id: string; handler: (...args: unknown[]) => void }[] = [
@@ -186,7 +206,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			handler: () => routeIntent(chatSession, context.extensionUri, chatViewProvider, 'error_explanation'),
 		},
 		{ id: 'classmate.debugJourney', handler: debugJourneyHandler },
-		{ id: 'classmate.setupApiKey', handler: setupApiKeyHandler }, 
+		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) }, 
 	];
 
 	for (const { id, handler } of commands) {
