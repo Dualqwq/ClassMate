@@ -1,0 +1,196 @@
+import * as React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+interface MarkdownRendererProps {
+	content: string;
+}
+
+const CodeBlock: React.FC<{ className?: string; children: string } > = ({
+	className,
+	children,
+}) => {
+	const match = /language-(\w+)/.exec(className || '');
+	const language = match ? match[1] : 'text';
+
+	return (
+		<SyntaxHighlighter
+			language={language}
+			style={vscDarkPlus}
+			customStyle={{
+				margin: '8px 0',
+				borderRadius: '6px',
+				fontSize: '12px',
+				background: 'var(--vscode-editor-background)',
+			}}
+			codeTagProps={{
+				style: {
+					fontFamily: 'var(--vscode-editor-font-family), monospace',
+					fontSize: '12px',
+				},
+			}}
+		>
+			{String(children).replace(/\n$/, '')}
+		</SyntaxHighlighter>
+	);
+};
+
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
+	return (
+		<ReactMarkdown
+			remarkPlugins={[remarkGfm]}
+			components={{
+				code(props) {
+					const { children, className, node, ref, ...rest } = props;
+					void node;
+					void ref;
+					const isInline = !className;
+					if (isInline) {
+						return (
+							<code
+								{...rest}
+								className={className}
+								style={{
+									background: 'var(--vscode-textCodeBlock-background, rgba(127,127,127,0.2))',
+									padding: '2px 4px',
+									borderRadius: '4px',
+									fontFamily: 'var(--vscode-editor-font-family), monospace',
+									fontSize: '0.95em',
+								}}
+							>
+								{children}
+							</code>
+						);
+					}
+					return <CodeBlock className={className}>{children as string}</CodeBlock>;
+				},
+				pre({ children }) {
+					return <>{children}</>;
+				},
+				a({ children, href }) {
+					return (
+						<a
+							href={href}
+							target="_blank"
+							rel="noreferrer"
+							style={{
+								color: 'var(--vscode-textLink-foreground)',
+								textDecoration: 'none',
+							}}
+							onMouseEnter={(e) => {
+								e.currentTarget.style.textDecoration = 'underline';
+							}}
+							onMouseLeave={(e) => {
+								e.currentTarget.style.textDecoration = 'none';
+							}}
+						>
+							{children}
+						</a>
+					);
+				},
+				p({ children }) {
+					return <p style={{ margin: '0 0 10px 0', lineHeight: '1.5' }}>{children}</p>;
+				},
+				ul({ children }) {
+					return <ul style={{ margin: '0 0 10px 0', paddingLeft: '20px' }}>{children}</ul>;
+				},
+				ol({ children }) {
+					return <ol style={{ margin: '0 0 10px 0', paddingLeft: '20px' }}>{children}</ol>;
+				},
+				li({ children }) {
+					return <li style={{ marginBottom: '4px' }}>{children}</li>;
+				},
+				h1({ children }) {
+					return <h1 style={{ margin: '16px 0 8px', fontSize: '18px', fontWeight: 600 }}>{children}</h1>;
+				},
+				h2({ children }) {
+					return <h2 style={{ margin: '14px 0 8px', fontSize: '16px', fontWeight: 600 }}>{children}</h2>;
+				},
+				h3({ children }) {
+					return <h3 style={{ margin: '12px 0 6px', fontSize: '14px', fontWeight: 600 }}>{children}</h3>;
+				},
+				h4({ children }) {
+					return <h4 style={{ margin: '10px 0 6px', fontSize: '13px', fontWeight: 600 }}>{children}</h4>;
+				},
+				h5({ children }) {
+					return <h5 style={{ margin: '8px 0 4px', fontSize: '12px', fontWeight: 600 }}>{children}</h5>;
+				},
+				h6({ children }) {
+					return <h6 style={{ margin: '8px 0 4px', fontSize: '12px', fontWeight: 600 }}>{children}</h6>;
+				},
+				blockquote({ children }) {
+					return (
+						<blockquote
+							style={{
+								margin: '8px 0',
+								padding: '8px 12px',
+								borderLeft: '3px solid var(--vscode-panel-border)',
+								background: 'var(--vscode-editor-inactiveSelectionBackground)',
+								borderRadius: '0 6px 6px 0',
+							}}
+						>
+							{children}
+						</blockquote>
+					);
+				},
+				hr() {
+					return <hr style={{ border: 'none', borderTop: '1px solid var(--vscode-panel-border)', margin: '12px 0' }} />;
+				},
+				table({ children }) {
+					return (
+						<table
+							style={{
+								width: '100%',
+								borderCollapse: 'collapse',
+								margin: '10px 0',
+								fontSize: '12px',
+							}}
+						>
+							{children}
+						</table>
+					);
+				},
+				thead({ children }) {
+					return <thead style={{ background: 'var(--vscode-editor-inactiveSelectionBackground)' }}>{children}</thead>;
+				},
+				th({ children }) {
+					return (
+						<th
+							style={{
+								border: '1px solid var(--vscode-panel-border)',
+								padding: '6px 8px',
+								textAlign: 'left',
+								fontWeight: 600,
+							}}
+						>
+							{children}
+						</th>
+					);
+				},
+				td({ children }) {
+					return (
+						<td
+							style={{
+								border: '1px solid var(--vscode-panel-border)',
+								padding: '6px 8px',
+								textAlign: 'left',
+							}}
+						>
+							{children}
+						</td>
+					);
+				},
+				strong({ children }) {
+					return <strong style={{ fontWeight: 700 }}>{children}</strong>;
+				},
+				em({ children }) {
+					return <em style={{ fontStyle: 'italic' }}>{children}</em>;
+				},
+			}}
+		>
+			{content}
+		</ReactMarkdown>
+	);
+};

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import type { ChatMessage } from '../../../src/chat/types';
 import { getIntentDisplay } from '../utils/intentConfig';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 interface MessageBubbleProps {
 	message: ChatMessage;
@@ -49,7 +50,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 					borderLeft: intentDisplay
 						? `3px solid ${intentDisplay.accentColor}`
 						: 'none',
-					whiteSpace: 'pre-wrap',
+					whiteSpace: isUser ? 'pre-wrap' : 'normal',
 					wordBreak: 'break-word',
 					lineHeight: '1.5',
 				}}
@@ -72,7 +73,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 						<span>{intentDisplay.label}</span>
 					</div>
 				)}
-				{getDisplayContent(message)}
+				{isUser ? getDisplayContent(message) : <MarkdownRenderer content={message.content} />}
 				{message.role === 'assistant' && isCurrentStream && (
 					<span style={{ opacity: 0.6, marginLeft: '2px' }}>▋</span>
 				)}
