@@ -1,0 +1,67 @@
+import * as vscode from 'vscode';
+
+export const COMPILE_OUTPUT_SCHEME = 'classmate-output';
+export const COMPILE_OUTPUT_URI = vscode.Uri.parse(`${COMPILE_OUTPUT_SCHEME}:///compile-result.txt`);
+
+/**
+ * Provides the content for the read-only compile output virtual document.
+ */
+class CompileOutputProvider implements vscode.TextDocumentContentProvider {
+    private readonly _content = new Map<string, string>();
+    private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri>();
+    public readonly onDidChange = this._onDidChange.event;
+
+    public set(uri: vscode.Uri, content: string): void {
+        this._content.set(uri.toString(), content);
+        this._onDidChange.fire(uri);
+    }
+
+    public provideTextDocumentContent(uri: vscode.Uri): string {
+        return this._content.get(uri.toString()) ?? '';
+    }
+}
+
+let _provider: CompileOutputProvider | undefined;
+
+/**
+ * Register the classmate-output content provider. Must be called once during
+ * extension activation.
+ */
+export function registerCompileOutputProvider(context: vscode.ExtensionContext): void {
+    _provider = new CompileOutputProvider();
+    context.subscriptions.push(
+        vscode.workspace.registerTextDocumentContentProvider(COMPILE_OUTPUT_SCHEME, _provider)
+    );
+}
+
+function getProvider(): CompileOutputProvider {
+    if (!_provider) {
+        throw new Error('CompileOutputProvider has not been registered.');
+    }
+    return _provider;
+}
+
+/**
+ * Show compile/run output in a read-only virtual document beside the active editor.
+ */
+export async function showCompileOutput(content: string): Promise<void> {
+    const provider = getProvider();
+    provider.set(COMPILE_OUTPUT_URI, content);
+
+    const activeEditor = vscode.window.activeTextEditor;
+    const hasSplitView = vscode.window.visibleTextEditors.length > 1;
+    const column = activeEditor?.viewColumn ?? vscode.ViewColumn.One;
+
+    // If there is already a split view, open in the next column; otherwise
+    // split to ViewColumn.Two so we don't replace the active editor.
+    const targetColumn = hasSplitView
+        ? (column === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.Three)
+        : vscode.ViewColumn.Two;
+
+    const document = await vscode.workspace.openTextDocument(COMPILE_OUTPUT_URI);
+    await vscode.window.showTextDocument(document, {
+        viewColumn: targetColumn,
+        preserveFocus: false,
+        preview: false,
+    });
+}

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { spawnSync } from 'child_process';
 import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
@@ -8,6 +9,8 @@ import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
+import { checkGppAvailability, spawnGpp } from './compiler/compilerService';
+import { registerCompileOutputProvider, showCompileOutput } from './compiler/outputPanel';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 
@@ -113,22 +116,191 @@ function createExplainSelectionHandler(
 	};
 }
 
-function compileHandler(): void {
+async function compileHandlerAsync(): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
 		void vscode.window.showInformationMessage('ClassMate compile is not enabled for this file type.');
 		return;
 	}
-	void vscode.window.showInformationMessage('ClassMate compile command will run here.');
+
+	const document = editor.document;
+	if (document.isDirty && !(await document.save())) {
+		void vscode.window.showWarningMessage('Could not save the current file before compiling.');
+		return;
+	}
+
+	if (!checkGppAvailability()) {
+		void vscode.window.showWarningMessage(
+			'g++ was not found on PATH. Please install MinGW (Windows) or Xcode/Clang (macOS) or build-essential (Linux).'
+		);
+		return;
+	}
+
+	try {
+		const result = await spawnGpp(document.fileName);
+		const output = [
+			`Compiled: ${document.fileName}`,
+			`Exit code: ${result.exitCode ?? 'killed'}`,
+			`Duration: ${result.durationMs}ms`,
+			result.stdout ? `\n--- stdout ---\n${result.stdout}` : '',
+			result.stderr ? `\n--- stderr ---\n${result.stderr}` : '',
+		]
+			.filter(Boolean)
+			.join('\n');
+
+		await showCompileOutput(output);
+	} catch (error) {
+		void vscode.window.showErrorMessage(`Compilation failed: ${String(error)}`);
+	}
 }
 
-function runCodeHandler(): void {
+const CLASSMATE_RUN_TERMINAL_NAME = 'ClassMate Run';
+
+function runInTerminal(executablePath: string): void {
+	// Reuse an existing ClassMate Run terminal if one is open.
+	const existing = vscode.window.terminals.find(
+		(terminal) => terminal.name === CLASSMATE_RUN_TERMINAL_NAME
+	);
+	const terminal = existing ?? createClassMateTerminal();
+
+	const shellPath = getTerminalShellPath(terminal);
+	const isPowerShell = isPowerShellPath(shellPath);
+
+	// PowerShell needs the call operator '&' to run a quoted executable path.
+	const command = isPowerShell
+		? `& "${executablePath}"`
+		: `"${executablePath}"`;
+
+	terminal.sendText(command, true);
+	terminal.show(true);
+}
+
+function getTerminalShellPath(terminal: vscode.Terminal): string | undefined {
+	const options = terminal.creationOptions as vscode.TerminalOptions | undefined;
+	return options?.shellPath;
+}
+
+function isPowerShellPath(shellPath: string | undefined): boolean {
+	if (!shellPath) {
+		return process.platform === 'win32';
+	}
+	const lower = shellPath.toLowerCase();
+	return lower.includes('powershell') || lower.includes('pwsh');
+}
+
+function createClassMateTerminal(): vscode.Terminal {
+	if (process.platform === 'win32') {
+		// Prefer PowerShell on Windows; fall back to cmd if pwsh/powershell is unavailable.
+		const shellPath = findWindowsShell();
+		return vscode.window.createTerminal({
+			name: CLASSMATE_RUN_TERMINAL_NAME,
+			shellPath,
+		});
+	}
+
+	// Prefer bash on Unix-like systems; fall back to sh.
+	const shellPath = findUnixShell();
+	return vscode.window.createTerminal({
+		name: CLASSMATE_RUN_TERMINAL_NAME,
+			shellPath,
+	});
+}
+
+function findWindowsShell(): string {
+	for (const candidate of ['pwsh.exe', 'powershell.exe', 'cmd.exe']) {
+		if (commandExistsOnPath(candidate)) {
+			return candidate;
+		}
+	}
+	return 'cmd.exe';
+}
+
+function findUnixShell(): string {
+	for (const candidate of ['/bin/bash', '/usr/bin/bash', '/bin/sh']) {
+		if (commandExistsOnPath(candidate)) {
+			return candidate;
+		}
+	}
+	return '/bin/sh';
+}
+
+function commandExistsOnPath(command: string): boolean {
+    if (process.platform === 'win32') {
+        // Use 'where' to locate the executable on PATH. This is more reliable than
+        // running the program because not every executable supports --version and
+        // PowerShell parameter parsing can return non-zero exit codes.
+        try {
+            const result = spawnSync('where', [command], {
+                windowsHide: true,
+                shell: true,
+            });
+            return result.status === 0 && (result.stdout?.toString().trim().length ?? 0) > 0;
+        } catch {
+            return false;
+        }
+    }
+
+    // On Unix-like systems, 'command -v' is POSIX-compliant and reliable.
+    try {
+        const result = spawnSync('command', ['-v', command], {
+            windowsHide: true,
+            shell: true,
+        });
+        return result.status === 0;
+    } catch {
+        return false;
+    }
+}
+
+async function runCodeHandlerAsync(): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
 		void vscode.window.showInformationMessage('ClassMate compile & run is not enabled for this file type.');
 		return;
 	}
-	void vscode.window.showInformationMessage('ClassMate compile & run command will run here.');
+
+	const document = editor.document;
+	if (document.isDirty && !(await document.save())) {
+		void vscode.window.showWarningMessage('Could not save the current file before compiling.');
+		return;
+	}
+
+	if (!checkGppAvailability()) {
+		void vscode.window.showWarningMessage(
+			'g++ was not found on PATH. Please install MinGW (Windows) or Xcode/Clang (macOS) or build-essential (Linux).'
+		);
+		return;
+	}
+
+	try {
+		const compileResult = await spawnGpp(document.fileName);
+		if (compileResult.exitCode !== 0) {
+			const output = [
+				`Compiled: ${document.fileName}`,
+				`Exit code: ${compileResult.exitCode ?? 'killed'}`,
+				`Duration: ${compileResult.durationMs}ms`,
+				compileResult.stdout ? `\n--- compile stdout ---\n${compileResult.stdout}` : '',
+				compileResult.stderr ? `\n--- compile stderr ---\n${compileResult.stderr}` : '',
+			]
+				.filter(Boolean)
+				.join('\n');
+			await showCompileOutput(output);
+			return;
+		}
+
+		// Compilation succeeded: run the executable in an interactive terminal.
+		runInTerminal(compileResult.outputPath);
+	} catch (error) {
+		void vscode.window.showErrorMessage(`Compile & run failed: ${String(error)}`);
+	}
+}
+
+function compileHandler(): void {
+	void compileHandlerAsync();
+}
+
+function runCodeHandler(): void {
+	void runCodeHandlerAsync();
 }
 
 function explainSelectionHandler(): void {
@@ -284,6 +456,9 @@ export function activate(context: vscode.ExtensionContext): void {
 	for (const { id, handler } of commands) {
 		context.subscriptions.push(vscode.commands.registerCommand(id, handler));
 	}
+
+	// Register the classmate-output virtual document provider for compile/run output.
+	registerCompileOutputProvider(context);
 
 	// Register inline "Explain" button above selected code for enabled languages.
 	registerInlineExplainButton(context);
