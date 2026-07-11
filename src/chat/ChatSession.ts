@@ -27,6 +27,34 @@ export class ChatSession {
 	private _currentAdapter?: LLMAdapter;
 	private _promptBuilder?: SystemPromptBuilder;
 
+	private _showDebugPrompt = false;
+
+	private _insertSystemPromptDebug(systemMessages: LLMRequest['messages'], userText: string): void {
+		const debugContent = [
+			'=== DEBUG: system prompt sent to LLM ===',
+			'',
+			...systemMessages.map((m) => `--- ${m.role} ---\n${m.content}`),
+			'',
+			'--- user ---',
+			userText,
+		].join('\n');
+
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content: debugContent,
+			intent: undefined,
+			isSystemPromptDebug: true,
+			timestamp: Date.now(),
+		};
+
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
 	public static getInstance(): ChatSession {
 		if (!ChatSession._instance) {
 			ChatSession._instance = new ChatSession();
@@ -197,6 +225,23 @@ export class ChatSession {
 	}
 
 	private async _callLLM(userText: string, frontendIntent?: MessageIntent): Promise<void> {
+		let messages: LLMRequest['messages'] = [];
+		try {
+			if (this._promptBuilder) {
+				const systemMessages = await this._promptBuilder.build(frontendIntent, userText);
+				messages = [...systemMessages, { role: 'user', content: userText }];
+				if (userText.trim() === '//show-prompt') {
+					this._insertSystemPromptDebug(systemMessages, userText);
+					return;
+				}
+			} else {
+				messages = [{ role: 'user', content: userText }];
+			}
+		} catch (error) {
+			console.error('Failed to build system prompt:', error);
+			messages = [{ role: 'user', content: userText }];
+		}
+
 		const assistantMessage = this.startAssistantMessage(frontendIntent);
 
 		const cfg = this._llmConfig;
@@ -221,19 +266,6 @@ export class ChatSession {
 		}
 
 		this._currentAdapter = adapter;
-
-		let messages: LLMRequest['messages'] = [];
-		try {
-			if (this._promptBuilder) {
-				const systemMessages = await this._promptBuilder.build(frontendIntent, userText);
-				messages = [...systemMessages, { role: 'user', content: userText }];
-			} else {
-				messages = [{ role: 'user', content: userText }];
-			}
-		} catch (error) {
-			console.error('Failed to build system prompt:', error);
-			messages = [{ role: 'user', content: userText }];
-		}
 
 		const request: LLMRequest = {
 			messages,

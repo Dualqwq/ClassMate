@@ -15,6 +15,7 @@ import { extractErrorLocation } from './error/errorParser';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
+import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
 
 type ChatContainer = 'view' | 'panel';
 
@@ -377,10 +378,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	const chatSession = ChatSession.getInstance();
 
+	// Initialize the workspace context provider and load project context.
+	const workspaceProvider = new WorkspaceContextProvider();
+	void workspaceProvider.refresh();
+
 	// Initialize the skill-based system prompt builder.
 	const skillDir = vscode.Uri.joinPath(context.extensionUri, 'skill', 'classmate');
 	const loader = createSkillLoader();
-	const promptBuilder = new SystemPromptBuilder(loader, skillDir);
+	const promptBuilder = new SystemPromptBuilder(loader, skillDir, workspaceProvider);
 	chatSession.setPromptBuilder(promptBuilder);
 
 	// Register the sidebar WebviewView provider.

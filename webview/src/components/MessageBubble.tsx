@@ -25,7 +25,47 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 	isCurrentStream,
 }) => {
 	const isUser = message.role === 'user';
-	const intentDisplay = !isUser && message.intent ? getIntentDisplay(message.intent) : null;
+	const isDebug = message.role === 'system' && message.isSystemPromptDebug;
+	const intentDisplay = !isUser && !isDebug && message.intent ? getIntentDisplay(message.intent) : null;
+
+	if (isDebug) {
+		return (
+			<div style={{ marginBottom: '12px' }}>
+				<div
+					style={{
+						fontSize: '10px',
+						fontWeight: 600,
+						textTransform: 'uppercase',
+						letterSpacing: '0.5px',
+						color: 'var(--vscode-debugIcon-startForeground)',
+						marginBottom: '4px',
+						marginLeft: '2px',
+					}}
+				>
+					System prompt (debug)
+				</div>
+				<div
+					style={{
+						maxWidth: '100%',
+						padding: '10px 14px',
+						borderRadius: '12px',
+						background: 'var(--vscode-textCodeBlock-background)',
+						color: 'var(--vscode-foreground)',
+						border: '1px dashed var(--vscode-panel-border)',
+						fontFamily: 'var(--vscode-editor-font-family), monospace',
+						fontSize: '11px',
+						whiteSpace: 'pre-wrap',
+						wordBreak: 'break-word',
+						lineHeight: '1.4',
+						maxHeight: '400px',
+						overflowY: 'auto',
+					}}
+				>
+					{message.content}
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div

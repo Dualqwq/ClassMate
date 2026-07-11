@@ -4,6 +4,9 @@ import type { MessageIntent } from '../chat/types';
 import { PromptLoader } from './promptLoader';
 import { classifyRequest, RequestType } from './intentRouter';
 
+import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
+import type { WorkspaceContext } from '../workspace/types';
+
 /**
  * Builds the system prompt for a ClassMate request by loading the relevant
  * skill files and ordering them so stable content can be cached.
@@ -16,10 +19,12 @@ import { classifyRequest, RequestType } from './intentRouter';
 export class SystemPromptBuilder {
 	private readonly _loader: PromptLoader;
 	private readonly _skillDir: vscode.Uri;
+	private readonly _workspaceProvider: WorkspaceContextProvider;
 
-	constructor(loader: PromptLoader, skillDir: vscode.Uri) {
+	constructor(loader: PromptLoader, skillDir: vscode.Uri, workspaceProvider: WorkspaceContextProvider) {
 		this._loader = loader;
 		this._skillDir = skillDir;
+		this._workspaceProvider = workspaceProvider;
 	}
 
 	/**
@@ -55,6 +60,13 @@ export class SystemPromptBuilder {
 			}
 		}
 
+		// Dynamic workspace context (not cached).
+		const workspaceContext = this._workspaceProvider.getContext();
+		const workspacePrompt = this._buildWorkspaceContextPrompt(workspaceContext);
+		if (workspacePrompt) {
+			messages.push({ role: 'system', content: workspacePrompt });
+		}
+
 		// Remind the model of the request type so it follows the right workflow.
 		messages.push({
 			role: 'system',
@@ -62,6 +74,52 @@ export class SystemPromptBuilder {
 		});
 
 		return messages;
+	}
+
+	private _buildWorkspaceContextPrompt(context: WorkspaceContext): string | undefined {
+		const parts: string[] = ['=== Current project context ==='];
+		let hasContent = false;
+
+		if (context.cppFiles.length > 0) {
+			parts.push(`Source files: ${context.cppFiles.join(', ')}`);
+			hasContent = true;
+		}
+
+		if (context.questionText) {
+			parts.push('');
+			parts.push('--- Problem description ---');
+			parts.push(context.questionText);
+			hasContent = true;
+		}
+
+		if (context.courseContext) {
+			const cc = context.courseContext;
+			parts.push('');
+			parts.push('--- Course context ---');
+			if (cc.course) {
+				parts.push(`Course: ${cc.course}`);
+			}
+			if (cc.currentConcept) {
+				parts.push(`Current concept: ${cc.currentConcept}`);
+			}
+			if (cc.prerequisites.length > 0) {
+				parts.push(`Prerequisites: [${cc.prerequisites.join(', ')}]`);
+			}
+			if (cc.teachingStrategy) {
+				parts.push(`Teaching strategy: ${cc.teachingStrategy}`);
+			}
+			if (cc.body) {
+				parts.push('');
+				parts.push(cc.body);
+			}
+			hasContent = true;
+		}
+
+		if (!hasContent) {
+			return undefined;
+		}
+
+		return parts.join('\n');
 	}
 
 	private _buildPedagogyPrompt(pedagogy: string, requestType: RequestType): string {

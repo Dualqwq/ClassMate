@@ -7,7 +7,7 @@ export interface LLMConfig {
 	apiUrl?: string;
 }
 
-export type MessageRole = 'user' | 'assistant';
+export type MessageRole = 'user' | 'assistant' | 'system';
 
 export type MessageIntent =
 	| 'chat'
@@ -24,6 +24,7 @@ export interface ChatMessage {
 	content: string;
 	intent?: MessageIntent;
 	isCommandGenerated?: boolean;
+	isSystemPromptDebug?: boolean;
 	timestamp: number;
 }
 
