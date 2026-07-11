@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
+import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
 import type { MessageIntent } from './chat/types';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
+import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 
@@ -82,26 +84,50 @@ function routeIntent(
 function createExplainSelectionHandler(
 	session: ChatSession,
 	extensionUri: vscode.Uri,
-	chatViewProvider: ChatViewProvider
+	chatViewProvider: ChatViewProvider,
+	selectedText?: string,
+	languageId?: string
 ): () => void {
 	return () => {
 		const editor = vscode.window.activeTextEditor;
 		const selection = editor?.selection;
-		const selectedText = selection && !selection.isEmpty
+		const text = selectedText ?? (selection && !selection.isEmpty
 			? editor.document.getText(selection)
-			: '';
-		const prompt = selectedText
-			? `Explain this code:\n\n\`\`\`cpp\n${selectedText}\n\`\`\``
-			: 'Explain the selected code.';
+			: '');
+		const lang = languageId ?? editor?.document.languageId ?? 'text';
+
+		if (!text) {
+			void vscode.window.showInformationMessage('Please select some code first.');
+			return;
+		}
+
+		if (!isLanguageEnabled(lang)) {
+			void vscode.window.showInformationMessage(
+				`ClassMate is not enabled for language "${lang}". Add it to classmate.enabledLanguages in settings.`
+			);
+			return;
+		}
+
+		const prompt = `Explain this code:\n\n\`\`\`${lang}\n${text}\n\`\`\``;
 		routeIntent(session, extensionUri, chatViewProvider, 'code_explanation', prompt);
 	};
 }
 
 function compileHandler(): void {
+	const editor = vscode.window.activeTextEditor;
+	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
+		void vscode.window.showInformationMessage('ClassMate compile is not enabled for this file type.');
+		return;
+	}
 	void vscode.window.showInformationMessage('ClassMate compile command will run here.');
 }
 
 function runCodeHandler(): void {
+	const editor = vscode.window.activeTextEditor;
+	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
+		void vscode.window.showInformationMessage('ClassMate compile & run is not enabled for this file type.');
+		return;
+	}
 	void vscode.window.showInformationMessage('ClassMate compile & run command will run here.');
 }
 
@@ -121,8 +147,36 @@ async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promis
 	await setupApiKey(context);
 }
 
+const CODE_LENS_HINT_KEY = 'classmate.codeLensHintShown';
+
+async function promptToEnableCodeLens(context: vscode.ExtensionContext): Promise<void> {
+	const shown = context.globalState.get<boolean>(CODE_LENS_HINT_KEY, false);
+	if (shown) {
+		return;
+	}
+
+	const codeLensEnabled = vscode.workspace.getConfiguration('editor').get<boolean>('codeLens', true);
+	if (codeLensEnabled) {
+		return;
+	}
+
+	const choice = await vscode.window.showInformationMessage(
+		'ClassMate can show an inline "Explain" button above your selections if CodeLens is enabled. Enable it now?',
+		'Enable',
+		'Don\'t ask again'
+	);
+
+	await context.globalState.update(CODE_LENS_HINT_KEY, true);
+
+	if (choice === 'Enable') {
+		await vscode.workspace.getConfiguration('editor').update('codeLens', true, true);
+	}
+}
+
 export function activate(context: vscode.ExtensionContext): void {
 	console.log('ClassMate extension is now active.');
+
+	void promptToEnableCodeLens(context);
 
 	const chatSession = ChatSession.getInstance();
 
@@ -207,7 +261,17 @@ export function activate(context: vscode.ExtensionContext): void {
 		{ id: 'classmate.runCode', handler: runCodeHandler },
 		{
 			id: 'classmate.explainSelection',
-			handler: createExplainSelectionHandler(chatSession, context.extensionUri, chatViewProvider),
+			handler: (...args: unknown[]) => {
+				const selectedText = typeof args[0] === 'string' ? args[0] : undefined;
+				const languageId = typeof args[1] === 'string' ? args[1] : undefined;
+				createExplainSelectionHandler(
+					chatSession,
+					context.extensionUri,
+					chatViewProvider,
+					selectedText,
+					languageId
+				)();
+			},
 		},
 		{
 			id: 'classmate.explainError',
@@ -221,15 +285,33 @@ export function activate(context: vscode.ExtensionContext): void {
 		context.subscriptions.push(vscode.commands.registerCommand(id, handler));
 	}
 
-	// Status bar: compile & run button (visible when a C++ file is active).
+	// Register inline "Explain" button above selected code for enabled languages.
+	registerInlineExplainButton(context);
+
+	// Status bar: compile & run button (visible when the active file's language is enabled).
 	const compileRunStatusBarItem = vscode.window.createStatusBarItem(
 		vscode.StatusBarAlignment.Left,
 		100
 	);
 	compileRunStatusBarItem.command = 'classmate.runCode';
 	compileRunStatusBarItem.text = '$(run) ClassMate: Run';
-	compileRunStatusBarItem.tooltip = 'Compile and run the current C++ file';
-	compileRunStatusBarItem.show();
+	compileRunStatusBarItem.tooltip = 'Compile and run the current file';
+
+	function updateCompileRunVisibility(): void {
+		const editor = vscode.window.activeTextEditor;
+		if (editor && isLanguageEnabled(editor.document.languageId)) {
+			compileRunStatusBarItem.show();
+		} else {
+			compileRunStatusBarItem.hide();
+		}
+	}
+	updateCompileRunVisibility();
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTextEditor(() => updateCompileRunVisibility())
+	);
+	context.subscriptions.push(
+		onEnabledLanguagesChanged(() => updateCompileRunVisibility())
+	);
 	context.subscriptions.push(compileRunStatusBarItem);
 
 	// Status bar: open chat button.

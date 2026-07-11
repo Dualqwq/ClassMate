@@ -48,7 +48,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 						? 'var(--vscode-button-foreground)'
 						: 'var(--vscode-foreground)',
 					borderLeft: intentDisplay
-						? `3px solid ${intentDisplay.accentColor}`
+						? `3px solid var(--vscode-button-foreground)`
 						: 'none',
 					whiteSpace: isUser ? 'pre-wrap' : 'normal',
 					wordBreak: 'break-word',

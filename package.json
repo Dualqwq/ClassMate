@@ -119,6 +119,14 @@
             "Always open chat in the editor panel"
           ],
           "description": "Default container for chat responses"
+        },
+        "classmate.enabledLanguages": {
+          "type": "array",
+          "default": ["cpp"],
+          "items": {
+            "type": "string"
+          },
+          "description": "Language identifiers for which ClassMate features (explain selection, compile/run buttons) are enabled"
         }
       }
     },
@@ -173,19 +181,19 @@
         {
           "command": "classmate.compile",
           "group": "navigation@1",
-          "when": "editorLangId == cpp"
+          "when": "true"
         },
         {
           "command": "classmate.runCode",
           "group": "navigation@2",
-          "when": "editorLangId == cpp"
+          "when": "true"
         }
       ],
       "editor/context": [
         {
           "command": "classmate.explainSelection",
           "group": "2_classmate@1",
-          "when": "editorHasSelection && editorLangId == cpp"
+          "when": "editorHasSelection"
         }
       ]
     }
