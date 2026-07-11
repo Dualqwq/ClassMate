@@ -16,6 +16,12 @@ class CompileOutputProvider implements vscode.TextDocumentContentProvider {
         this._onDidChange.fire(uri);
     }
 
+    public getLine(uri: vscode.Uri, lineNumber: number): string {
+        const content = this._content.get(uri.toString()) ?? '';
+        const lines = content.split(/\r?\n/);
+        return lines[lineNumber] ?? '';
+    }
+
     public provideTextDocumentContent(uri: vscode.Uri): string {
         return this._content.get(uri.toString()) ?? '';
     }
@@ -42,8 +48,12 @@ function getProvider(): CompileOutputProvider {
 }
 
 /**
- * Show compile/run output in a read-only virtual document beside the active editor.
+ * Get a specific line from the current compile output document.
  */
+export function getCompileOutputLine(lineNumber: number): string {
+    const provider = getProvider();
+    return provider.getLine(COMPILE_OUTPUT_URI, lineNumber);
+}
 export async function showCompileOutput(content: string): Promise<void> {
     const provider = getProvider();
     provider.set(COMPILE_OUTPUT_URI, content);

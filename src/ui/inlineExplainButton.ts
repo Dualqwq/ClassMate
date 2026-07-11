@@ -1,84 +1,100 @@
 import * as vscode from 'vscode';
-import { isLanguageEnabled } from '../config/languageConfig';
 
 const EXPLAIN_TITLE = '$(lightbulb) Explain';
+
+export interface InlineExplainOptions {
+	/**
+	 * Document selector that determines which editors this provider applies to.
+	 */
+	selector: vscode.DocumentSelector;
+
+	/**
+	 * Optional predicate to decide whether the button should be shown for a given
+	 * document. The selection must also be non-empty.
+	 */
+	enabled?: (document: vscode.TextDocument) => boolean;
+
+	/**
+	 * Build the arguments passed to the `classmate.explainSelection` command when
+	 * the button is clicked.
+	 */
+	buildArgs: (document: vscode.TextDocument, selectedText: string, selection: vscode.Selection) => unknown[];
+}
 
 /**
  * Register an inline "Explain" action that appears as a CodeLens above the
  * first line of the current selection.
  *
- * CodeLens is the only native VS Code API that satisfies all of these
- * constraints at once:
- * - renders in the gap between the previous line and the selected line
- * - does not shift the selected line horizontally or vertically
- * - is clickable without a hover tooltip
- * - disappears automatically when the selection is cleared
- *
- * True rounded-bubble styling is not available through any native inline
- * action API; the title is rendered using the editor's code-lens theme.
+ * The provider is generic: callers supply a document selector, an optional
+ * enablement predicate, and a function to build command arguments. This lets
+ * the same module serve both source-code editors and the compile-output
+ * virtual document.
  */
-export function registerInlineExplainButton(context: vscode.ExtensionContext): void {
-    class ExplainCodeLensProvider implements vscode.CodeLensProvider {
-        private readonly _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
-        public readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
+export function registerInlineExplainButton(
+	context: vscode.ExtensionContext,
+	options: InlineExplainOptions
+): void {
+	class ExplainCodeLensProvider implements vscode.CodeLensProvider {
+		private readonly _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
+		public readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
-        public provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
-            const editor = vscode.window.visibleTextEditors.find(
-                (e) => e.document === document
-            );
-            if (!editor) {
-                return [];
-            }
+		public provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+			const editor = vscode.window.visibleTextEditors.find(
+				(e) => e.document === document
+			);
+			if (!editor) {
+				return [];
+			}
 
-            if (!isLanguageEnabled(document.languageId)) {
-                return [];
-            }
+			if (options.enabled && !options.enabled(document)) {
+				return [];
+			}
 
-            const selection = editor.selection;
-            if (!selection || selection.isEmpty) {
-                return [];
-            }
+			const selection = editor.selection;
+			if (!selection || selection.isEmpty) {
+				return [];
+			}
 
-            const selectedText = document.getText(selection);
-            const range = new vscode.Range(selection.start.line, 0, selection.start.line, 0);
+			const selectedText = document.getText(selection);
+			const range = new vscode.Range(selection.start.line, 0, selection.start.line, 0);
 
-            return [
-                new vscode.CodeLens(range, {
-                    title: EXPLAIN_TITLE,
-                    command: 'classmate.explainSelection',
-                    arguments: [selectedText, document.languageId],
-                }),
-            ];
-        }
+			return [
+				new vscode.CodeLens(range, {
+					title: EXPLAIN_TITLE,
+					command: 'classmate.explainSelection',
+					arguments: options.buildArgs(document, selectedText, selection),
+				}),
+			];
+		}
 
-        public refresh(): void {
-            this._onDidChangeCodeLenses.fire();
-        }
-    }
+		public refresh(): void {
+			this._onDidChangeCodeLenses.fire();
+		}
+	}
 
-    const provider = new ExplainCodeLensProvider();
+	const provider = new ExplainCodeLensProvider();
 
-    context.subscriptions.push(
-        vscode.languages.registerCodeLensProvider({ scheme: 'file' }, provider)
-    );
+	context.subscriptions.push(
+		vscode.languages.registerCodeLensProvider(options.selector, provider)
+	);
 
-    context.subscriptions.push(
-        vscode.window.onDidChangeTextEditorSelection(() => {
-            provider.refresh();
-        })
-    );
+	context.subscriptions.push(
+		vscode.window.onDidChangeTextEditorSelection(() => {
+			provider.refresh();
+		})
+	);
 
-    context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(() => {
-            provider.refresh();
-        })
-    );
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTextEditor(() => {
+			provider.refresh();
+		})
+	);
 
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration('classmate.enabledLanguages')) {
-                provider.refresh();
-            }
-        })
-    );
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			if (event.affectsConfiguration('classmate.enabledLanguages')) {
+				provider.refresh();
+			}
+		})
+	);
 }

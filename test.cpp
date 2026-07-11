@@ -6,7 +6,7 @@ int main() {
     cout.tie(nullptr);
     int a,b;
     cin >> a >> b;
-    cout << a + b << endl;
+    cout << a + b << endl
     // Your code here
 
     return 0;

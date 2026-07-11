@@ -10,7 +10,9 @@ import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { checkGppAvailability, spawnGpp } from './compiler/compilerService';
-import { registerCompileOutputProvider, showCompileOutput } from './compiler/outputPanel';
+import { registerCompileOutputProvider, showCompileOutput, COMPILE_OUTPUT_SCHEME } from './compiler/outputPanel';
+import { extractErrorLocation } from './error/errorParser';
+import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 
@@ -101,6 +103,29 @@ function createExplainSelectionHandler(
 
 		if (!text) {
 			void vscode.window.showInformationMessage('Please select some code first.');
+			return;
+		}
+
+		if (lang === COMPILE_OUTPUT_SCHEME) {
+			const parsed = extractErrorLocation(text);
+			const knowledge = matchErrorToKnowledge(parsed?.message ?? text);
+			const knowledgeText = knowledge.length > 0
+				? knowledge.map((k) => `- ${k.tag}: ${k.message}`).join('\n')
+				: 'No specific knowledge tag matched.';
+
+			const prompt = [
+				'Explain this compile error in beginner-friendly language:',
+				'',
+				`Raw error: ${text}`,
+				parsed
+					? `Location: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'}:${parsed.column ?? '?'}`
+					: 'Location: could not parse',
+				'',
+				'Matched knowledge tags:',
+				knowledgeText,
+			].join('\n');
+
+			routeIntent(session, extensionUri, chatViewProvider, 'error_explanation', prompt);
 			return;
 		}
 
@@ -460,8 +485,26 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Register the classmate-output virtual document provider for compile/run output.
 	registerCompileOutputProvider(context);
 
-	// Register inline "Explain" button above selected code for enabled languages.
-	registerInlineExplainButton(context);
+	// Register inline "Explain" button for source code editors (enabled languages only).
+	registerInlineExplainButton(context, {
+		selector: { scheme: 'file' },
+		enabled: (document) => isLanguageEnabled(document.languageId),
+		buildArgs: (_document, selectedText, _selection) => [
+			typeof selectedText === 'string' ? selectedText : '',
+			_document.languageId,
+		],
+	});
+
+	// Register inline "Explain" button for the compile-output virtual document.
+	registerInlineExplainButton(context, {
+		selector: { scheme: COMPILE_OUTPUT_SCHEME },
+		buildArgs: (document, selectedText, selection) => {
+			// Use the full stderr line at the selection start so matching works
+			// even when the user only selected part of the error message.
+			const fullLine = document.lineAt(selection.start.line).text;
+			return [fullLine || selectedText, COMPILE_OUTPUT_SCHEME];
+		},
+	});
 
 	// Status bar: compile & run button (visible when the active file's language is enabled).
 	const compileRunStatusBarItem = vscode.window.createStatusBarItem(
