@@ -3,6 +3,25 @@ import type { WebviewPresenter, WebviewToExtensionMessage } from '../chat/types'
 import { getChatWebviewHtml } from './getChatWebviewHtml';
 import { ChatSession } from '../chat/ChatSession';
 
+/**
+ * Resolve which ViewColumn a newly-created ChatPanel should occupy.
+ * Exported so the decision logic can be unit-tested without VS Code UI state.
+ */
+export function resolveChatPanelColumn(
+    visibleEditorCount: number,
+    activeColumn: vscode.ViewColumn | undefined
+): vscode.ViewColumn {
+    const hasSplitView = visibleEditorCount > 1;
+    if (
+        hasSplitView &&
+        activeColumn !== undefined &&
+        activeColumn !== vscode.ViewColumn.One
+    ) {
+        return vscode.ViewColumn.One;
+    }
+    return vscode.ViewColumn.Two;
+}
+
 export class ChatPanel implements WebviewPresenter {
 	public static readonly viewType = 'classmate.chatPanel';
 	private static _currentPanel: ChatPanel | undefined;
@@ -23,18 +42,19 @@ export class ChatPanel implements WebviewPresenter {
 		const activeEditor = vscode.window.activeTextEditor;
 		const visibleEditors = vscode.window.visibleTextEditors;
 		const hasSplitView = visibleEditors.length > 1;
-		const column = activeEditor?.viewColumn;
+		const activeColumn = activeEditor?.viewColumn;
 
 		if (ChatPanel._currentPanel) {
-			ChatPanel._currentPanel._panel.reveal(column, options?.preserveFocus ?? false);
+			ChatPanel._currentPanel._panel.reveal(activeColumn, options?.preserveFocus ?? false);
 			return ChatPanel._currentPanel;
 		}
 
 		ChatPanel._onDidClose = options?.onDidClose;
 
-		// If there is no split view, open the panel in a new editor column so it
-		// gets its own screen rather than replacing the active editor.
-		const targetColumn = hasSplitView ? (column || vscode.ViewColumn.Two) : vscode.ViewColumn.Two;
+		// If the user already has a split view (>=2 visible text editors), place
+		// the chat panel in a column that does not contain the active source editor
+		// so it doesn't cover the code they're reading.
+		const targetColumn = resolveChatPanelColumn(visibleEditors.length, activeColumn);
 
 		const panel = vscode.window.createWebviewPanel(
 			ChatPanel.viewType,
