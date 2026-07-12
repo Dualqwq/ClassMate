@@ -3,78 +3,316 @@ export interface KnowledgeMatch {
     message: string;
 }
 
-interface PatternEntry {
+export interface KnowledgeConcept {
+    tag: string;
+    title: string;
+    summary: string;
+    commonCauses: string[];
+    suggestedFixes: string[];
+    checkMethod: string;
+    wrongExample: string;
+    correctExample: string;
+    relatedTags?: string[];
+}
+
+export interface PatternEntry {
     pattern: RegExp;
     tag: string;
     message: string;
+    concept?: KnowledgeConcept;
 }
+
+const CONCEPTS: Record<string, KnowledgeConcept> = {
+    missing_semicolon: {
+        tag: 'missing_semicolon',
+        title: '缺少分号或语句结束符',
+        summary: 'C++ 中每条语句通常以分号结束；如果漏写，编译器会报 "expected ; before ..." 之类的错误。',
+        commonCauses: [
+            '普通语句末尾漏写分号',
+            'for / while / if 的圆括号后误加分号导致语句体为空',
+            '类或结构体定义末尾漏写分号',
+        ],
+        suggestedFixes: [
+            '在报错行或上一行末尾补充分号',
+            '检查 for(;;) 结构里的两个分号是否都在',
+            '类/结构体定义结束的大括号后添加分号',
+        ],
+        checkMethod: '重新编译，若 "expected ;" 消失即说明已修复。',
+        wrongExample: "int main() {\n    int x = 1\n    return 0;\n}",
+        correctExample: "int main() {\n    int x = 1;\n    return 0;\n}",
+    },
+    undeclared_identifier: {
+        tag: 'undeclared_identifier',
+        title: '变量/函数未声明',
+        summary: '代码中使用了编译器尚未见过的标识符，可能是拼写错误、缺少头文件或变量未定义。',
+        commonCauses: [
+            '标识符拼写错误（大小写、额外字符）',
+            '变量或函数在使用后才定义，且未前置声明',
+            '缺少必要的头文件或命名空间前缀',
+        ],
+        suggestedFixes: [
+            '检查并修正标识符拼写',
+            '确保变量在使用前已声明或定义',
+            '包含缺失的头文件，或使用 std:: 等完整限定名',
+        ],
+        checkMethod: '重新编译；若提示消失，说明已声明成功。',
+        wrongExample: "int main() {\n    x = 1;\n    return 0;\n}",
+        correctExample: "int main() {\n    int x = 1;\n    return 0;\n}",
+    },
+    function_call_mismatch: {
+        tag: 'function_call_mismatch',
+        title: '函数调用参数不匹配',
+        summary: '调用函数时传入的参数类型或数量与函数声明不一致。',
+        commonCauses: [
+            '参数个数写多或写少',
+            '参数类型无法隐式转换（如把字符串传给 int 形参）',
+            '函数重载匹配失败',
+        ],
+        suggestedFixes: [
+            '对照函数声明检查参数个数和顺序',
+            '确保每个参数的类型与声明一致，必要时显式转换',
+            '检查是否遗漏了需要的重载版本',
+        ],
+        checkMethod: '重新编译，确认 "no matching function" 报错消失。',
+        wrongExample: "void foo(int a) {}\nint main() {\n    foo(1, 2);\n    return 0;\n}",
+        correctExample: "void foo(int a) {}\nint main() {\n    foo(1);\n    return 0;\n}",
+    },
+    type_conversion: {
+        tag: 'type_conversion',
+        title: '类型转换失败',
+        summary: '把某个类型的值赋给不兼容的类型，或进行了不被允许的隐式/显式转换。',
+        commonCauses: [
+            '把 const 对象赋给非 const 指针',
+            '不同类型指针之间直接赋值',
+            '自定义类型之间没有合适的转换构造函数或运算符',
+        ],
+        suggestedFixes: [
+            '检查赋值两边的类型是否一致',
+            '必要时使用 static_cast、dynamic_cast 等显式转换',
+            '若需要转换，补充转换构造函数或类型转换运算符',
+        ],
+        checkMethod: '重新编译，确认 "cannot convert" 报错消失。',
+        wrongExample: "int main() {\n    int* p = &1;\n    return 0;\n}",
+        correctExample: "int main() {\n    int x = 1;\n    int* p = &x;\n    return 0;\n}",
+    },
+    undefined_reference: {
+        tag: 'undefined_reference',
+        title: '链接错误：未定义引用',
+        summary: '编译阶段通过，但链接器找不到某个函数或变量的定义，通常是因为漏写了实现或没链接库。',
+        commonCauses: [
+            '只声明了函数/变量，却没有实现',
+            '多文件项目里漏链接了包含实现的 .cpp 文件',
+            '使用了外部库但没有加 -l 链接选项',
+        ],
+        suggestedFixes: [
+            '为声明的函数/变量补充实现',
+            '在 g++ 命令中包含所有需要的 .cpp 文件',
+            '检查是否需要 -lxxx 或 -L/path 链接库',
+        ],
+        checkMethod: '重新编译并链接，确认 "undefined reference" 消失。',
+        wrongExample: "void foo();\nint main() {\n    foo();\n    return 0;\n}",
+        correctExample: "void foo() {}\nint main() {\n    foo();\n    return 0;\n}",
+    },
+    multiple_definition: {
+        tag: 'multiple_definition',
+        title: '符号重复定义',
+        summary: '同一个函数或变量在多处被定义，链接器无法决定使用哪一个。',
+        commonCauses: [
+            '在头文件中定义了全局变量或函数，并被多个 .cpp 包含',
+            '同名的函数/变量在不同 .cpp 中各写了一遍',
+            '复制代码时忘了改名',
+        ],
+        suggestedFixes: [
+            '头文件里只声明，定义放到单个 .cpp 中',
+            '对需要在头文件定义的内容使用 inline 或 static',
+            '检查同名符号并统一命名',
+        ],
+        checkMethod: '重新编译链接，确认 "multiple definition" 消失。',
+        wrongExample: "// a.cpp\nint x = 1;\n// b.cpp\nint x = 1;",
+        correctExample: "// a.cpp\nint x = 1;\n// b.cpp\nextern int x;",
+    },
+    non_static_member: {
+        tag: 'non_static_member',
+        title: '非静态成员使用错误',
+        summary: '类的非静态成员必须通过对象实例访问，不能直接用类名调用。',
+        commonCauses: [
+            '用类名而不是对象名调用普通成员变量/函数',
+            '静态成员函数中错误地访问了非静态成员',
+            '混淆了 static 和普通成员的区别',
+        ],
+        suggestedFixes: [
+            '创建类的实例，通过实例访问成员',
+            '若确实不依赖实例状态，将成员改为 static',
+            '静态函数中只访问静态成员',
+        ],
+        checkMethod: '重新编译，确认 invalid use of non-static member 报错消失。',
+        wrongExample: "class A {\npublic:\n    int x;\n};\nint main() {\n    A::x = 1;\n    return 0;\n}",
+        correctExample: "class A {\npublic:\n    int x;\n};\nint main() {\n    A a;\n    a.x = 1;\n    return 0;\n}",
+    },
+    private_access: {
+        tag: 'private_access',
+        title: '访问了类的私有成员',
+        summary: 'C++ 的 private 成员只能在类内部访问，类外部直接访问会触发权限错误。',
+        commonCauses: [
+            '在类外部读取或修改 private 成员',
+            '应该在 public 中提供 getter/setter',
+            '派生类中访问了基类的 private 成员',
+        ],
+        suggestedFixes: [
+            '通过 public 的 getter/setter 访问私有成员',
+            '把需要外部访问的成员改为 public',
+            '若需要在派生类中使用，改为 protected',
+        ],
+        checkMethod: '重新编译，确认 is private 报错消失。',
+        wrongExample: "class A {\n    int x;\n};\nint main() {\n    A a;\n    a.x = 1;\n    return 0;\n}",
+        correctExample: "class A {\npublic:\n    int x;\n};\nint main() {\n    A a;\n    a.x = 1;\n    return 0;\n}",
+    },
+    segmentation_fault: {
+        tag: 'segmentation_fault',
+        title: '运行时段错误（非法内存访问）',
+        summary: '程序运行时访问了未分配或无权访问的内存地址，常见于指针、数组越界或空指针解引用。',
+        commonCauses: [
+            '使用了未初始化的指针',
+            '数组下标越界',
+            '访问已经释放的内存（use-after-free）',
+        ],
+        suggestedFixes: [
+            '指针使用前初始化或 new/malloc 分配',
+            '检查数组下标是否在合法范围内',
+            '避免重复释放同一块内存',
+        ],
+        checkMethod: '修复后重新编译运行，观察是否还出现 Segmentation fault。',
+        wrongExample: "int main() {\n    int* p;\n    *p = 1;\n    return 0;\n}",
+        correctExample: "int main() {\n    int x = 0;\n    int* p = &x;\n    *p = 1;\n    return 0;\n}",
+    },
+    syntax_punctuation: {
+        tag: 'syntax_punctuation',
+        title: '标点符号或分隔符语法错误',
+        summary: '代码中存在括号、引号、逗号等标点符号不匹配或位置错误。',
+        commonCauses: [
+            '括号、引号没有成对出现',
+            '逗号、冒号等分隔符位置不对',
+            '宏展开后产生意外符号',
+        ],
+        suggestedFixes: [
+            '仔细检查报错位置附近的括号/引号匹配',
+            '使用编辑器的括号高亮功能',
+            '简化复杂宏或表达式，逐步定位',
+        ],
+        checkMethod: '重新编译，确认 expected ... 类报错消失。',
+        wrongExample: "int main() {\n    if (true {\n        return 0;\n    }\n}",
+        correctExample: "int main() {\n    if (true) {\n        return 0;\n    }\n}",
+    },
+    missing_library: {
+        tag: 'missing_library',
+        title: '找不到链接库',
+        summary: '编译命令中指定了需要链接的库，但链接器找不到对应的库文件。',
+        commonCauses: [
+            '库名写错或大小写不对',
+            '库文件不在默认搜索路径中',
+            '没有安装对应的开发包',
+        ],
+        suggestedFixes: [
+            '确认库名正确（如 -lws2_32）',
+            '使用 -L/path 指定库文件所在目录',
+            '安装缺失的开发库',
+        ],
+        checkMethod: '重新编译链接，确认 cannot find -lxxx 报错消失。',
+        wrongExample: "g++ main.cpp -lnotexist",
+        correctExample: "g++ main.cpp -lws2_32",
+    },
+    missing_header: {
+        tag: 'missing_header',
+        title: '找不到头文件或源文件',
+        summary: '#include 的文件或命令行指定的源文件路径不存在或无法访问。',
+        commonCauses: [
+            '文件名拼写错误或大小写不匹配',
+            '文件不在编译命令的搜索路径中',
+            '使用尖括号包含了自己项目的本地头文件',
+        ],
+        suggestedFixes: [
+            '核对文件名和路径拼写',
+            '对本地头文件使用 #include \"xxx.h\"',
+            '用 -I/path 添加头文件搜索目录',
+        ],
+        checkMethod: '重新编译，确认 no such file or directory 报错消失。',
+        wrongExample: "#include <myheader.h>\nint main() { return 0; }",
+        correctExample: "#include \"myheader.h\"\nint main() { return 0; }",
+    },
+};
 
 const ERROR_PATTERNS: PatternEntry[] = [
     {
-        // Catches most "missing semicolon" shapes:
-        // expected ';' before 'return'
-        // expected ';' at end of declaration
-        // expected ';' after expression
-        // expected initializer before ';' token
-        pattern: /expected\s+['"`;]?['"`]?;['"`]?\s+(before|after|at)|expected\s+\w+\s+before\s+['"`]?;['"`]?\s*token/,
+        pattern: /expected\s+['\"`;]?['\"`]?;['\"`]?\s+(before|after|at)|expected\s+\w+\s+before\s+['\"`]?;['\"`]?\s*token/,
         tag: 'missing_semicolon',
         message: '可能缺少分号、右括号或语句结束符',
+        concept: CONCEPTS.missing_semicolon,
     },
     {
         pattern: /was not declared in this scope/,
         tag: 'undeclared_identifier',
         message: '使用了未声明的变量、函数或类型',
+        concept: CONCEPTS.undeclared_identifier,
     },
     {
         pattern: /no matching function for call to/,
         tag: 'function_call_mismatch',
         message: '函数调用参数类型或数量不匹配',
+        concept: CONCEPTS.function_call_mismatch,
     },
     {
         pattern: /cannot convert/,
         tag: 'type_conversion',
         message: '类型转换失败或不允许',
+        concept: CONCEPTS.type_conversion,
     },
     {
         pattern: /undefined reference to/,
         tag: 'undefined_reference',
         message: '链接时找不到函数或变量定义',
+        concept: CONCEPTS.undefined_reference,
     },
     {
         pattern: /multiple definition of/,
         tag: 'multiple_definition',
         message: '同一个符号被重复定义',
+        concept: CONCEPTS.multiple_definition,
     },
     {
         pattern: /invalid use of non-static member/,
         tag: 'non_static_member',
         message: '非静态成员使用方式错误',
+        concept: CONCEPTS.non_static_member,
     },
     {
         pattern: /is private within this context/,
         tag: 'private_access',
         message: '访问了类的私有成员',
+        concept: CONCEPTS.private_access,
     },
     {
         pattern: /segmentation fault|sigsegv|signal 11/i,
         tag: 'segmentation_fault',
         message: '运行时访问了非法内存',
+        concept: CONCEPTS.segmentation_fault,
     },
     {
-        // Catch-all for other "expected X" syntax errors.
-        pattern: /expected\s+['"`\w]+/,
+        pattern: /expected\s+['\"`\w]+/,
         tag: 'syntax_punctuation',
         message: '标点符号或分隔符使用错误',
+        concept: CONCEPTS.syntax_punctuation,
     },
     {
         pattern: /cannot find -l/,
         tag: 'missing_library',
         message: '找不到链接库',
+        concept: CONCEPTS.missing_library,
     },
     {
         pattern: /no such file or directory/i,
         tag: 'missing_header',
         message: '找不到头文件或源文件',
+        concept: CONCEPTS.missing_header,
     },
 ];
 
@@ -92,4 +330,18 @@ export function matchErrorToKnowledge(message: string): KnowledgeMatch[] {
     }
 
     return matches;
+}
+
+/**
+ * Get the full KnowledgeConcept for a given tag, if it exists.
+ */
+export function getKnowledgeConcept(tag: string): KnowledgeConcept | undefined {
+    return CONCEPTS[tag];
+}
+
+/**
+ * List all KnowledgeConcept entries in deterministic tag order.
+ */
+export function listKnowledgeConcepts(): KnowledgeConcept[] {
+    return Object.values(CONCEPTS);
 }

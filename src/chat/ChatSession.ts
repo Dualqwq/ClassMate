@@ -7,6 +7,8 @@ import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
 import { buildJourneySummary, type JourneySummary } from '../debug/debugJourneySummary';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
 import type { HintRequestedEvent } from '../debug/types';
+import { buildKnowledgeCards } from '../debug/knowledgeCardBuilder';
+import type { KnowledgeCard } from '../debug/knowledgeCard';
 import { ClaudeAdapter } from '../llm/ClaudeAdapter';
 import { OpenAIAdapter } from '../llm/OpenAIAdapter';
 import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
@@ -43,6 +45,86 @@ export class ChatSession {
 	private _debugStore?: DebugJourneyStore;
 	private _sessionId?: string;
 	private _workspaceId?: string;
+
+	private async _buildKnowledgeCardsContent(): Promise<string> {
+		if (!this._debugStore) {
+			return 'Debug store is not initialized.';
+		}
+
+		const cards = await buildKnowledgeCards(this._debugStore);
+		if (cards.length === 0) {
+			return '=== DEBUG: Knowledge cards ===\n\nNo knowledge cards available yet. Compile some code and come back!';
+		}
+
+		const lines: string[] = [
+			'=== DEBUG: Knowledge cards ===',
+			`workspaceId: ${this._debugStore.workspaceId}`,
+			`total cards: ${cards.length}`,
+			'',
+		];
+
+		for (const card of cards) {
+			lines.push(`## ${card.title} (${card.tag})`);
+			lines.push(`**Summary:** ${card.summary}`);
+			lines.push('');
+			lines.push('**Common causes:**');
+			for (const cause of card.commonCauses) {
+				lines.push(`- ${cause}`);
+			}
+			lines.push('');
+			lines.push('**Suggested fixes:**');
+			for (const fix of card.suggestedFixes) {
+				lines.push(`- ${fix}`);
+			}
+			lines.push('');
+			lines.push(`**Check method:** ${card.checkMethod}`);
+			lines.push('');
+			lines.push('**Wrong example:**');
+			lines.push('```cpp');
+			lines.push(card.wrongExample);
+			lines.push('```');
+			lines.push('');
+			lines.push('**Correct example:**');
+			lines.push('```cpp');
+			lines.push(card.correctExample);
+			lines.push('```');
+			if (card.concreteCorrectExamples.length > 0) {
+				lines.push('');
+				lines.push('**Concrete fixes from your edits:**');
+				for (const example of card.concreteCorrectExamples) {
+					lines.push('```cpp');
+					lines.push(example);
+					lines.push('```');
+				}
+			}
+			lines.push('');
+			lines.push(
+				`Stats: frequency=${card.frequency}, resolved=${card.resolvedCount}, ` +
+				`unresolved=${card.unresolvedCount}, avgFixAttempts=${card.avgFixAttempts.toFixed(2)}`
+			);
+			lines.push('');
+		}
+
+		return lines.join('\n');
+	}
+
+	private async _insertKnowledgeCards(userText: string): Promise<void> {
+		const content = await this._buildKnowledgeCardsContent();
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isKnowledgeCards: true,
+			timestamp: Date.now(),
+		};
+
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
 
 	private async _buildDebugJourneyContent(): Promise<string> {
 		if (!this._debugStore) {
@@ -407,6 +489,10 @@ export class ChatSession {
 				}
 				if (userText.trim() === '//show-raw-log') {
 					await this._insertRawDebugLog(userText);
+					return;
+				}
+				if (userText.trim() === '//knowledge-cards') {
+					await this._insertKnowledgeCards(userText);
 					return;
 				}
 				if (userText.trim() === '//show-journey') {

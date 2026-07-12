@@ -28,6 +28,7 @@ export interface ChatMessage {
 	isDebugLog?: boolean;
 	isDebugRawLog?: boolean;
 	isDebugJourney?: boolean;
+	isKnowledgeCards?: boolean;
 	timestamp: number;
 }
 
