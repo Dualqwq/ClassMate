@@ -14,14 +14,14 @@ const ROTATION_BATCH = Math.floor(MAX_EVENTS_PER_WORKSPACE * 0.1);
 const MAX_FIELD_LENGTH = 16 * 1024;
 const HOT_CACHE_SIZE = 50;
 
-interface Index {
+export interface DebugEventIndex {
     total: number;
     lastEventId?: string;
     lastTimestamp?: number;
     counts: Record<DebugEvent['type'], number>;
 }
 
-function createEmptyIndex(): Index {
+function createEmptyIndex(): DebugEventIndex {
     return {
         total: 0,
         counts: {
@@ -189,13 +189,13 @@ export class DebugJourneyStore {
         await this._writeIndex(createEmptyIndex());
     }
 
-    public async getIndex(): Promise<Index> {
+    public async getIndex(): Promise<DebugEventIndex> {
         const text = await readTextFile(this._indexUri);
         if (!text) {
             return createEmptyIndex();
         }
         try {
-            return JSON.parse(text) as Index;
+            return JSON.parse(text) as DebugEventIndex;
         } catch {
             return createEmptyIndex();
         }
@@ -212,7 +212,7 @@ export class DebugJourneyStore {
         await this._writeIndex(index);
     }
 
-    private async _writeIndex(index: Index): Promise<void> {
+    private async _writeIndex(index: DebugEventIndex): Promise<void> {
         await ensureDirectory(this._workspaceStorage);
         await writeTextFile(this._indexUri, JSON.stringify(index));
 

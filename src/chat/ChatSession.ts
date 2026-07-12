@@ -1,3 +1,5 @@
+import { formatDebugLog, formatRawDebugLog } from './debugLogFormatter';
+import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
 import type { ChatMessage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from '../llm/types';
@@ -115,38 +117,17 @@ export class ChatSession {
 
 		const index = await this._debugStore.getIndex();
 		const recent = await this._debugStore.getEvents();
-		const lines: string[] = [
-			'=== DEBUG: implicit log ===',
-			`workspaceId: ${this._debugStore.workspaceId}`,
-			`total events: ${index.total}`,
-			`counts: ${JSON.stringify(index.counts, null, 2)}`,
-			'',
-			`recent ${recent.length} event(s):`,
-			'',
-		];
+		return formatDebugLog(recent, index, this._debugStore.workspaceId);
+	}
 
-		for (const event of recent) {
-			lines.push(`- [${new Date(event.timestamp).toISOString()}] ${event.type} (${event.id})`);
-			if ('stderr' in event && typeof event.stderr === 'string') {
-				lines.push(`  stderr preview: ${event.stderr.split('\n')[0].slice(0, 120)}`);
-			}
-			if ('stdout' in event && typeof event.stdout === 'string' && event.stdout) {
-				lines.push(`  stdout preview: ${event.stdout.split('\n')[0].slice(0, 120)}`);
-			}
-			if ('intent' in event) {
-				lines.push(`  intent: ${event.intent}`);
-			}
-			if ('diff' in event && typeof event.diff === 'string') {
-				lines.push(`  diff preview: ${event.diff.split('\n').slice(0, 3).join(' | ').slice(0, 120)}`);
-			}
-			if ('before' in event && 'after' in event) {
-				const beforeLines = typeof event.before === 'string' ? event.before.split('\n').length : 0;
-				const afterLines = typeof event.after === 'string' ? event.after.split('\n').length : 0;
-				lines.push(`  lines: ${beforeLines} -> ${afterLines}`);
-			}
+	private async _buildRawDebugLogContent(): Promise<string> {
+		if (!this._debugStore) {
+			return 'Debug store is not initialized.';
 		}
 
-		return lines.join('\n');
+		const index = await this._debugStore.getIndex();
+		const events = await this._debugStore.getEvents();
+		return formatRawDebugLog(events, index, this._debugStore.workspaceId);
 	}
 
 	private async _insertDebugLog(userText: string): Promise<void> {
@@ -157,6 +138,24 @@ export class ChatSession {
 			content,
 			intent: undefined,
 			isDebugLog: true,
+			timestamp: Date.now(),
+		};
+
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	private async _insertRawDebugLog(userText: string): Promise<void> {
+		const content = await this._buildRawDebugLogContent();
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugRawLog: true,
 			timestamp: Date.now(),
 		};
 
@@ -404,6 +403,10 @@ export class ChatSession {
 				}
 				if (userText.trim() === '//show-log') {
 					await this._insertDebugLog(userText);
+					return;
+				}
+				if (userText.trim() === '//show-raw-log') {
+					await this._insertRawDebugLog(userText);
 					return;
 				}
 				if (userText.trim() === '//show-journey') {
