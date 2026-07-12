@@ -3,9 +3,16 @@ import { getKnowledgeConcept, matchErrorToKnowledge } from '../error/errorKnowle
 import { createErrorSignature, signatureKey, signaturesMatch } from './errorFingerprint';
 import type { ErrorLifecycle } from './errorLifecycle';
 import { findFixingEdits } from './errorLifecycle';
+import { formatFixAsDiff, normalizeCodeForDiff } from './formatDiff';
 import type { CompileErrorEvent, DebugEvent } from './types';
 
 const DEFAULT_MAX_CONCRETE_EXAMPLES = 3;
+
+export interface ConcreteFix {
+    before: string;
+    after: string;
+    diff: string;
+}
 
 export interface KnowledgeCard {
     tag: string;
@@ -25,50 +32,51 @@ export interface KnowledgeCard {
 
     sourceEvents: string[];
     correctingEditIds: string[];
-    concreteCorrectExamples: string[];
+    concreteFixes: ConcreteFix[];
 }
 
 export interface GenerateCardOptions {
     maxConcreteExamples?: number;
 }
 
-function normalizeExample(value: string): string {
-    return value
-        .replace(/\r\n/g, '\n')
-        .replace(/[ \t]+/g, ' ')
-        .trim()
-        .toLowerCase();
+function makeFixDedupKey(before: string, after: string): string {
+    return `${normalizeCodeForDiff(before)}\n---\n${normalizeCodeForDiff(after)}`;
 }
 
-function collectConcreteExamples(
+function collectConcreteFixes(
     editIds: string[],
     allEvents: DebugEvent[],
     maxExamples: number
-): string[] {
-    const examples: string[] = [];
+): ConcreteFix[] {
+    const fixes: ConcreteFix[] = [];
     const seen = new Set<string>();
 
     for (const editId of editIds) {
-        if (examples.length >= maxExamples) {
+        if (fixes.length >= maxExamples) {
             break;
         }
         const edit = allEvents.find((e) => e.id === editId && e.type === 'code_modified');
         if (!edit || edit.type !== 'code_modified') {
             continue;
         }
-        const after = edit.after.trim();
-        if (!after) {
+        if (!edit.before.trim() && !edit.after.trim()) {
             continue;
         }
-        const normalized = normalizeExample(after);
-        if (seen.has(normalized)) {
+
+        const key = makeFixDedupKey(edit.before, edit.after);
+        if (seen.has(key)) {
             continue;
         }
-        seen.add(normalized);
-        examples.push(after);
+        seen.add(key);
+
+        fixes.push({
+            before: edit.before,
+            after: edit.after,
+            diff: formatFixAsDiff(edit.before, edit.after),
+        });
     }
 
-    return examples;
+    return fixes;
 }
 
 function computeCardStats(
@@ -145,7 +153,7 @@ export function generateKnowledgeCard(
             editIds.push(fixingResult.edit.id);
         }
 
-        const concreteExamples = collectConcreteExamples(editIds, allEvents, maxConcreteExamples);
+        const concreteFixes = collectConcreteFixes(editIds, allEvents, maxConcreteExamples);
 
         cards.push({
             tag: concept.tag,
@@ -159,7 +167,7 @@ export function generateKnowledgeCard(
             ...stats,
             sourceEvents: [errorEvent.id],
             correctingEditIds: editIds,
-            concreteCorrectExamples: concreteExamples,
+            concreteFixes,
         });
     }
 
@@ -168,7 +176,7 @@ export function generateKnowledgeCard(
 
 /**
  * Merge knowledge cards that share the same tag, accumulating statistics and
- * deduplicating source events, edits, and concrete examples.
+ * deduplicating source events, edits, and concrete fixes.
  */
 export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
     const groups = new Map<string, KnowledgeCard[]>();
@@ -193,8 +201,8 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
         let lastSeenAt = 0;
         const sourceEvents = new Set<string>();
         const correctingEditIds = new Set<string>();
-        const concreteExamples: string[] = [];
-        const seenExamples = new Set<string>();
+        const concreteFixes: ConcreteFix[] = [];
+        const seenFixes = new Set<string>();
 
         for (const card of group) {
             frequency += card.frequency;
@@ -209,11 +217,11 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
             for (const id of card.correctingEditIds) {
                 correctingEditIds.add(id);
             }
-            for (const example of card.concreteCorrectExamples) {
-                const normalized = normalizeExample(example);
-                if (!seenExamples.has(normalized)) {
-                    seenExamples.add(normalized);
-                    concreteExamples.push(example);
+            for (const fix of card.concreteFixes) {
+                const key = makeFixDedupKey(fix.before, fix.after);
+                if (!seenFixes.has(key)) {
+                    seenFixes.add(key);
+                    concreteFixes.push(fix);
                 }
             }
         }
@@ -234,7 +242,7 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
             lastSeenAt,
             sourceEvents: [...sourceEvents],
             correctingEditIds: [...correctingEditIds],
-            concreteCorrectExamples: concreteExamples,
+            concreteFixes,
         });
     }
 

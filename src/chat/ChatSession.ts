@@ -9,6 +9,7 @@ import { DebugJourneyStore } from '../debug/debugJourneyStore';
 import type { HintRequestedEvent } from '../debug/types';
 import { buildKnowledgeCards } from '../debug/knowledgeCardBuilder';
 import type { KnowledgeCard } from '../debug/knowledgeCard';
+import { formatFixAsDiff } from '../debug/formatDiff';
 import { ClaudeAdapter } from '../llm/ClaudeAdapter';
 import { OpenAIAdapter } from '../llm/OpenAIAdapter';
 import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
@@ -88,12 +89,15 @@ export class ChatSession {
 			lines.push('```cpp');
 			lines.push(card.correctExample);
 			lines.push('```');
-			if (card.concreteCorrectExamples.length > 0) {
+			if (card.concreteFixes.length > 0) {
 				lines.push('');
 				lines.push('**Concrete fixes from your edits:**');
-				for (const example of card.concreteCorrectExamples) {
-					lines.push('```cpp');
-					lines.push(example);
+				for (let i = 0; i < card.concreteFixes.length; i++) {
+					const fix = card.concreteFixes[i];
+					lines.push('');
+					lines.push(`Fix ${i + 1}:`);
+					lines.push('```diff');
+					lines.push(fix.diff);
 					lines.push('```');
 				}
 			}
@@ -133,6 +137,11 @@ export class ChatSession {
 
 		const summary = await buildJourneySummary(this._debugStore);
 
+		const resolvedWithEdit = summary.lifecycles
+			.filter((l) => l.resolvedAt && l.resolvingEditId)
+			.slice(0, 3);
+		const allEvents = await this._debugStore.getEvents();
+
 		const lines: string[] = [
 			'=== DEBUG: Debug Journey summary ===',
 			`workspaceId: ${summary.workspaceId}`,
@@ -170,6 +179,25 @@ export class ChatSession {
 			'--- Suggested steps ---',
 			...summary.suggestedSteps.map((s) => `- ${s}`),
 		];
+
+		if (resolvedWithEdit.length > 0) {
+			lines.push('');
+			lines.push('--- Recent fixes (diff) ---');
+			for (const lifecycle of resolvedWithEdit) {
+				const edit = allEvents.find(
+					(e) => e.id === lifecycle.resolvingEditId && e.type === 'code_modified'
+				);
+				if (!edit || edit.type !== 'code_modified') {
+					continue;
+				}
+				const tags = lifecycle.signature.knowledgeTags.join(', ') || 'unknown';
+				lines.push('');
+				lines.push(`Resolved error (${tags}):`);
+				lines.push('```diff');
+				lines.push(formatFixAsDiff(edit.before, edit.after));
+				lines.push('```');
+			}
+		}
 
 		return lines.join('\n');
 	}

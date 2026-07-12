@@ -39,7 +39,12 @@ function makeCompileError(
     };
 }
 
-function makeCodeModified(id: string, after: string, timestamp = 0): CodeModifiedEvent {
+function makeCodeModified(
+    id: string,
+    before: string,
+    after: string,
+    timestamp = 0
+): CodeModifiedEvent {
     return {
         id,
         type: 'code_modified',
@@ -47,9 +52,9 @@ function makeCodeModified(id: string, after: string, timestamp = 0): CodeModifie
         sessionId: 's1',
         workspaceId: 'ws',
         fileUri: 'file:///main.cpp',
-        before: '',
+        before,
         after,
-        diff: `+ ${after}`,
+        diff: '', // tests should rely on formatDiff, not the stored diff field
         trigger: 'manual',
     };
 }
@@ -122,9 +127,9 @@ describe('knowledge cards', () => {
         assert.strictEqual(merged[0].frequency, 2);
     });
 
-    it('extracts concrete correct examples from fixing edits', () => {
+    it('extracts concrete fixes with before/after/diff from fixing edits', () => {
         const errorEvent = makeCompileError('e1', "expected ';' before 'return'", 1000);
-        const editEvent = makeCodeModified('edit1', 'int x = 1;\nreturn 0;', 1500);
+        const editEvent = makeCodeModified('edit1', 'int x = 1\nreturn 0;', 'int x = 1;\nreturn 0;', 1500);
         const successEvent = makeCompileSuccess('s1', 2000);
         const events: DebugEvent[] = [errorEvent, editEvent, successEvent];
         const lifecycles = buildErrorLifecycles(events);
@@ -132,8 +137,26 @@ describe('knowledge cards', () => {
 
         assert.strictEqual(cards.length, 1);
         assert.strictEqual(cards[0].correctingEditIds[0], 'edit1');
-        assert.strictEqual(cards[0].concreteCorrectExamples.length, 1);
-        assert.ok(cards[0].concreteCorrectExamples[0].includes('return 0'));
+        assert.strictEqual(cards[0].concreteFixes.length, 1);
+        const fix = cards[0].concreteFixes[0];
+        assert.strictEqual(fix.before, 'int x = 1\nreturn 0;');
+        assert.strictEqual(fix.after, 'int x = 1;\nreturn 0;');
+        assert.ok(fix.diff.includes('- int x = 1'));
+        assert.ok(fix.diff.includes('+ int x = 1;'));
+    });
+
+    it('deduplicates concrete fixes by before/after pair', () => {
+        const errorEvent = makeCompileError('e1', "expected ';' before 'return'", 1000);
+        const editEvent1 = makeCodeModified('edit1', 'int x = 1', 'int x = 1;', 1500);
+        const editEvent2 = makeCodeModified('edit2', 'int x = 1', 'int x = 1;', 1600);
+        const successEvent = makeCompileSuccess('s1', 2000);
+        const events: DebugEvent[] = [errorEvent, editEvent1, editEvent2, successEvent];
+        const lifecycles = buildErrorLifecycles(events);
+        const cards = generateKnowledgeCard(errorEvent, events, lifecycles);
+
+        assert.strictEqual(cards.length, 1);
+        // Two edits with identical (before, after) should collapse to one concrete fix.
+        assert.strictEqual(cards[0].concreteFixes.length, 1);
     });
 
     it('sorts cards by unresolved count first', () => {
@@ -153,7 +176,7 @@ describe('knowledge cards', () => {
             lastSeenAt: 1000,
             sourceEvents: [],
             correctingEditIds: [],
-            concreteCorrectExamples: [],
+            concreteFixes: [],
         };
         const cardB: KnowledgeCard = {
             tag: 'undeclared_identifier',
@@ -171,7 +194,7 @@ describe('knowledge cards', () => {
             lastSeenAt: 500,
             sourceEvents: [],
             correctingEditIds: [],
-            concreteCorrectExamples: [],
+            concreteFixes: [],
         };
         const sorted = sortKnowledgeCards([cardA, cardB]);
         assert.strictEqual(sorted[0].tag, 'undeclared_identifier');
@@ -203,9 +226,9 @@ describe('knowledge cards', () => {
     it('computes weighted average fix attempts after merge', () => {
         const event1 = makeCompileError('e1', "expected ';' before 'return'", 1000);
         const event2 = makeCompileError('e2', "expected ';' after expression", 2000);
-        const editEvent1 = makeCodeModified('edit1', 'int a;', 1500);
+        const editEvent1 = makeCodeModified('edit1', 'int a', 'int a;', 1500);
         const successEvent1 = makeCompileSuccess('s1', 1600);
-        const editEvent2 = makeCodeModified('edit2', 'int b;', 2500);
+        const editEvent2 = makeCodeModified('edit2', 'int b', 'int b;', 2500);
         const successEvent2 = makeCompileSuccess('s2', 2600);
         const events: DebugEvent[] = [
             event1,

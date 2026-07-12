@@ -1,4 +1,5 @@
 import type { DebugEventIndex } from '../debug/debugJourneyStore';
+import { formatFixAsDiff } from '../debug/formatDiff';
 import type { DebugEvent } from '../debug/types';
 
 const MAX_SHOWN_DIAGNOSTICS = 8;
@@ -55,7 +56,14 @@ export function formatDebugLog(events: DebugEvent[], index: DebugEventIndex, wor
             lines.push(`  intent: ${event.intent}`);
         }
         if ('diff' in event && typeof event.diff === 'string') {
-            lines.push(`  diff preview: ${event.diff.split('\n').slice(0, 3).join(' | ').slice(0, 120)}`);
+            const diffText = formatFixAsDiff(
+                typeof event.before === 'string' ? event.before : '',
+                typeof event.after === 'string' ? event.after : ''
+            );
+            lines.push('  diff:');
+            for (const line of diffText.split('\n')) {
+                lines.push(`    ${line}`);
+            }
         }
         if ('before' in event && 'after' in event) {
             const beforeLines = typeof event.before === 'string' ? event.before.split('\n').length : 0;
