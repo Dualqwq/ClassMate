@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import type { ChatMessage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from '../llm/types';
 import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
-import type { DebugJourneyStore } from '../debug/debugJourneyStore';
+import { buildJourneySummary, type JourneySummary } from '../debug/debugJourneySummary';
+import { DebugJourneyStore } from '../debug/debugJourneyStore';
 import type { HintRequestedEvent } from '../debug/types';
 import { ClaudeAdapter } from '../llm/ClaudeAdapter';
 import { OpenAIAdapter } from '../llm/OpenAIAdapter';
@@ -40,6 +41,72 @@ export class ChatSession {
 	private _debugStore?: DebugJourneyStore;
 	private _sessionId?: string;
 	private _workspaceId?: string;
+
+	private async _buildDebugJourneyContent(): Promise<string> {
+		if (!this._debugStore) {
+			return 'Debug store is not initialized.';
+		}
+
+		const summary = await buildJourneySummary(this._debugStore);
+
+		const lines: string[] = [
+			'=== DEBUG: Debug Journey summary ===',
+			`workspaceId: ${summary.workspaceId}`,
+			`total events: ${summary.totalEvents}`,
+			'',
+			'--- Compile outcomes ---',
+			`compile errors: ${summary.errorStats.totalCompileErrors}`,
+			`compile successes: ${summary.errorStats.totalCompileSuccesses}`,
+			`run errors: ${summary.errorStats.totalRunErrors}`,
+			'',
+			'--- Error lifecycle ---',
+			`tracked lifecycles: ${summary.lifecycles.length}`,
+			`resolved: ${summary.lifecycles.filter((l) => l.resolvedAt).length}`,
+			`unresolved: ${summary.lifecycles.filter((l) => !l.resolvedAt).length}`,
+			`avg fix attempts: ${summary.metrics.avgFixAttempts.toFixed(2)}`,
+			'',
+			'--- Top knowledge tags ---',
+			...Object.entries(summary.errorStats.byKnowledgeTag)
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, 5)
+				.map(([tag, count]) => `${tag}: ${count}`),
+			'',
+			'--- Concept profiles (top 5) ---',
+			...summary.conceptProfiles.slice(0, 5).map((p) =>
+				`${p.tag}: occurrence=${p.occurrenceCount}, resolved=${p.resolvedCount}, ` +
+				`unresolved=${p.unresolvedCount}, avgFixAttempts=${p.avgFixAttempts.toFixed(2)}`
+			),
+			'',
+			'--- Hints ---',
+			`total hints: ${summary.hintStats.totalHints}`,
+			`avg hints before success: ${summary.hintStats.avgHintsBeforeSuccess.toFixed(2)}`,
+			`help seeking ratio: ${summary.metrics.helpSeekingRatio.toFixed(2)}`,
+			`independent fix ratio: ${summary.metrics.independentFixRatio.toFixed(2)}`,
+			'',
+			'--- Suggested steps ---',
+			...summary.suggestedSteps.map((s) => `- ${s}`),
+		];
+
+		return lines.join('\n');
+	}
+
+	private async _insertDebugJourney(userText: string): Promise<void> {
+		const content = await this._buildDebugJourneyContent();
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugJourney: true,
+			timestamp: Date.now(),
+		};
+
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
 
 	private async _buildDebugLogContent(): Promise<string> {
 		if (!this._debugStore) {
@@ -337,6 +404,10 @@ export class ChatSession {
 				}
 				if (userText.trim() === '//show-log') {
 					await this._insertDebugLog(userText);
+					return;
+				}
+				if (userText.trim() === '//show-journey') {
+					await this._insertDebugJourney(userText);
 					return;
 				}
 			} else {

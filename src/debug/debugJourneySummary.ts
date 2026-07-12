@@ -1,19 +1,35 @@
 import type { DebugJourneyStore } from './debugJourneyStore';
+import {
+    aggregateErrorStats,
+    aggregateHintStats,
+    aggregateSessionStats,
+    aggregateTimeStats,
+    computeDebugMetrics,
+} from './analytics';
+import { buildConceptProfile } from './conceptProfiling';
+import { buildErrorLifecycles } from './errorLifecycle';
 import type {
-    CompileErrorEvent,
-    CodeModifiedEvent,
-    DebugEvent,
-    HintRequestedEvent,
-} from './types';
-import { isCompileError, isCodeModified, isHintRequested } from './types';
+    ErrorStatistics,
+    HintStatistics,
+    SessionStatistics,
+    TimeStatistics,
+    DebugMetrics,
+    ConceptProfile,
+} from './analytics';
+import type { ErrorLifecycle } from './errorLifecycle';
 
 export interface JourneySummary {
     workspaceId: string;
     fileUri?: string;
+    since?: number;
     totalEvents: number;
-    compileErrors: CompileErrorEvent[];
-    hintsRequested: HintRequestedEvent[];
-    modifications: CodeModifiedEvent[];
+    errorStats: ErrorStatistics;
+    hintStats: HintStatistics;
+    timeStats: TimeStatistics;
+    metrics: DebugMetrics;
+    conceptProfiles: ConceptProfile[];
+    lifecycles: ErrorLifecycle[];
+    sessionStats: SessionStatistics[];
     suggestedSteps: string[];
 }
 
@@ -26,61 +42,92 @@ export async function buildJourneySummary(
         since: options?.since,
     });
 
-    const compileErrors: CompileErrorEvent[] = [];
-    const hintsRequested: HintRequestedEvent[] = [];
-    const modifications: CodeModifiedEvent[] = [];
+    const filterOptions = {
+        fileUri: options?.fileUri,
+        since: options?.since,
+    };
 
-    for (const event of events) {
-        if (isCompileError(event)) {
-            compileErrors.push(event);
-        } else if (isHintRequested(event)) {
-            hintsRequested.push(event);
-        } else if (isCodeModified(event)) {
-            modifications.push(event);
-        }
-    }
+    const errorStats = aggregateErrorStats(events, filterOptions);
+    const timeStats = aggregateTimeStats(events);
+    const lifecycles = buildErrorLifecycles(events, {
+        fileUri: options?.fileUri,
+    });
+    const hintStats = aggregateHintStats(events, lifecycles);
+    const metrics = computeDebugMetrics(events, lifecycles);
+    const conceptProfiles = buildConceptProfile(events, lifecycles);
+    const sessionStats = aggregateSessionStats(events, filterOptions);
 
-    const suggestedSteps = generatePlaceholderSteps(events, compileErrors, hintsRequested);
+    const suggestedSteps = generateSuggestedSteps(
+        events,
+        errorStats,
+        conceptProfiles,
+        metrics,
+        lifecycles
+    );
 
     return {
         workspaceId: store.workspaceId,
         fileUri: options?.fileUri,
+        since: options?.since,
         totalEvents: events.length,
-        compileErrors,
-        hintsRequested,
-        modifications,
+        errorStats,
+        hintStats,
+        timeStats,
+        metrics,
+        conceptProfiles,
+        lifecycles,
+        sessionStats,
         suggestedSteps,
     };
 }
 
-function generatePlaceholderSteps(
-    allEvents: DebugEvent[],
-    compileErrors: CompileErrorEvent[],
-    hintsRequested: HintRequestedEvent[]
+function generateSuggestedSteps(
+    events: unknown[],
+    errorStats: ErrorStatistics,
+    conceptProfiles: ConceptProfile[],
+    metrics: DebugMetrics,
+    lifecycles: ErrorLifecycle[]
 ): string[] {
     const steps: string[] = [];
 
-    if (allEvents.length === 0) {
+    if (events.length === 0) {
         steps.push('No debug events recorded yet.');
         return steps;
     }
 
-    steps.push(`Recorded ${allEvents.length} debug events in total.`);
+    steps.push(`Recorded ${events.length} debug events in total.`);
+    steps.push(
+        `Compile outcomes: ${errorStats.totalCompileErrors} error(s), ${errorStats.totalCompileSuccesses} success(es).`
+    );
 
-    if (compileErrors.length > 0) {
-        steps.push(`Encountered ${compileErrors.length} compile errors.`);
+    const resolvedCount = lifecycles.filter((l) => l.resolvedAt).length;
+    const unresolvedCount = lifecycles.length - resolvedCount;
+    steps.push(
+        `Tracked ${lifecycles.length} error lifecycles: ${resolvedCount} resolved, ${unresolvedCount} unresolved.`
+    );
+
+    if (metrics.avgFixAttempts > 0) {
+        steps.push(`Average fix attempts per error: ${metrics.avgFixAttempts.toFixed(1)}.`);
     }
 
-    if (hintsRequested.length > 0) {
-        steps.push(`Asked for hints ${hintsRequested.length} times.`);
+    if (conceptProfiles.length > 0) {
+        const top = conceptProfiles[0];
+        steps.push(
+            `Top struggle area: ${top.tag} (${top.occurrenceCount} occurrence(s), ${top.unresolvedCount} unresolved).`
+        );
     }
 
-    const errorMessages = compileErrors
-        .flatMap((e) => e.parsedErrors.map((p) => p.message))
-        .filter(Boolean);
-    const uniqueMessages = [...new Set(errorMessages)].slice(0, 3);
-    for (const message of uniqueMessages) {
-        steps.push(`Common error: ${message}`);
+    const topTag = Object.entries(errorStats.byKnowledgeTag)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 1)[0];
+    if (topTag) {
+        steps.push(`Most common knowledge tag: ${topTag[0]} (${topTag[1]} time(s)).`);
+    }
+
+    if (metrics.helpSeekingRatio > 0.5) {
+        steps.push('You often request hints while debugging — try predicting the cause before asking.');
+    } else if (metrics.independentFixRatio > 0.5) {
+        steps.push('Great: most of your resolved errors were fixed without hints.');
     }
 
     return steps;

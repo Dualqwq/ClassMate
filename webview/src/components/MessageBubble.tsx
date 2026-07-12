@@ -27,7 +27,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 	const isUser = message.role === 'user';
 	const isSystemPromptDebug = message.role === 'system' && message.isSystemPromptDebug;
 	const isDebugLog = message.role === 'system' && message.isDebugLog;
-	const intentDisplay = !isUser && !isSystemPromptDebug && !isDebugLog && message.intent ? getIntentDisplay(message.intent) : null;
+	const isDebugJourney = message.role === 'system' && message.isDebugJourney;
+	const intentDisplay = !isUser && !isSystemPromptDebug && !isDebugLog && !isDebugJourney && message.intent ? getIntentDisplay(message.intent) : null;
 
 	if (isSystemPromptDebug) {
 		return (
@@ -44,6 +45,45 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 					}}
 				>
 					System prompt (debug)
+				</div>
+				<div
+					style={{
+						maxWidth: '100%',
+						padding: '10px 14px',
+						borderRadius: '12px',
+						background: 'var(--vscode-textCodeBlock-background)',
+						color: 'var(--vscode-foreground)',
+						border: '1px dashed var(--vscode-panel-border)',
+						fontFamily: 'var(--vscode-editor-font-family), monospace',
+						fontSize: '11px',
+						whiteSpace: 'pre-wrap',
+						wordBreak: 'break-word',
+						lineHeight: '1.4',
+						maxHeight: '400px',
+						overflowY: 'auto',
+					}}
+				>
+					{message.content}
+				</div>
+			</div>
+		);
+	}
+
+	if (isDebugJourney) {
+		return (
+			<div style={{ marginBottom: '12px' }}>
+				<div
+					style={{
+						fontSize: '10px',
+						fontWeight: 600,
+						textTransform: 'uppercase',
+						letterSpacing: '0.5px',
+						color: 'var(--vscode-debugIcon-startForeground)',
+						marginBottom: '4px',
+						marginLeft: '2px',
+					}}
+				>
+					Debug Journey (debug)
 				</div>
 				<div
 					style={{

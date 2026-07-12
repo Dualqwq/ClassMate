@@ -16,7 +16,7 @@ const ERROR_PATTERNS: PatternEntry[] = [
         // expected ';' at end of declaration
         // expected ';' after expression
         // expected initializer before ';' token
-        pattern: /expected\s+['"`;]['"`]?\s+(before|after|at)|expected\s+\w+\s+before\s+['"`;]['"`]?\s*token/,
+        pattern: /expected\s+['"`;]?['"`]?;['"`]?\s+(before|after|at)|expected\s+\w+\s+before\s+['"`]?;['"`]?\s*token/,
         tag: 'missing_semicolon',
         message: '可能缺少分号、右括号或语句结束符',
     },

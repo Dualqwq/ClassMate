@@ -26,6 +26,7 @@ export interface ChatMessage {
 	isCommandGenerated?: boolean;
 	isSystemPromptDebug?: boolean;
 	isDebugLog?: boolean;
+	isDebugJourney?: boolean;
 	timestamp: number;
 }
 

@@ -86,3 +86,7 @@ export function isHintRequested(event: DebugEvent): event is HintRequestedEvent 
 export function isCodeModified(event: DebugEvent): event is CodeModifiedEvent {
     return event.type === 'code_modified';
 }
+
+export function isRunError(event: DebugEvent): event is RunErrorEvent {
+    return event.type === 'run_error';
+}
