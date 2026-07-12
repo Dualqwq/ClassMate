@@ -16,6 +16,20 @@ import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
+import { DebugJourneyStore } from './debug/debugJourneyStore';
+import { buildJourneySummary } from './debug/debugJourneySummary';
+import { computeLineDiff } from './debug/diff';
+import { getWorkspaceId } from './debug/storagePath';
+import type {
+    CodeModifiedEvent,
+    CompileErrorEvent,
+    CompileSuccessEvent,
+    HintRequestedEvent,
+} from './debug/types';
+
+function createSessionId(): string {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 type ChatContainer = 'view' | 'panel';
 
@@ -91,6 +105,9 @@ function createExplainSelectionHandler(
 	session: ChatSession,
 	extensionUri: vscode.Uri,
 	chatViewProvider: ChatViewProvider,
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string,
 	selectedText?: string,
 	languageId?: string
 ): () => void {
@@ -101,20 +118,25 @@ function createExplainSelectionHandler(
 			? editor.document.getText(selection)
 			: '');
 		const lang = languageId ?? editor?.document.languageId ?? 'text';
+		const fileUri = editor?.document.uri.toString();
 
 		if (!text) {
 			void vscode.window.showInformationMessage('Please select some code first.');
 			return;
 		}
 
+		let intent: MessageIntent;
+		let prompt: string;
+
 		if (lang === COMPILE_OUTPUT_SCHEME) {
+			intent = 'error_explanation';
 			const parsed = extractErrorLocation(text);
 			const knowledge = matchErrorToKnowledge(parsed?.message ?? text);
 			const knowledgeText = knowledge.length > 0
 				? knowledge.map((k) => `- ${k.tag}: ${k.message}`).join('\n')
 				: 'No specific knowledge tag matched.';
 
-			const prompt = [
+			prompt = [
 				'Explain this compile error in beginner-friendly language:',
 				'',
 				`Raw error: ${text}`,
@@ -125,24 +147,51 @@ function createExplainSelectionHandler(
 				'Matched knowledge tags:',
 				knowledgeText,
 			].join('\n');
+		} else {
+			if (!isLanguageEnabled(lang)) {
+				void vscode.window.showInformationMessage(
+					`ClassMate is not enabled for language "${lang}". Add it to classmate.enabledLanguages in settings.`
+				);
+				return;
+			}
 
-			routeIntent(session, extensionUri, chatViewProvider, 'error_explanation', prompt);
-			return;
+			intent = 'code_explanation';
+			prompt = `Explain this code:\n\n\`\`\`${lang}\n${text}\n\`\`\``;
 		}
 
-		if (!isLanguageEnabled(lang)) {
-			void vscode.window.showInformationMessage(
-				`ClassMate is not enabled for language "${lang}". Add it to classmate.enabledLanguages in settings.`
-			);
-			return;
+		const hintEvent: HintRequestedEvent = {
+			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			type: 'hint_requested',
+			timestamp: Date.now(),
+			sessionId,
+			workspaceId,
+			fileUri,
+			intent,
+			userPrompt: prompt,
+			selection: text,
+		};
+
+		if (intent === 'error_explanation') {
+			void debugStore.getLastEvent({ workspaceId, fileUri, types: ['compile_error'] }).then((lastCompileError) => {
+				if (lastCompileError) {
+					hintEvent.relatedCompileEventId = lastCompileError.id;
+				}
+				void debugStore.append(hintEvent);
+			});
+		} else {
+			void debugStore.append(hintEvent);
 		}
 
-		const prompt = `Explain this code:\n\n\`\`\`${lang}\n${text}\n\`\`\``;
-		routeIntent(session, extensionUri, chatViewProvider, 'code_explanation', prompt);
+		routeIntent(session, extensionUri, chatViewProvider, intent, prompt);
 	};
 }
 
-async function compileHandlerAsync(): Promise<void> {
+async function compileHandlerAsync(
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string,
+	lastKnownSource: Map<string, string>
+): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
 		void vscode.window.showInformationMessage('ClassMate compile is not enabled for this file type.');
@@ -150,6 +199,8 @@ async function compileHandlerAsync(): Promise<void> {
 	}
 
 	const document = editor.document;
+	const fileUri = document.uri.toString();
+
 	if (document.isDirty && !(await document.save())) {
 		void vscode.window.showWarningMessage('Could not save the current file before compiling.');
 		return;
@@ -161,6 +212,8 @@ async function compileHandlerAsync(): Promise<void> {
 		);
 		return;
 	}
+
+	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource);
 
 	try {
 		const result = await spawnGpp(document.fileName);
@@ -175,9 +228,72 @@ async function compileHandlerAsync(): Promise<void> {
 			.join('\n');
 
 		await showCompileOutput(output);
+
+		if (result.exitCode !== 0) {
+			const parsedErrors = result.stderr
+				.split('\n')
+				.map((line) => extractErrorLocation(line))
+				.filter((err): err is NonNullable<typeof err> => err !== undefined);
+
+			const event: CompileErrorEvent = {
+				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+				type: 'compile_error',
+				timestamp: Date.now(),
+				sessionId,
+				workspaceId,
+				fileUri,
+				stderr: result.stderr,
+				parsedErrors,
+				exitCode: result.exitCode,
+				durationMs: result.durationMs,
+			};
+			await debugStore.append(event);
+		} else {
+			const event: CompileSuccessEvent = {
+				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+				type: 'compile_success',
+				timestamp: Date.now(),
+				sessionId,
+				workspaceId,
+				fileUri,
+				exitCode: result.exitCode,
+				durationMs: result.durationMs,
+			};
+			await debugStore.append(event);
+		}
 	} catch (error) {
 		void vscode.window.showErrorMessage(`Compilation failed: ${String(error)}`);
 	}
+}
+
+async function recordCodeModificationIfChanged(
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string,
+	document: vscode.TextDocument,
+	lastKnownSource: Map<string, string>
+): Promise<void> {
+	const fileUri = document.uri.toString();
+	const currentText = document.getText();
+	const previousText = lastKnownSource.get(fileUri);
+
+	if (previousText !== undefined && previousText !== currentText) {
+		const event: CodeModifiedEvent = {
+			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			type: 'code_modified',
+			timestamp: Date.now(),
+			sessionId,
+			workspaceId,
+			fileUri,
+			before: previousText,
+			after: currentText,
+			diff: computeLineDiff(previousText, currentText),
+			trigger: 'pre_compile',
+		};
+		await debugStore.append(event);
+	}
+
+	lastKnownSource.set(fileUri, currentText);
 }
 
 const CLASSMATE_RUN_TERMINAL_NAME = 'ClassMate Run';
@@ -278,7 +394,12 @@ function commandExistsOnPath(command: string): boolean {
     }
 }
 
-async function runCodeHandlerAsync(): Promise<void> {
+async function runCodeHandlerAsync(
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string,
+	lastKnownSource: Map<string, string>
+): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
 		void vscode.window.showInformationMessage('ClassMate compile & run is not enabled for this file type.');
@@ -286,6 +407,8 @@ async function runCodeHandlerAsync(): Promise<void> {
 	}
 
 	const document = editor.document;
+	const fileUri = document.uri.toString();
+
 	if (document.isDirty && !(await document.save())) {
 		void vscode.window.showWarningMessage('Could not save the current file before compiling.');
 		return;
@@ -297,6 +420,8 @@ async function runCodeHandlerAsync(): Promise<void> {
 		);
 		return;
 	}
+
+	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource);
 
 	try {
 		const compileResult = await spawnGpp(document.fileName);
@@ -311,8 +436,39 @@ async function runCodeHandlerAsync(): Promise<void> {
 				.filter(Boolean)
 				.join('\n');
 			await showCompileOutput(output);
+
+			const parsedErrors = compileResult.stderr
+				.split('\n')
+				.map((line) => extractErrorLocation(line))
+				.filter((err): err is NonNullable<typeof err> => err !== undefined);
+
+			const event: CompileErrorEvent = {
+				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+				type: 'compile_error',
+				timestamp: Date.now(),
+				sessionId,
+				workspaceId,
+				fileUri,
+				stderr: compileResult.stderr,
+				parsedErrors,
+				exitCode: compileResult.exitCode,
+				durationMs: compileResult.durationMs,
+			};
+			await debugStore.append(event);
 			return;
 		}
+
+		const successEvent: CompileSuccessEvent = {
+			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			type: 'compile_success',
+			timestamp: Date.now(),
+			sessionId,
+			workspaceId,
+			fileUri,
+			exitCode: compileResult.exitCode,
+			durationMs: compileResult.durationMs,
+		};
+		await debugStore.append(successEvent);
 
 		// Compilation succeeded: run the executable in an interactive terminal.
 		runInTerminal(compileResult.outputPath);
@@ -321,24 +477,56 @@ async function runCodeHandlerAsync(): Promise<void> {
 	}
 }
 
-function compileHandler(): void {
-	void compileHandlerAsync();
+function compileHandler(debugStore: DebugJourneyStore, sessionId: string, workspaceId: string, lastKnownSource: Map<string, string>): () => void {
+	return () => void compileHandlerAsync(debugStore, sessionId, workspaceId, lastKnownSource);
 }
 
-function runCodeHandler(): void {
-	void runCodeHandlerAsync();
+function runCodeHandler(debugStore: DebugJourneyStore, sessionId: string, workspaceId: string, lastKnownSource: Map<string, string>): () => void {
+	return () => void runCodeHandlerAsync(debugStore, sessionId, workspaceId, lastKnownSource);
 }
 
 function explainSelectionHandler(): void {
 	void vscode.window.showInformationMessage('ClassMate explain selection will run here.');
 }
 
-function explainErrorHandler(): void {
-	void vscode.window.showInformationMessage('ClassMate explain error will run here.');
+function explainErrorHandler(
+	session: ChatSession,
+	extensionUri: vscode.Uri,
+	chatViewProvider: ChatViewProvider,
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string
+): () => void {
+	return () => {
+		const editor = vscode.window.activeTextEditor;
+		const fileUri = editor?.document.uri.toString();
+		const prompt = '/error_explanation';
+
+		const hintEvent: HintRequestedEvent = {
+			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			type: 'hint_requested',
+			timestamp: Date.now(),
+			sessionId,
+			workspaceId,
+			fileUri,
+			intent: 'error_explanation',
+			userPrompt: prompt,
+		};
+
+		void debugStore.append(hintEvent);
+		routeIntent(session, extensionUri, chatViewProvider, 'error_explanation', prompt);
+	};
 }
 
-function debugJourneyHandler(): void {
-	void vscode.window.showInformationMessage('ClassMate Debug Journey will open here.');
+async function debugJourneyHandler(debugStore: DebugJourneyStore): Promise<void> {
+	const summary = await buildJourneySummary(debugStore);
+	const message = [
+		`ClassMate Debug Journey: ${summary.totalEvents} events recorded.`,
+		`Compile errors: ${summary.compileErrors.length}`,
+		`Hints requested: ${summary.hintsRequested.length}`,
+		`Code modifications: ${summary.modifications.length}`,
+	].join(' ');
+	void vscode.window.showInformationMessage(message);
 }
 
 async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promise<void> {
@@ -377,6 +565,15 @@ export function activate(context: vscode.ExtensionContext): void {
 	void promptToEnableCodeLens(context);
 
 	const chatSession = ChatSession.getInstance();
+
+	// Initialize the debug journey store and session identifiers.
+	const sessionId = createSessionId();
+	const workspaceId = getWorkspaceId();
+	const debugStore = new DebugJourneyStore(context, workspaceId);
+	chatSession.setDebugStore(debugStore, sessionId, workspaceId);
+
+	// Track the last known source text per file to detect meaningful edits.
+	const lastKnownSource = new Map<string, string>();
 
 	// Initialize the workspace context provider and load project context.
 	const workspaceProvider = new WorkspaceContextProvider();
@@ -459,8 +656,8 @@ export function activate(context: vscode.ExtensionContext): void {
 				showChatInContainer(chatSession, context.extensionUri, chatViewProvider, currentContainer);
 			},
 		},
-		{ id: 'classmate.compile', handler: compileHandler },
-		{ id: 'classmate.runCode', handler: runCodeHandler },
+		{ id: 'classmate.compile', handler: compileHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
+		{ id: 'classmate.runCode', handler: runCodeHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
 		{
 			id: 'classmate.explainSelection',
 			handler: (...args: unknown[]) => {
@@ -470,6 +667,9 @@ export function activate(context: vscode.ExtensionContext): void {
 					chatSession,
 					context.extensionUri,
 					chatViewProvider,
+					debugStore,
+					sessionId,
+					workspaceId,
 					selectedText,
 					languageId
 				)();
@@ -477,10 +677,17 @@ export function activate(context: vscode.ExtensionContext): void {
 		},
 		{
 			id: 'classmate.explainError',
-			handler: () => routeIntent(chatSession, context.extensionUri, chatViewProvider, 'error_explanation'),
+			handler: explainErrorHandler(
+				chatSession,
+				context.extensionUri,
+				chatViewProvider,
+				debugStore,
+				sessionId,
+				workspaceId
+			),
 		},
-		{ id: 'classmate.debugJourney', handler: debugJourneyHandler },
-		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) }, 
+		{ id: 'classmate.debugJourney', handler: () => void debugJourneyHandler(debugStore) },
+		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) },
 	];
 
 	for (const { id, handler } of commands) {

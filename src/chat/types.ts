@@ -25,6 +25,7 @@ export interface ChatMessage {
 	intent?: MessageIntent;
 	isCommandGenerated?: boolean;
 	isSystemPromptDebug?: boolean;
+	isDebugLog?: boolean;
 	timestamp: number;
 }
 

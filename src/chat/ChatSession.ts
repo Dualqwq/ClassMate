@@ -2,10 +2,21 @@ import * as vscode from 'vscode';
 import type { ChatMessage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from '../llm/types';
 import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
+import type { DebugJourneyStore } from '../debug/debugJourneyStore';
+import type { HintRequestedEvent } from '../debug/types';
 import { ClaudeAdapter } from '../llm/ClaudeAdapter';
 import { OpenAIAdapter } from '../llm/OpenAIAdapter';
 import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
 import { getApiKey } from '../config/apiKey';
+
+const HINT_INTENTS: MessageIntent[] = [
+	'hint',
+	'code_explanation',
+	'concept_explanation',
+	'error_explanation',
+	'debug_suggestion',
+	'summary',
+];
 
 export class ChatSession {
 	private static _instance: ChatSession | undefined;
@@ -26,8 +37,68 @@ export class ChatSession {
 	private _llmConfig?: LLMConfig;
 	private _currentAdapter?: LLMAdapter;
 	private _promptBuilder?: SystemPromptBuilder;
+	private _debugStore?: DebugJourneyStore;
+	private _sessionId?: string;
+	private _workspaceId?: string;
 
-	private _showDebugPrompt = false;
+	private async _buildDebugLogContent(): Promise<string> {
+		if (!this._debugStore) {
+			return 'Debug store is not initialized.';
+		}
+
+		const index = await this._debugStore.getIndex();
+		const recent = await this._debugStore.getEvents();
+		const lines: string[] = [
+			'=== DEBUG: implicit log ===',
+			`workspaceId: ${this._debugStore.workspaceId}`,
+			`total events: ${index.total}`,
+			`counts: ${JSON.stringify(index.counts, null, 2)}`,
+			'',
+			`recent ${recent.length} event(s):`,
+			'',
+		];
+
+		for (const event of recent) {
+			lines.push(`- [${new Date(event.timestamp).toISOString()}] ${event.type} (${event.id})`);
+			if ('stderr' in event && typeof event.stderr === 'string') {
+				lines.push(`  stderr preview: ${event.stderr.split('\n')[0].slice(0, 120)}`);
+			}
+			if ('stdout' in event && typeof event.stdout === 'string' && event.stdout) {
+				lines.push(`  stdout preview: ${event.stdout.split('\n')[0].slice(0, 120)}`);
+			}
+			if ('intent' in event) {
+				lines.push(`  intent: ${event.intent}`);
+			}
+			if ('diff' in event && typeof event.diff === 'string') {
+				lines.push(`  diff preview: ${event.diff.split('\n').slice(0, 3).join(' | ').slice(0, 120)}`);
+			}
+			if ('before' in event && 'after' in event) {
+				const beforeLines = typeof event.before === 'string' ? event.before.split('\n').length : 0;
+				const afterLines = typeof event.after === 'string' ? event.after.split('\n').length : 0;
+				lines.push(`  lines: ${beforeLines} -> ${afterLines}`);
+			}
+		}
+
+		return lines.join('\n');
+	}
+
+	private async _insertDebugLog(userText: string): Promise<void> {
+		const content = await this._buildDebugLogContent();
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugLog: true,
+			timestamp: Date.now(),
+		};
+
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
 
 	private _insertSystemPromptDebug(systemMessages: LLMRequest['messages'], userText: string): void {
 		const debugContent = [
@@ -80,6 +151,12 @@ export class ChatSession {
 
 	public setPromptBuilder(builder: SystemPromptBuilder): void {
 		this._promptBuilder = builder;
+	}
+
+	public setDebugStore(store: DebugJourneyStore, sessionId: string, workspaceId: string): void {
+		this._debugStore = store;
+		this._sessionId = sessionId;
+		this._workspaceId = workspaceId;
 	}
 
 	public setLLMConfig(config: LLMConfig): void {
@@ -196,6 +273,7 @@ export class ChatSession {
 				break;
 			case 'sendMessage':
 				this.addUserMessage(message.text, { intent: message.intent });
+				this._recordHintRequested(message.text, message.intent);
 				void this._callLLM(message.text, message.intent);
 				break;
 			case 'requestContainerToggle':
@@ -215,6 +293,29 @@ export class ChatSession {
 		}
 	}
 
+	private _recordHintRequested(userText: string, intent?: MessageIntent, fileUri?: string, selection?: string): void {
+		if (!intent || !HINT_INTENTS.includes(intent)) {
+			return;
+		}
+		if (!this._debugStore || !this._sessionId || !this._workspaceId) {
+			return;
+		}
+
+		const event: HintRequestedEvent = {
+			id: this._generateId(),
+			type: 'hint_requested',
+			timestamp: Date.now(),
+			sessionId: this._sessionId,
+			workspaceId: this._workspaceId,
+			fileUri,
+			intent,
+			userPrompt: userText,
+			selection,
+		};
+
+		void this._debugStore.append(event);
+	}
+
 	public startIntentResponse(intent: MessageIntent, userPrompt?: string): void {
 		const prompt = userPrompt ?? `/${intent}`;
 		this.addUserMessage(prompt, { intent, isCommandGenerated: true });
@@ -232,6 +333,10 @@ export class ChatSession {
 				messages = [...systemMessages, { role: 'user', content: userText }];
 				if (userText.trim() === '//show-prompt') {
 					this._insertSystemPromptDebug(systemMessages, userText);
+					return;
+				}
+				if (userText.trim() === '//show-log') {
+					await this._insertDebugLog(userText);
 					return;
 				}
 			} else {
