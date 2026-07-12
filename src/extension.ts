@@ -10,8 +10,9 @@ import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { checkGppAvailability, spawnGpp } from './compiler/compilerService';
-import { registerCompileOutputProvider, showCompileOutput, COMPILE_OUTPUT_SCHEME } from './compiler/outputPanel';
-import { extractErrorLocation } from './error/errorParser';
+import { registerCompileOutputProvider, showCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
+import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
+import type { CompileSelectionRange } from './error/errorParser';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
@@ -109,7 +110,8 @@ function createExplainSelectionHandler(
 	sessionId: string,
 	workspaceId: string,
 	selectedText?: string,
-	languageId?: string
+	languageId?: string,
+	selectionRange?: CompileSelectionRange
 ): () => void {
 	return () => {
 		const editor = vscode.window.activeTextEditor;
@@ -130,7 +132,20 @@ function createExplainSelectionHandler(
 
 		if (lang === COMPILE_OUTPUT_SCHEME) {
 			intent = 'error_explanation';
-			const parsed = extractErrorLocation(text);
+
+			const normalized = normalizeCompileOutputSelection(text, getCompileOutputContent(), selectionRange);
+			let parsed: ReturnType<typeof extractErrorLocation>;
+			let displayText: string;
+
+			if (normalized) {
+				parsed = normalized.primaryDiagnostic;
+				displayText = normalized.displayText;
+			} else {
+				const diagnosticLine = extractFirstDiagnosticLine(text);
+				parsed = diagnosticLine ? extractErrorLocation(diagnosticLine) : undefined;
+				displayText = text;
+			}
+
 			const knowledge = matchErrorToKnowledge(parsed?.message ?? text);
 			const knowledgeText = knowledge.length > 0
 				? knowledge.map((k) => `- ${k.tag}: ${k.message}`).join('\n')
@@ -139,7 +154,10 @@ function createExplainSelectionHandler(
 			prompt = [
 				'Explain this compile error in beginner-friendly language:',
 				'',
-				`Raw error: ${text}`,
+				'Raw error:',
+				'```',
+				displayText,
+				'```',
 				parsed
 					? `Location: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'}:${parsed.column ?? '?'}`
 					: 'Location: could not parse',
@@ -213,7 +231,8 @@ async function compileHandlerAsync(
 		return;
 	}
 
-	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource);
+	const relatedErrorId = await getLastCompileErrorEventId(debugStore, fileUri, workspaceId);
+	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource, relatedErrorId);
 
 	try {
 		const result = await spawnGpp(document.fileName);
@@ -271,7 +290,8 @@ async function recordCodeModificationIfChanged(
 	sessionId: string,
 	workspaceId: string,
 	document: vscode.TextDocument,
-	lastKnownSource: Map<string, string>
+	lastKnownSource: Map<string, string>,
+	relatedEventId?: string
 ): Promise<void> {
 	const fileUri = document.uri.toString();
 	const currentText = document.getText();
@@ -289,11 +309,21 @@ async function recordCodeModificationIfChanged(
 			after: currentText,
 			diff: computeLineDiff(previousText, currentText),
 			trigger: 'pre_compile',
+			relatedEventId,
 		};
 		await debugStore.append(event);
 	}
 
 	lastKnownSource.set(fileUri, currentText);
+}
+
+async function getLastCompileErrorEventId(
+	debugStore: DebugJourneyStore,
+	fileUri: string,
+	workspaceId: string
+): Promise<string | undefined> {
+	const last = await debugStore.getLastEvent({ workspaceId, fileUri, types: ['compile_error'] });
+	return last?.id;
 }
 
 const CLASSMATE_RUN_TERMINAL_NAME = 'ClassMate Run';
@@ -421,7 +451,8 @@ async function runCodeHandlerAsync(
 		return;
 	}
 
-	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource);
+	const relatedErrorId = await getLastCompileErrorEventId(debugStore, fileUri, workspaceId);
+	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource, relatedErrorId);
 
 	try {
 		const compileResult = await spawnGpp(document.fileName);
@@ -520,13 +551,23 @@ function explainErrorHandler(
 
 async function debugJourneyHandler(debugStore: DebugJourneyStore): Promise<void> {
 	const summary = await buildJourneySummary(debugStore);
-	const message = [
+
+	const resolvedCount = summary.lifecycles.filter((l) => l.resolvedAt).length;
+	const unresolvedCount = summary.lifecycles.length - resolvedCount;
+	const topConcept = summary.conceptProfiles[0];
+
+	const lines = [
 		`ClassMate Debug Journey: ${summary.totalEvents} events recorded.`,
-		`Compile errors: ${summary.compileErrors.length}`,
-		`Hints requested: ${summary.hintsRequested.length}`,
-		`Code modifications: ${summary.modifications.length}`,
-	].join(' ');
-	void vscode.window.showInformationMessage(message);
+		`Compile errors: ${summary.errorStats.totalCompileErrors}, successes: ${summary.errorStats.totalCompileSuccesses}.`,
+		`Tracked errors: ${resolvedCount} resolved, ${unresolvedCount} unresolved.`,
+		`Hints requested: ${summary.hintStats.totalHints}.`,
+	];
+
+	if (topConcept) {
+		lines.push(`Top struggle area: ${topConcept.tag} (${topConcept.occurrenceCount} occurrence(s)).`);
+	}
+
+	void vscode.window.showInformationMessage(lines.join(' '));
 }
 
 async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promise<void> {
@@ -663,6 +704,7 @@ export function activate(context: vscode.ExtensionContext): void {
 			handler: (...args: unknown[]) => {
 				const selectedText = typeof args[0] === 'string' ? args[0] : undefined;
 				const languageId = typeof args[1] === 'string' ? args[1] : undefined;
+				const selectionRange = isCompileSelectionRange(args[2]) ? args[2] : undefined;
 				createExplainSelectionHandler(
 					chatSession,
 					context.extensionUri,
@@ -671,7 +713,8 @@ export function activate(context: vscode.ExtensionContext): void {
 					sessionId,
 					workspaceId,
 					selectedText,
-					languageId
+					languageId,
+					selectionRange
 				)();
 			},
 		},
@@ -707,16 +750,35 @@ export function activate(context: vscode.ExtensionContext): void {
 		],
 	});
 
-	// Register inline "Explain" button for the compile-output virtual document.
+		// Register inline "Explain" button for the compile-output virtual document.
 	registerInlineExplainButton(context, {
 		selector: { scheme: COMPILE_OUTPUT_SCHEME },
-		buildArgs: (document, selectedText, selection) => {
-			// Use the full stderr line at the selection start so matching works
-			// even when the user only selected part of the error message.
-			const fullLine = document.lineAt(selection.start.line).text;
-			return [fullLine || selectedText, COMPILE_OUTPUT_SCHEME];
+		buildArgs: (_document, selectedText, selection) => {
+			// Pass the full selection plus a range hint so the handler can recover
+			// incomplete lines (e.g., partial single-line selections) using the full
+			// compile output, while still showing the user's exact selection to the LLM.
+			const range: CompileSelectionRange = {
+				startLine: selection.start.line,
+				startCharacter: selection.start.character,
+				endLine: selection.end.line,
+				endCharacter: selection.end.character,
+			};
+			return [selectedText, COMPILE_OUTPUT_SCHEME, range];
 		},
 	});
+
+	function isCompileSelectionRange(value: unknown): value is CompileSelectionRange {
+		if (typeof value !== 'object' || value === null) {
+			return false;
+		}
+		const r = value as Record<string, unknown>;
+		return (
+			typeof r.startLine === 'number' &&
+			typeof r.startCharacter === 'number' &&
+			typeof r.endLine === 'number' &&
+			typeof r.endCharacter === 'number'
+		);
+	}
 
 	// Status bar: compile & run button (visible when the active file's language is enabled).
 	const compileRunStatusBarItem = vscode.window.createStatusBarItem(

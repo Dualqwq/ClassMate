@@ -1,6 +1,12 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { extractErrorLocation, parseCompilerStderr } from '../error/errorParser';
+import {
+	extractErrorLocation,
+	extractFirstDiagnosticLine,
+	normalizeCompileOutputSelection,
+	parseCompilerStderr,
+	type CompileSelectionRange,
+} from '../error/errorParser';
 
 describe('Error Parser', () => {
 	it('parses GCC error with file, line, column', () => {
@@ -266,5 +272,247 @@ describe('Error Parser', () => {
 		assert.strictEqual(parsed?.column, 34);
 		assert.strictEqual(parsed?.severity, 'error');
 		assert.strictEqual(parsed?.message, 'invalid syntax');
+	});
+
+	it('extracts first diagnostic line from multi-line selection', () => {
+		const selection = [
+			"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:19:24: error: expected ';' before 'return'",
+			'   19 |     cout << ans << endl',
+			'      |                        ^',
+			'      |                        ;',
+		].join('\n');
+
+		const diagnosticLine = extractFirstDiagnosticLine(selection);
+		assert.ok(diagnosticLine);
+		assert.ok(diagnosticLine?.includes("expected ';' before 'return'"));
+
+		const parsed = extractErrorLocation(diagnosticLine!);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp');
+		assert.strictEqual(parsed?.line, 19);
+		assert.strictEqual(parsed?.column, 24);
+		assert.strictEqual(parsed?.severity, 'error');
+	});
+
+	it('parses Windows backslash path with Chinese directory names', () => {
+		const line = "c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:19:24: error: expected ';' before 'return'";
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp');
+		assert.strictEqual(parsed?.line, 19);
+		assert.strictEqual(parsed?.column, 24);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.message, "expected ';' before 'return'");
+	});
+
+	describe('normalizeCompileOutputSelection', () => {
+		const makeRange = (
+			startLine: number,
+			startCharacter: number,
+			endLine: number,
+			endCharacter: number
+		): CompileSelectionRange => ({
+			startLine,
+			startCharacter,
+			endLine,
+			endCharacter,
+		});
+
+		it('returns first error from complete multi-line block', () => {
+			const fullOutput = [
+				"main.cpp:5:10: error: expected ';' before 'return'",
+				'    5 |     int x = 1',
+				'      |          ^',
+				'      |          ;',
+			].join('\n');
+
+			const result = normalizeCompileOutputSelection(fullOutput, fullOutput, makeRange(0, 0, 3, 12));
+			assert.ok(result);
+			assert.strictEqual(result?.primaryDiagnostic.file, 'main.cpp');
+			assert.strictEqual(result?.primaryDiagnostic.line, 5);
+			assert.strictEqual(result?.primaryDiagnostic.message, "expected ';' before 'return'");
+			assert.strictEqual(result?.contextLines.length, 3);
+			assert.ok(result?.displayText.includes("expected ';' before 'return'"));
+			assert.ok(result?.displayText.includes('^'));
+			assert.strictEqual(result?.expanded, false);
+		});
+
+		it('expands partial single-line selection using full output', () => {
+			const fullOutput = "main.cpp:12:34: error: 'x' was not declared in this scope";
+			const selectedText = "'x' was not declared";
+			const range = makeRange(0, 27, 0, 47);
+
+			const result = normalizeCompileOutputSelection(selectedText, fullOutput, range);
+			assert.ok(result);
+			assert.strictEqual(result?.primaryDiagnostic.file, 'main.cpp');
+			assert.strictEqual(result?.primaryDiagnostic.line, 12);
+			assert.strictEqual(result?.primaryDiagnostic.column, 34);
+			assert.strictEqual(result?.primaryDiagnostic.message, "'x' was not declared in this scope");
+			assert.strictEqual(result?.contextLines.length, 0);
+			assert.strictEqual(result?.displayText, fullOutput);
+			assert.strictEqual(result?.expanded, false);
+		});
+
+		it('recovers owning diagnostic from caret-only selection', () => {
+			const fullOutput = [
+				"main.cpp:5:10: error: expected ';' before 'return'",
+				'    5 |     int x = 1',
+				'      |          ^',
+				'      |          ;',
+			].join('\n');
+			const selectedText = [
+				'    5 |     int x = 1',
+				'      |          ^',
+				'      |          ;',
+			].join('\n');
+
+			const result = normalizeCompileOutputSelection(selectedText, fullOutput, makeRange(1, 0, 3, 12));
+			assert.ok(result);
+			assert.strictEqual(result?.primaryDiagnostic.message, "expected ';' before 'return'");
+			assert.strictEqual(result?.contextLines.length, 3);
+			assert.ok(result?.displayText.includes('error:'));
+			assert.ok(result?.displayText.includes('^'));
+			assert.strictEqual(result?.expanded, true);
+		});
+
+		it('handles multiple incomplete diagnostics and prefers error over warning', () => {
+			const fullOutput = [
+				"main.cpp:5:10: error: expected ';' before 'return'",
+				'    5 |     int x = 1',
+				'      |          ^',
+				"main.cpp:8:5: warning: unused variable 'y' [-Wunused-variable]",
+				'    8 |     int y;',
+			].join('\n');
+			const selectedText = [
+				"pected ';' before 'return'",
+				'    5 |     int x = 1',
+				'      |          ^',
+				'main.cpp:8:5: warning: unused',
+			].join('\n');
+
+			const result = normalizeCompileOutputSelection(selectedText, fullOutput, makeRange(0, 10, 3, 30));
+			assert.ok(result);
+			assert.strictEqual(result?.primaryDiagnostic.message, "expected ';' before 'return'");
+			assert.strictEqual(result?.otherDiagnostics.length, 1);
+			assert.strictEqual(result?.otherDiagnostics[0].message, "unused variable 'y'");
+			assert.ok(result?.displayText.includes('Your selection also contains'));
+		});
+
+		it('returns undefined for non-diagnostic selection', () => {
+			const fullOutput = [
+				'Compiled: main.cpp',
+				'Exit code: 0',
+			].join('\n');
+			const result = normalizeCompileOutputSelection('Compiled: main.cpp', fullOutput, makeRange(0, 0, 0, 18));
+			assert.strictEqual(result, undefined);
+		});
+
+		it('does not expand beyond backward search limit', () => {
+			const fullOutput = [
+				"main.cpp:1:1: error: far away error",
+				...Array.from({ length: 25 }, (_, i) => `line ${i + 2}: context`),
+				'      |          ^',
+			].join('\n');
+
+			const result = normalizeCompileOutputSelection(
+				'      |          ^',
+				fullOutput,
+				makeRange(26, 0, 26, 18)
+			);
+			assert.strictEqual(result, undefined);
+		});
+
+		it('preserves Windows Chinese path when expanding partial line', () => {
+			const fullOutput = "c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:19:24: error: expected ';' before 'return'";
+			const selectedText = "expected ';' before 'return'";
+			const range = makeRange(0, 64, 0, 91);
+
+			const result = normalizeCompileOutputSelection(selectedText, fullOutput, range);
+			assert.ok(result);
+			assert.strictEqual(
+				result?.primaryDiagnostic.file,
+				'c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp'
+			);
+			assert.strictEqual(result?.primaryDiagnostic.line, 19);
+			assert.strictEqual(result?.primaryDiagnostic.column, 24);
+		});
+
+		it('recovers first error when user selects a fragment of the source snippet line', () => {
+			const fullOutput = [
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:13:16: error: 'a' was not declared in this scope",
+				'   13 |         cin >> a[i];',
+				'      |                ^',
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:16:27: error: expected primary-expression before ')' token",
+				'   16 |     for(int i = 0;i < n;i+) {',
+				'      |                           ^',
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:17:17: error: 'a' was not declared in this scope",
+				'   17 |         ans += (a[i] >= m)',
+				'      |                 ^',
+			].join('\n');
+
+			// User selects a fragment of the source snippet line belonging to the
+			// first error. The selection contains no diagnostic line itself.
+			const selectedText = 'cin >> a';
+			const range = makeRange(1, 16, 1, 24);
+
+			const result = normalizeCompileOutputSelection(selectedText, fullOutput, range);
+			assert.ok(result);
+			assert.strictEqual(result?.primaryDiagnostic.file, 'c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp');
+			assert.strictEqual(result?.primaryDiagnostic.line, 13);
+			assert.strictEqual(result?.primaryDiagnostic.column, 16);
+			assert.strictEqual(result?.primaryDiagnostic.message, "'a' was not declared in this scope");
+			assert.strictEqual(result?.expanded, true);
+			assert.ok(result?.displayText.includes('cin >> a[i];'));
+		});
+
+		it('captures all three errors when selection starts and ends inside source snippet lines', () => {
+			const fullOutput = [
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:13:16: error: 'a' was not declared in this scope",
+				'   13 |         cin >> a[i];',
+				'      |                ^',
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:16:27: error: expected primary-expression before ')' token",
+				'   16 |     for(int i = 0;i < n;i+) {',
+				'      |                           ^',
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:17:17: error: 'a' was not declared in this scope",
+				'   17 |         ans += (a[i] >= m)',
+				'      |                 ^',
+			].join('\n');
+
+			// User selection starts mid-way through the first source snippet line
+			// (" >> a[i];") and ends mid-way through the last source snippet line
+			// ("ans += (a["). The first diagnostic line is NOT in the selection,
+			// but the two remaining diagnostic lines are fully present.
+			const selectedText = [
+				' >> a[i];',
+				'      |                ^',
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:16:27: error: expected primary-expression before ')' token",
+				'   16 |     for(int i = 0;i < n;i+) {',
+				'      |                           ^',
+				"c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp:17:17: error: 'a' was not declared in this scope",
+				'   17 |         ans += (a[',
+			].join('\n');
+
+			const range = makeRange(1, 18, 7, 27);
+
+			const result = normalizeCompileOutputSelection(selectedText, fullOutput, range);
+			assert.ok(result);
+
+			// Primary diagnostic must be the first error, recovered by expanding
+			// the partial first line and then searching backwards.
+			assert.strictEqual(result?.primaryDiagnostic.file, 'c:\\Users\\14092\\Desktop\\智理杯\\test_directory\\test.cpp');
+			assert.strictEqual(result?.primaryDiagnostic.line, 13);
+			assert.strictEqual(result?.primaryDiagnostic.column, 16);
+			assert.strictEqual(result?.primaryDiagnostic.message, "'a' was not declared in this scope");
+
+			// The other two errors inside the selection must also be captured.
+			assert.strictEqual(result?.otherDiagnostics.length, 2);
+			const otherLines = result?.otherDiagnostics.map((d) => d.line).sort((a, b) => (a ?? 0) - (b ?? 0));
+			assert.deepStrictEqual(otherLines, [16, 17]);
+
+			assert.strictEqual(result?.expanded, true);
+			assert.ok(result?.displayText.includes('cin >> a[i];'));
+			assert.ok(result?.displayText.includes('for(int i = 0;i < n;i+) {'));
+			assert.ok(result?.displayText.includes('ans += (a[i] >= m)'));
+		});
 	});
 });

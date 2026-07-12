@@ -205,6 +205,36 @@ export function extractErrorLocation(line: string): ParsedError | undefined {
 }
 
 /**
+ * Given a block of compiler stderr text (possibly spanning multiple lines),
+ * return the first line that looks like a parseable diagnostic, or undefined
+ * if none is found.
+ *
+ * This is useful when the user selects multiple lines of output (e.g. the
+ * diagnostic line plus caret/fix-it context) but we only need the main
+ * diagnostic line to extract location, severity, and message.
+ */
+export function extractFirstDiagnosticLine(text: string): string | undefined {
+    for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+            continue;
+        }
+
+        // Fast heuristic: a diagnostic line contains a severity marker.
+        if (/:\s*(error|warning|note|remark):\s*/.test(trimmed)) {
+            return trimmed;
+        }
+
+        // Also accept "In file included from ..." context lines.
+        if (/^In file included from\s+/.test(trimmed)) {
+            return trimmed;
+        }
+    }
+
+    return undefined;
+}
+
+/**
  * Parse a full compiler stderr into individual diagnostic messages.
  *
  * This ignores caret/range lines and fix-it hints, returning only lines that
@@ -219,4 +249,211 @@ export function parseCompilerStderr(stderr: string): ParsedError[] {
         }
     }
     return errors;
+}
+
+/**
+ * Plain range describing a user selection inside the compile output panel.
+ * Line and character numbers are 0-based and match VS Code's Selection/Range
+ * semantics. Keeping this type free of vscode imports makes the normalizer
+ * easy to unit-test.
+ */
+export interface CompileSelectionRange {
+    readonly startLine: number;
+    readonly startCharacter: number;
+    readonly endLine: number;
+    readonly endCharacter: number;
+}
+
+/**
+ * Result of normalizing a user selection from the compile output panel.
+ */
+export interface NormalizedCompileSelection {
+    /** The main diagnostic to explain. */
+    readonly primaryDiagnostic: ParsedError;
+    /** Other diagnostics found inside the expanded selection, if any. */
+    readonly otherDiagnostics: ParsedError[];
+    /** Caret / fix-it / source-snippet lines that belong to the primary diagnostic. */
+    readonly contextLines: string[];
+    /** Human-readable block to show in the LLM prompt. */
+    readonly displayText: string;
+    /** True if the primary diagnostic was recovered by looking at full output. */
+    readonly expanded: boolean;
+}
+
+const BACKWARD_SEARCH_LIMIT = 20;
+
+function scoreDiagnosticSeverity(p: ParsedError): number {
+    if (p.severity === 'error') { return 3; }
+    if (p.severity === 'warning') { return 2; }
+    if (p.isIncludeContext) { return 0; }
+    return 1;
+}
+
+function findOwningDiagnostic(fullLines: string[], startLine: number): ParsedError | undefined {
+    // Search backwards from the selection start for the nearest diagnostic line.
+    // Prefer a non-include-context diagnostic, but fall back to include context.
+    let fallback: ParsedError | undefined;
+    const minLine = Math.max(0, startLine - BACKWARD_SEARCH_LIMIT);
+    for (let i = startLine; i >= minLine; i--) {
+        const parsed = extractErrorLocation(fullLines[i]);
+        if (!parsed) {
+            continue;
+        }
+        if (!parsed.isIncludeContext) {
+            return parsed;
+        }
+        if (!fallback) {
+            fallback = parsed;
+        }
+    }
+    return fallback;
+}
+
+/**
+ * Normalize an arbitrary user selection from the compile output panel into a
+ * primary diagnostic plus its caret/fix-it context.
+ *
+ * Handles four scenarios:
+ * 1. Complete multi-line block (diagnostic + caret/fix-it lines).
+ * 2. Partial single-line selection -> expanded to the full line.
+ * 3. Only caret/fix-it context -> primary diagnostic recovered from full output.
+ * 4. Multiple incomplete diagnostics -> first diagnostic is primary, rest listed.
+ *
+ * @param selectedText - The exact text selected by the user.
+ * @param fullOutput - The full content of the compile output panel.
+ * @param range - The selection range in fullOutput line/character coordinates.
+ * @returns Normalized selection, or undefined if no diagnostic could be found.
+ */
+export function normalizeCompileOutputSelection(
+    selectedText: string,
+    fullOutput: string,
+    range: CompileSelectionRange | undefined
+): NormalizedCompileSelection | undefined {
+    if (!selectedText.trim()) {
+        return undefined;
+    }
+
+    const fullLines = fullOutput.split(/\r?\n/);
+    const selectedLines = selectedText.split(/\r?\n/);
+
+    // Expand partial first/last lines to the full lines from fullOutput when we
+    // have a range hint.
+    let expandedLines: string[];
+    if (range && fullLines.length > 0) {
+        expandedLines = [...selectedLines];
+        const startWithinLine = range.startCharacter;
+        const startFullLine = fullLines[range.startLine] ?? '';
+        const endFullLine = fullLines[range.endLine] ?? '';
+
+        if (expandedLines.length > 0) {
+            expandedLines[0] = startFullLine;
+        }
+        if (expandedLines.length > 1) {
+            expandedLines[expandedLines.length - 1] = endFullLine;
+        } else {
+            // Single-line selection: expand both ends to the full line.
+            expandedLines[0] = startFullLine;
+        }
+    } else {
+        expandedLines = selectedLines;
+    }
+
+    // Parse every expanded line and collect candidates.
+    const candidates: { lineIndex: number; parsed: ParsedError }[] = [];
+    for (let i = 0; i < expandedLines.length; i++) {
+        const parsed = extractErrorLocation(expandedLines[i]);
+        if (parsed) {
+            candidates.push({ lineIndex: i, parsed });
+        }
+    }
+
+    let primary: ParsedError | undefined;
+    let expanded = false;
+    let primaryIndexInExpanded = 0;
+    let prependOwningDiagnostic = false;
+
+    if (candidates.length > 0) {
+        // If the first expanded line is not a diagnostic, the user may have
+        // started the selection inside a source-snippet/caret block. Try to
+        // recover the owning diagnostic from just before the selection so that
+        // the first error is not missed.
+        const firstExpandedIsDiagnostic = extractErrorLocation(expandedLines[0]) !== undefined;
+        if (!firstExpandedIsDiagnostic && range && fullLines.length > 0) {
+            const owning = findOwningDiagnostic(fullLines, range.startLine);
+            if (owning) {
+                candidates.push({ lineIndex: -1, parsed: owning });
+                prependOwningDiagnostic = true;
+            }
+        }
+
+        // Prefer error > warning > note/remark > include context.
+        // Within the same severity class, keep the first one in selection order.
+        candidates.sort((a, b) => {
+            const scoreDiff = scoreDiagnosticSeverity(b.parsed) - scoreDiagnosticSeverity(a.parsed);
+            return scoreDiff !== 0 ? scoreDiff : a.lineIndex - b.lineIndex;
+        });
+        primary = candidates[0].parsed;
+        primaryIndexInExpanded = candidates[0].lineIndex;
+        if (prependOwningDiagnostic) {
+            // The owning diagnostic was inserted at index -1; place it at the
+            // front of expandedLines so context collection works naturally.
+            expandedLines = [primary.raw, ...expandedLines];
+            primaryIndexInExpanded = 0;
+            expanded = true;
+        }
+    } else if (range && fullLines.length > 0) {
+        // No parseable line inside the selection: try to recover from full output.
+        const recovered = findOwningDiagnostic(fullLines, range.startLine);
+        if (recovered) {
+            primary = recovered;
+            expanded = true;
+            primaryIndexInExpanded = 0;
+            // Prepend the recovered diagnostic line so context collection works.
+            expandedLines = [recovered.raw, ...expandedLines];
+        }
+    }
+
+    if (!primary) {
+        return undefined;
+    }
+
+    // Collect context lines (caret/fix-it/source snippets) after the primary
+    // diagnostic, stopping at the next parseable diagnostic.
+    const contextLines: string[] = [];
+    for (let i = primaryIndexInExpanded + 1; i < expandedLines.length; i++) {
+        const line = expandedLines[i];
+        const parsed = extractErrorLocation(line);
+        if (parsed) {
+            break;
+        }
+        if (line.trim()) {
+            contextLines.push(line);
+        }
+    }
+
+    const otherDiagnostics = candidates
+        .filter((c) => c.parsed !== primary)
+        .map((c) => c.parsed);
+
+    // Build displayText from the expanded selection so that all diagnostics and
+    // their caret/fix-it context are visible to the LLM. The primary diagnostic
+    // is still identified separately for knowledge matching and location display.
+    let displayText = expandedLines.join('\n');
+    if (otherDiagnostics.length > 0) {
+        const extras = otherDiagnostics
+            .map((d) => `  - ${d.file ?? '?'}:${d.line ?? '?'}: ${d.message}`)
+            .join('\n');
+        displayText += `\n\nYour selection also contains these additional diagnostics:\n${extras}`;
+    }
+    if (expanded) {
+        displayText += '\n\n(Expanded from your selection using the full compile output.)';
+    }
+
+    return {
+        primaryDiagnostic: primary,
+        otherDiagnostics,
+        contextLines,
+        displayText,
+        expanded,
+    };
 }

@@ -22,6 +22,10 @@ class CompileOutputProvider implements vscode.TextDocumentContentProvider {
         return lines[lineNumber] ?? '';
     }
 
+    public getContent(uri: vscode.Uri): string {
+        return this._content.get(uri.toString()) ?? '';
+    }
+
     public provideTextDocumentContent(uri: vscode.Uri): string {
         return this._content.get(uri.toString()) ?? '';
     }
@@ -54,6 +58,14 @@ export function getCompileOutputLine(lineNumber: number): string {
     const provider = getProvider();
     return provider.getLine(COMPILE_OUTPUT_URI, lineNumber);
 }
+/**
+ * Get the full content of the current compile output document.
+ */
+export function getCompileOutputContent(): string {
+    const provider = getProvider();
+    return provider.getContent(COMPILE_OUTPUT_URI);
+}
+
 export async function showCompileOutput(content: string): Promise<void> {
     const provider = getProvider();
     provider.set(COMPILE_OUTPUT_URI, content);
