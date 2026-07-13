@@ -35,6 +35,7 @@
     "onCommand:classmate.refreshDebugJourneyTree",
     "onCommand:classmate.closeDebugJourneyTree",
     "onCommand:classmate.openDebugNodeDiff",
+    "onCommand:classmate.exportDebugNotebook",
     "onCommand:classmate.setupApiKey"
   ],
   "main": "./dist/extension.js",
@@ -93,6 +94,12 @@
         "title": "Open Diff",
         "category": "ClassMate",
         "icon": "$(diff)"
+      },
+      {
+        "command": "classmate.exportDebugNotebook",
+        "title": "Export Debug Notebook",
+        "category": "ClassMate",
+        "icon": "$(export)"
       },
       {
         "command": "classmate.openChatPanel",
@@ -190,6 +197,7 @@
           "when": "false"
         },
         { "command": "classmate.debugJourney" },
+        { "command": "classmate.exportDebugNotebook" },
         { "command": "classmate.setupApiKey" }
       ],
       "view/title": [
@@ -211,6 +219,11 @@
         {
           "command": "classmate.closeDebugJourneyTree",
           "group": "navigation@2",
+          "when": "view == classmate.debugJourneyTree"
+        },
+        {
+          "command": "classmate.exportDebugNotebook",
+          "group": "navigation@3",
           "when": "view == classmate.debugJourneyTree"
         }
       ],

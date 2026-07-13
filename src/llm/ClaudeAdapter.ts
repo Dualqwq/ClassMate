@@ -1,4 +1,4 @@
-import type { LLMAdapter, LLMMessage, LLMRequest, LLMStreamCallbacks } from './types';
+import type { LLMAdapter, LLMCompletionResult, LLMMessage, LLMRequest, LLMStreamCallbacks } from './types';
 
 // We avoid importing the full Anthropic SDK at the top level so this file can
 // be parsed even if the dependency is missing. The SDK is loaded lazily inside
@@ -66,6 +66,34 @@ export class ClaudeAdapter implements LLMAdapter {
 		const stream = client.messages.create(request as Record<string, unknown>);
 
 		this._consumeStream(stream, callbacks);
+	}
+
+	public async complete(req: LLMRequest): Promise<LLMCompletionResult> {
+		const Anthropic = this._loadSDK();
+		const client = new Anthropic({
+			apiKey: this._apiKey,
+			baseURL: this._baseURL,
+		});
+
+		const requestBody = { ...(this.buildRequest(req) as Record<string, unknown>), stream: false };
+		const response = await client.messages.create(requestBody);
+
+		const content = response.content;
+		const text = Array.isArray(content) && content.length > 0 ? content[0].text ?? '' : '';
+
+		const usage = response.usage;
+		if (usage && typeof usage === 'object') {
+			return {
+				content: text,
+				usage: {
+					inputTokens: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
+					outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+					totalTokens: typeof usage.total_tokens === 'number' ? usage.total_tokens : undefined,
+				},
+			};
+		}
+
+		return { content: text };
 	}
 
 	private async _consumeStream(

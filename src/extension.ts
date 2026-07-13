@@ -1,3 +1,4 @@
+import { buildNotebookInput, buildNotebookPrompt, formatNotebookFallback } from './debug/debugNotebook';
 import { DebugJourneyTreeProvider } from './ui/DebugJourneyTreeProvider';
 import { registerDebugSnapshotProvider, getSnapshotUri, registerSnapshot } from './debug/debugSnapshotProvider';
 import * as vscode from 'vscode';
@@ -6,7 +7,7 @@ import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
-import type { MessageIntent } from './chat/types';
+import type { LLMConfig, MessageIntent } from './chat/types';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
@@ -22,6 +23,10 @@ import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
 import { DebugJourneyStore } from './debug/debugJourneyStore';
 import { computeLineDiff } from './debug/diff';
 import { getWorkspaceId } from './debug/storagePath';
+import { ClaudeAdapter } from './llm/ClaudeAdapter';
+import { OpenAIAdapter } from './llm/OpenAIAdapter';
+import { DeepSeekAdapter } from './llm/DeepSeekAdapter';
+import type { LLMAdapter } from './llm/types';
 import type {
     CodeModifiedEvent,
     CompileErrorEvent,
@@ -569,6 +574,110 @@ function findDebugNodeById(
 	return search(provider.getRootNodes());
 }
 
+function createLLMAdapter(cfg: LLMConfig, apiKey: string | undefined): LLMAdapter | undefined {
+	const key = apiKey || '';
+	const baseURL = cfg.apiUrl || undefined;
+	switch (cfg.provider) {
+		case 'claude':
+			return new ClaudeAdapter({ apiKey: key, model: cfg.model, baseURL });
+		case 'openai':
+			return new OpenAIAdapter({ apiKey: key, model: cfg.model, baseURL });
+		case 'deepseek':
+			return new DeepSeekAdapter({ apiKey: key, model: cfg.model, baseURL });
+		default:
+			return undefined;
+	}
+}
+
+interface CompletionOutcome {
+	content: string;
+	usage?: import('./llm/types').LLMTokenUsage;
+}
+
+async function completeWithAdapter(adapter: LLMAdapter, req: import('./llm/types').LLMRequest): Promise<CompletionOutcome> {
+	if (adapter.complete) {
+		return adapter.complete(req);
+	}
+
+	return new Promise((resolve, reject) => {
+		let content = '';
+		adapter.streamResponse(adapter.buildRequest(req), {
+			onToken: (token) => {
+				content += token;
+			},
+			onError: (error) => reject(error),
+			onComplete: () => resolve({ content }),
+		});
+	});
+}
+
+async function exportDebugNotebookHandler(
+	context: vscode.ExtensionContext,
+	debugStore: DebugJourneyStore
+): Promise<void> {
+	const input = await buildNotebookInput(debugStore);
+	const prompt = buildNotebookPrompt(input);
+
+	let markdown: string;
+	let actualUsage: import('./llm/types').LLMTokenUsage | undefined;
+	const cfg = await getLLMConfig(context);
+	const apiKey = await getApiKey(context);
+
+	if (cfg && apiKey) {
+		const adapter = createLLMAdapter(cfg, apiKey);
+		if (adapter) {
+			const progressMessage = `正在生成 Debug 错题本...`;
+			const result = await vscode.window.withProgress(
+				{ location: vscode.ProgressLocation.Notification, title: progressMessage, cancellable: false },
+				async () => {
+					try {
+						return await completeWithAdapter(adapter, { messages: prompt.messages });
+					} catch (error) {
+						void vscode.window.showWarningMessage(
+							`LLM 生成失败，将使用模板导出：${error instanceof Error ? error.message : String(error)}`
+						);
+						return { content: formatNotebookFallback(input) };
+					}
+				}
+			);
+			markdown = result.content;
+			actualUsage = result.usage;
+		} else {
+			void vscode.window.showInformationMessage('未识别 LLM 提供商，将使用模板导出错题本。');
+			markdown = formatNotebookFallback(input);
+		}
+	} else {
+		void vscode.window.showInformationMessage('未配置 API key，将使用模板导出错题本。');
+		markdown = formatNotebookFallback(input);
+	}
+
+	if (!markdown.trim()) {
+		markdown = formatNotebookFallback(input);
+	}
+
+	const dateSuffix = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+	const defaultUri = vscode.Uri.file(`classmate-debug-notebook-${debugStore.workspaceId}-${dateSuffix}.md`);
+
+	const saveUri = await vscode.window.showSaveDialog({
+		defaultUri,
+		filters: { Markdown: ['md'] },
+		saveLabel: 'Export Notebook',
+	});
+
+	if (!saveUri) {
+		return;
+	}
+
+	await vscode.workspace.fs.writeFile(saveUri, Buffer.from(markdown, 'utf-8'));
+
+	const usageMessage = actualUsage
+		? `Debug 错题本已导出。本次实际消耗：${actualUsage.inputTokens} input / ${actualUsage.outputTokens} output tokens。`
+		: 'Debug 错题本已导出。';
+	void vscode.window.showInformationMessage(usageMessage);
+
+	await vscode.window.showTextDocument(saveUri);
+}
+
 async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promise<void> {
 	await setupApiKey(context);
 }
@@ -783,6 +892,10 @@ export function activate(context: vscode.ExtensionContext): void {
 					: 'Code edit';
 				void vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, title);
 			},
+		},
+		{
+			id: 'classmate.exportDebugNotebook',
+			handler: () => void exportDebugNotebookHandler(context, debugStore),
 		},
 		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) },
 	];

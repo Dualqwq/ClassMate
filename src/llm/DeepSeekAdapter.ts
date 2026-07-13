@@ -1,5 +1,5 @@
 import { OpenAIAdapter } from './OpenAIAdapter';
-import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from './types';
+import type { LLMAdapter, LLMCompletionResult, LLMRequest, LLMStreamCallbacks } from './types';
 
 export interface DeepSeekAdapterOptions {
 	apiKey: string;
@@ -30,5 +30,9 @@ export class DeepSeekAdapter implements LLMAdapter {
 
 	public streamResponse(request: unknown, callbacks: LLMStreamCallbacks): void {
 		return this._adapter.streamResponse(request, callbacks);
+	}
+
+	public async complete(req: LLMRequest): Promise<LLMCompletionResult> {
+		return this._adapter.complete(req);
 	}
 }

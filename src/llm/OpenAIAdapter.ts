@@ -1,4 +1,4 @@
-import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from './types';
+import type { LLMAdapter, LLMCompletionResult, LLMRequest, LLMStreamCallbacks } from './types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type OpenAISDK = any;
@@ -43,6 +43,34 @@ export class OpenAIAdapter implements LLMAdapter {
 		});
 
 		void this._doStream(client, request as Record<string, unknown>, callbacks);
+	}
+
+	public async complete(req: LLMRequest): Promise<LLMCompletionResult> {
+		const OpenAI = this._loadSDK();
+		const client = new OpenAI({
+			apiKey: this._apiKey,
+			baseURL: this._baseURL,
+		});
+
+		const requestBody = { ...(this.buildRequest(req) as Record<string, unknown>), stream: false };
+		const response = await client.chat.completions.create(requestBody);
+
+		const message = response.choices?.[0]?.message;
+		const text = typeof message?.content === 'string' ? message.content : '';
+
+		const usage = response.usage;
+		if (usage && typeof usage === 'object') {
+			return {
+				content: text,
+				usage: {
+					inputTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0,
+					outputTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0,
+					totalTokens: typeof usage.total_tokens === 'number' ? usage.total_tokens : undefined,
+				},
+			};
+		}
+
+		return { content: text };
 	}
 
 	private async _doStream(
