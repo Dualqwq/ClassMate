@@ -151,7 +151,9 @@
         },
         "classmate.enabledLanguages": {
           "type": "array",
-          "default": ["cpp"],
+          "default": [
+            "cpp"
+          ],
           "items": {
             "type": "string"
           },
@@ -184,21 +186,43 @@
     },
     "menus": {
       "commandPalette": [
-        { "command": "classmate.openChat" },
-        { "command": "classmate.openChatPanel" },
-        { "command": "classmate.focusChatView" },
-        { "command": "classmate.hideChatView" },
-        { "command": "classmate.toggleChatContainer" },
-        { "command": "classmate.compile" },
-        { "command": "classmate.runCode" },
-        { "command": "classmate.explainSelection" },
+        {
+          "command": "classmate.openChat"
+        },
+        {
+          "command": "classmate.openChatPanel"
+        },
+        {
+          "command": "classmate.focusChatView"
+        },
+        {
+          "command": "classmate.hideChatView"
+        },
+        {
+          "command": "classmate.toggleChatContainer"
+        },
+        {
+          "command": "classmate.compile"
+        },
+        {
+          "command": "classmate.runCode"
+        },
+        {
+          "command": "classmate.explainSelection"
+        },
         {
           "command": "classmate.explainError",
           "when": "false"
         },
-        { "command": "classmate.debugJourney" },
-        { "command": "classmate.exportDebugNotebook" },
-        { "command": "classmate.setupApiKey" }
+        {
+          "command": "classmate.debugJourney"
+        },
+        {
+          "command": "classmate.exportDebugNotebook"
+        },
+        {
+          "command": "classmate.setupApiKey"
+        }
       ],
       "view/title": [
         {
@@ -285,26 +309,27 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.5.0",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "vsce": "^2.15.0"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-syntax-highlighter": "^15.5.11",
     "@types/vscode": "^1.125.0",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "24.x",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
     "concurrently": "^9.1.2",
     "esbuild": "^0.24.2",
-    "typescript-eslint": "^8.61.1",
     "eslint": "^10.5.0",
-    "typescript": "^6.0.3",
     "ts-loader": "^9.6.2",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1",
     "webpack": "^5.107.2",
-    "webpack-cli": "^7.0.3",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.0.0"
+    "webpack-cli": "^7.0.3"
   },
   "overrides": {
     "serialize-javascript": "^7.0.6"
