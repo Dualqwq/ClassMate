@@ -1,3 +1,5 @@
+import { DebugJourneyTreeProvider } from './ui/DebugJourneyTreeProvider';
+import { registerDebugSnapshotProvider, getSnapshotUri, registerSnapshot } from './debug/debugSnapshotProvider';
 import * as vscode from 'vscode';
 import { spawnSync } from 'child_process';
 import { ChatPanel } from './ui/ChatPanel';
@@ -18,7 +20,6 @@ import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
 import { DebugJourneyStore } from './debug/debugJourneyStore';
-import { buildJourneySummary } from './debug/debugJourneySummary';
 import { computeLineDiff } from './debug/diff';
 import { getWorkspaceId } from './debug/storagePath';
 import type {
@@ -549,25 +550,23 @@ function explainErrorHandler(
 	};
 }
 
-async function debugJourneyHandler(debugStore: DebugJourneyStore): Promise<void> {
-	const summary = await buildJourneySummary(debugStore);
-
-	const resolvedCount = summary.lifecycles.filter((l) => l.resolvedAt).length;
-	const unresolvedCount = summary.lifecycles.length - resolvedCount;
-	const topConcept = summary.conceptProfiles[0];
-
-	const lines = [
-		`ClassMate Debug Journey: ${summary.totalEvents} events recorded.`,
-		`Compile errors: ${summary.errorStats.totalCompileErrors}, successes: ${summary.errorStats.totalCompileSuccesses}.`,
-		`Tracked errors: ${resolvedCount} resolved, ${unresolvedCount} unresolved.`,
-		`Hints requested: ${summary.hintStats.totalHints}.`,
-	];
-
-	if (topConcept) {
-		lines.push(`Top struggle area: ${topConcept.tag} (${topConcept.occurrenceCount} occurrence(s)).`);
+function findDebugNodeById(
+	provider: DebugJourneyTreeProvider,
+	eventId: string
+): import('./debug/debugJourneyTreeNodes').DebugJourneyNode | undefined {
+	function search(nodes: import('./debug/debugJourneyTreeNodes').DebugJourneyNode[]): import('./debug/debugJourneyTreeNodes').DebugJourneyNode | undefined {
+		for (const node of nodes) {
+			if (node.eventId === eventId) {
+				return node;
+			}
+			const found = search(node.children);
+			if (found) {
+				return found;
+			}
+		}
+		return undefined;
 	}
-
-	void vscode.window.showInformationMessage(lines.join(' '));
+	return search(provider.getRootNodes());
 }
 
 async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promise<void> {
@@ -631,6 +630,20 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider)
 	);
+
+	// Register the Debug Journey tree view and snapshot provider.
+	registerDebugSnapshotProvider(context);
+	const debugJourneyProvider = new DebugJourneyTreeProvider(debugStore);
+	const debugJourneyTreeView = vscode.window.createTreeView(DebugJourneyTreeProvider.viewType, {
+		treeDataProvider: debugJourneyProvider,
+		showCollapseAll: true,
+	});
+	context.subscriptions.push(debugJourneyTreeView);
+
+	// The Debug Journey view lives below ChatView in the same sidebar, collapsed
+	// by default. It loads data eagerly but only takes space once the user expands
+	// a node, so it stays out of the way until needed.
+	void vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', true);
 
 	// Track which container a message is currently targeting.
 	let currentContainer: ChatContainer = 'view';
@@ -729,7 +742,48 @@ export function activate(context: vscode.ExtensionContext): void {
 				workspaceId
 			),
 		},
-		{ id: 'classmate.debugJourney', handler: () => void debugJourneyHandler(debugStore) },
+		{
+			id: 'classmate.debugJourney',
+			handler: async () => {
+				await debugJourneyProvider.load();
+				await vscode.commands.executeCommand(`${DebugJourneyTreeProvider.viewType}.focus`);
+			},
+		},
+		{
+			id: 'classmate.refreshDebugJourneyTree',
+			handler: () => debugJourneyProvider.refresh(),
+		},
+		{
+			id: 'classmate.closeDebugJourneyTree',
+			handler: async () => {
+				// Collapse the view by hiding it from the sidebar. The user can reopen
+				// it from the command palette or by clicking the sidebar border.
+				await vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', false);
+				await vscode.commands.executeCommand('workbench.action.closeSidebar');
+			},
+		},
+		{
+			id: 'classmate.openDebugNodeDiff',
+			handler: (...args: unknown[]) => {
+				const eventId = typeof args[0] === 'string' ? args[0] : undefined;
+				const fileUri = typeof args[1] === 'string' ? args[1] : undefined;
+				if (!eventId) {
+					return;
+				}
+				const node = findDebugNodeById(debugJourneyProvider, eventId);
+				if (!node || !node.snapshot) {
+					void vscode.window.showWarningMessage('No diff snapshot available for this node.');
+					return;
+				}
+				registerSnapshot(eventId, node.snapshot.before, node.snapshot.after);
+				const beforeUri = getSnapshotUri(eventId, 'before');
+				const afterUri = getSnapshotUri(eventId, 'after');
+				const title = fileUri
+					? `${fileUri.split(/[\\/]/).pop() ?? fileUri} (edit)`
+					: 'Code edit';
+				void vscode.commands.executeCommand('vscode.diff', beforeUri, afterUri, title);
+			},
+		},
 		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) },
 	];
 

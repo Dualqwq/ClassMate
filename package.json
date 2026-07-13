@@ -21,6 +21,7 @@
   "activationEvents": [
     "onLanguage:cpp",
     "onView:classmate.chatView",
+    "onView:classmate.debugJourneyTree",
     "onCommand:classmate.openChat",
     "onCommand:classmate.openChatPanel",
     "onCommand:classmate.focusChatView",
@@ -31,6 +32,9 @@
     "onCommand:classmate.explainSelection",
     "onCommand:classmate.explainError",
     "onCommand:classmate.debugJourney",
+    "onCommand:classmate.refreshDebugJourneyTree",
+    "onCommand:classmate.closeDebugJourneyTree",
+    "onCommand:classmate.openDebugNodeDiff",
     "onCommand:classmate.setupApiKey"
   ],
   "main": "./dist/extension.js",
@@ -71,6 +75,24 @@
         "title": "Open Debug Journey",
         "category": "ClassMate",
         "icon": "$(history)"
+      },
+      {
+        "command": "classmate.refreshDebugJourneyTree",
+        "title": "Refresh Debug Journey",
+        "category": "ClassMate",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "classmate.closeDebugJourneyTree",
+        "title": "Close Debug Journey",
+        "category": "ClassMate",
+        "icon": "$(close)"
+      },
+      {
+        "command": "classmate.openDebugNodeDiff",
+        "title": "Open Diff",
+        "category": "ClassMate",
+        "icon": "$(diff)"
       },
       {
         "command": "classmate.openChatPanel",
@@ -145,6 +167,11 @@
           "id": "classmate.chatView",
           "name": "Chat",
           "type": "webview"
+        },
+        {
+          "id": "classmate.debugJourneyTree",
+          "name": "Debug Journey",
+          "type": "tree"
         }
       ]
     },
@@ -175,6 +202,28 @@
           "command": "classmate.hideChatView",
           "group": "navigation@2",
           "when": "view == classmate.chatView"
+        },
+        {
+          "command": "classmate.refreshDebugJourneyTree",
+          "group": "navigation@1",
+          "when": "view == classmate.debugJourneyTree"
+        },
+        {
+          "command": "classmate.closeDebugJourneyTree",
+          "group": "navigation@2",
+          "when": "view == classmate.debugJourneyTree"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "classmate.openDebugNodeDiff",
+          "group": "inline@1",
+          "when": "view == classmate.debugJourneyTree && viewItem == codeModifiedNode"
+        },
+        {
+          "command": "classmate.openDebugNodeDiff",
+          "group": "9_debugJourney@1",
+          "when": "view == classmate.debugJourneyTree && viewItem == codeModifiedNode"
         }
       ],
       "editor/title": [
