@@ -1,4 +1,5 @@
-import type { LLMAdapter, LLMCompletionResult, LLMRequest, LLMStreamCallbacks } from './types';
+import type { LLMAdapter, LLMCompletionResult, LLMRequest, LLMStreamCallbacks, LLMTokenUsage } from './types';
+import { buildTextWithAttachments } from './messageContent';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type OpenAISDK = any;
@@ -27,9 +28,18 @@ export class OpenAIAdapter implements LLMAdapter {
 			model: req.model ?? this._model,
 			messages: req.messages.map((m) => ({
 				role: m.role,
-				content: m.content,
+				content: m.images?.length
+					? [
+						{ type: 'text', text: buildTextWithAttachments(m) },
+						...m.images.map((image) => ({
+							type: 'image_url',
+							image_url: { url: image.dataUrl },
+						})),
+					]
+					: buildTextWithAttachments(m),
 			})),
 			stream: true,
+			stream_options: { include_usage: true },
 			max_tokens: req.maxTokens ?? 4096,
 			...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
 		};
@@ -52,21 +62,21 @@ export class OpenAIAdapter implements LLMAdapter {
 			baseURL: this._baseURL,
 		});
 
-		const requestBody = { ...(this.buildRequest(req) as Record<string, unknown>), stream: false };
+		const requestBody: Record<string, unknown> = {
+			...(this.buildRequest(req) as Record<string, unknown>),
+			stream: false,
+		};
+		delete requestBody.stream_options;
 		const response = await client.chat.completions.create(requestBody);
 
 		const message = response.choices?.[0]?.message;
 		const text = typeof message?.content === 'string' ? message.content : '';
 
-		const usage = response.usage;
-		if (usage && typeof usage === 'object') {
+		const usage = normalizeOpenAIUsage(response.usage);
+		if (usage) {
 			return {
 				content: text,
-				usage: {
-					inputTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0,
-					outputTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0,
-					totalTokens: typeof usage.total_tokens === 'number' ? usage.total_tokens : undefined,
-				},
+				usage,
 			};
 		}
 
@@ -86,6 +96,10 @@ export class OpenAIAdapter implements LLMAdapter {
 				if (delta) {
 					callbacks.onToken(delta);
 				}
+				const usage = normalizeOpenAIUsage(chunk.usage);
+				if (usage) {
+					callbacks.onUsage?.(usage);
+				}
 			}
 			callbacks.onComplete?.();
 		} catch (error) {
@@ -103,4 +117,23 @@ export class OpenAIAdapter implements LLMAdapter {
 			);
 		}
 	}
+}
+
+/** Normalize OpenAI-compatible usage, including DeepSeek cache statistics. */
+export function normalizeOpenAIUsage(value: unknown): LLMTokenUsage | undefined {
+	if (!value || typeof value !== 'object') {
+		return undefined;
+	}
+	const usage = value as Record<string, unknown>;
+	return {
+		inputTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0,
+		outputTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0,
+		totalTokens: typeof usage.total_tokens === 'number' ? usage.total_tokens : undefined,
+		cacheHitTokens: typeof usage.prompt_cache_hit_tokens === 'number'
+			? usage.prompt_cache_hit_tokens
+			: undefined,
+		cacheMissTokens: typeof usage.prompt_cache_miss_tokens === 'number'
+			? usage.prompt_cache_miss_tokens
+			: undefined,
+	};
 }
