@@ -1,5 +1,4 @@
 import type { LLMAdapter, LLMCompletionResult, LLMMessage, LLMRequest, LLMStreamCallbacks } from './types';
-import { buildTextWithAttachments } from './messageContent';
 
 // We avoid importing the full Anthropic SDK at the top level so this file can
 // be parsed even if the dependency is missing. The SDK is loaded lazily inside
@@ -36,22 +35,7 @@ export class ClaudeAdapter implements LLMAdapter {
 		const systemBlocks = this._buildSystemBlocks(req.messages);
 		const conversationMessages = req.messages
 			.filter((m): m is LLMMessage & { role: 'user' | 'assistant' } => m.role !== 'system')
-			.map((m) => ({
-				role: m.role,
-				content: m.images?.length
-					? [
-						{ type: 'text', text: buildTextWithAttachments(m) },
-						...m.images.map((image) => ({
-							type: 'image',
-							source: {
-								type: 'base64',
-								media_type: image.mimeType,
-								data: image.dataUrl.replace(/^data:[^;]+;base64,/, ''),
-							},
-						})),
-					]
-					: buildTextWithAttachments(m),
-			}));
+			.map((m) => ({ role: m.role, content: m.content }));
 
 		const body: Record<string, unknown> = {
 			model: req.model ?? this._model,

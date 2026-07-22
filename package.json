@@ -19,7 +19,6 @@
     "debug"
   ],
   "activationEvents": [
-    "onLanguage:c",
     "onLanguage:cpp",
     "onView:classmate.chatView",
     "onView:classmate.debugJourneyTree",
@@ -153,7 +152,6 @@
         "classmate.enabledLanguages": {
           "type": "array",
           "default": [
-            "c",
             "cpp"
           ],
           "items": {
@@ -269,19 +267,19 @@
         {
           "command": "classmate.compile",
           "group": "navigation@1",
-          "when": "editorLangId == c || editorLangId == cpp"
+          "when": "true"
         },
         {
           "command": "classmate.runCode",
           "group": "navigation@2",
-          "when": "editorLangId == c || editorLangId == cpp"
+          "when": "true"
         }
       ],
       "editor/context": [
         {
           "command": "classmate.explainSelection",
           "group": "2_classmate@1",
-          "when": "editorHasSelection && (editorLangId == c || editorLangId == cpp)"
+          "when": "editorHasSelection"
         }
       ]
     }
@@ -307,7 +305,6 @@
     "diff": "^8.0.4",
     "gray-matter": "^4.0.3",
     "openai": "^4.77.0",
-    "pdf-parse": "^1.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
@@ -319,7 +316,6 @@
     "@types/diff": "^7.0.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "24.x",
-    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-syntax-highlighter": "^15.5.11",

@@ -2,7 +2,6 @@ import * as React from 'react';
 import type { ChatMessage } from '../../../src/chat/types';
 import { getIntentDisplay } from '../utils/intentConfig';
 import { MarkdownRenderer } from './MarkdownRenderer';
-import { sendMessage } from '../vscodeApi';
 
 interface MessageBubbleProps {
 	message: ChatMessage;
@@ -176,53 +175,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 					lineHeight: '1.5',
 				}}
 			>
-				{message.images && message.images.length > 0 && (
-					<div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-						{message.images.map((image, index) => (
-							<img
-								key={`${image.name}-${index}`}
-								src={image.dataUrl}
-								alt={image.name}
-								style={{ maxWidth: '180px', maxHeight: '140px', objectFit: 'contain', borderRadius: '6px' }}
-							/>
-						))}
-					</div>
-				)}
-				{message.attachments && message.attachments.length > 0 && (
-					<div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '8px' }}>
-						{message.attachments.map((attachment, index) => (
-							<span
-								key={`${attachment.name}-${index}`}
-								style={{ border: '1px solid var(--vscode-panel-border)', borderRadius: '5px', padding: '3px 6px', fontSize: '10px' }}
-							>
-								📎 {attachment.name}
-							</span>
-						))}
-					</div>
-				)}
-				{message.references && message.references.length > 0 && (
-					<div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '7px' }}>
-						{message.references.map((reference, index) => (
-							<button
-								key={`${reference.uri}-${index}`}
-								onClick={() => sendMessage({ type: 'openReference', reference })}
-								title={reference.uri}
-								style={{
-									border: '1px solid var(--vscode-panel-border)',
-									borderRadius: '5px',
-									background: 'transparent',
-									color: 'inherit',
-									cursor: 'pointer',
-									fontSize: '10px',
-									padding: '2px 6px',
-								}}
-							>
-								⌘ {reference.label}
-								{reference.startLine ? `:${reference.startLine}` : ''}
-							</button>
-						))}
-					</div>
-				)}
 				{intentDisplay && (
 					<div
 						style={{
@@ -244,37 +196,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 				{isUser ? getDisplayContent(message) : <MarkdownRenderer content={message.content} />}
 				{message.role === 'assistant' && isCurrentStream && (
 					<span style={{ opacity: 0.6, marginLeft: '2px' }}>▋</span>
-				)}
-				{message.role === 'assistant' && message.usage && !isCurrentStream && (
-					<div
-						style={{
-							marginTop: '8px',
-							fontSize: '10px',
-							color: 'var(--vscode-descriptionForeground)',
-						}}
-					>
-						Input {message.usage.inputTokens} · Output {message.usage.outputTokens}
-						{message.usage.cacheHitTokens !== undefined &&
-							` · Cache hit ${message.usage.cacheHitTokens}`}
-						{message.usage.cacheMissTokens !== undefined &&
-							` · Cache miss ${message.usage.cacheMissTokens}`}
-					</div>
-				)}
-				{message.role === 'assistant' && message.proposedEdit && !isCurrentStream && (
-					<button
-						onClick={() => sendMessage({ type: 'applyProposedEdit', messageId: message.id })}
-						style={{
-							marginTop: '10px',
-							padding: '6px 10px',
-							border: 'none',
-							borderRadius: '5px',
-							background: 'var(--vscode-button-background)',
-							color: 'var(--vscode-button-foreground)',
-							cursor: 'pointer',
-						}}
-					>
-						Apply to {message.proposedEdit.fileName}
-					</button>
 				)}
 			</div>
 		</div>

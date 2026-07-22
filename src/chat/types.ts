@@ -16,8 +16,7 @@ export type MessageIntent =
 	| 'concept_explanation'
 	| 'error_explanation'
 	| 'debug_suggestion'
-	| 'summary'
-	| 'code_edit';
+	| 'summary';
 
 export interface ChatMessage {
 	id: string;
@@ -31,56 +30,6 @@ export interface ChatMessage {
 	isDebugJourney?: boolean;
 	isKnowledgeCards?: boolean;
 	timestamp: number;
-	usage?: import('../llm/types').LLMTokenUsage;
-	references?: ChatReference[];
-	images?: ChatImage[];
-	attachments?: ChatAttachment[];
-	proposedEdit?: ProposedCodeEdit;
-}
-
-export interface ChatImage {
-	name: string;
-	mimeType: string;
-	dataUrl: string;
-}
-
-export interface ChatAttachment {
-	name: string;
-	mimeType: string;
-	size: number;
-	content?: string;
-	dataUrl?: string;
-}
-
-export interface ProposedCodeEdit {
-	uri: string;
-	fileName: string;
-	newText: string;
-	expectedText: string;
-}
-
-export interface ChatReference {
-	label: string;
-	uri: string;
-	startLine?: number;
-	endLine?: number;
-}
-
-export interface ChatConversationSummary {
-	id: string;
-	title: string;
-	createdAt: number;
-	updatedAt: number;
-}
-
-export interface PersistedChatConversation extends ChatConversationSummary {
-	messages: ChatMessage[];
-	inputDraft: string;
-}
-
-export interface PersistedChatData {
-	activeConversationId: string;
-	conversations: PersistedChatConversation[];
 }
 
 export interface ChatState {
@@ -88,8 +37,6 @@ export interface ChatState {
 	inputDraft: string;
 	isStreaming: boolean;
 	currentStreamMessageId: string | null;
-	activeConversationId: string;
-	conversations: ChatConversationSummary[];
 }
 
 export interface WebviewPresenter {
@@ -99,15 +46,11 @@ export interface WebviewPresenter {
 
 // Messages sent from the webview frontend to the extension host.
 export type WebviewToExtensionMessage =
-	| { type: 'sendMessage'; text: string; intent?: MessageIntent; images?: ChatImage[]; attachments?: ChatAttachment[] }
+	| { type: 'sendMessage'; text: string; intent?: MessageIntent }
 	| { type: 'inputDraftChanged'; text: string }
 	| { type: 'requestContainerToggle' }
 	| { type: 'requestLLMConfig' }
-	| { type: 'saveLLMConfig'; provider: LLMProvider; model: string; apiKey?: string; apiUrl?: string }
-	| { type: 'newConversation' }
-	| { type: 'switchConversation'; conversationId: string }
-	| { type: 'openReference'; reference: ChatReference }
-	| { type: 'applyProposedEdit'; messageId: string };
+	| { type: 'saveLLMConfig'; provider: LLMProvider; model: string; apiKey?: string; apiUrl?: string };
 
 // Messages sent from the extension host to the webview frontend.
 export type ExtensionToWebviewMessage =

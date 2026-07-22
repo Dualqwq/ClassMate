@@ -6,21 +6,6 @@ export type LLMRole = 'system' | 'user' | 'assistant';
 export interface LLMMessage {
 	role: LLMRole;
 	content: string;
-	images?: LLMImage[];
-	attachments?: LLMAttachment[];
-}
-
-export interface LLMAttachment {
-	name: string;
-	mimeType: string;
-	content?: string;
-	size: number;
-}
-
-export interface LLMImage {
-	name: string;
-	mimeType: string;
-	dataUrl: string;
 }
 
 export interface LLMRequest {
@@ -32,7 +17,6 @@ export interface LLMRequest {
 
 export interface LLMStreamCallbacks {
 	onToken: (token: string) => void;
-	onUsage?: (usage: LLMTokenUsage) => void;
 	onError?: (error: Error) => void;
 	onComplete?: () => void;
 }
@@ -44,8 +28,6 @@ export interface LLMTokenUsage {
 	outputTokens: number;
 	/** Total tokens when reported by the provider. */
 	totalTokens?: number;
-	cacheHitTokens?: number;
-	cacheMissTokens?: number;
 }
 
 export interface LLMCompletionResult {
