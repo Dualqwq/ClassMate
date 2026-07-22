@@ -7,7 +7,7 @@ import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
-import type { LLMConfig, MessageIntent } from './chat/types';
+import type { ChatReference, LLMConfig, MessageIntent, PersistedChatData } from './chat/types';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
@@ -601,12 +601,14 @@ async function completeWithAdapter(adapter: LLMAdapter, req: import('./llm/types
 
 	return new Promise((resolve, reject) => {
 		let content = '';
+		let usage: import('./llm/types').LLMTokenUsage | undefined;
 		adapter.streamResponse(adapter.buildRequest(req), {
 			onToken: (token) => {
 				content += token;
 			},
 			onError: (error) => reject(error),
-			onComplete: () => resolve({ content }),
+			onUsage: (reportedUsage) => { usage = reportedUsage; },
+			onComplete: () => resolve({ content, usage }),
 		});
 	});
 }
@@ -727,6 +729,36 @@ export function activate(context: vscode.ExtensionContext): void {
 	// Initialize the workspace context provider and load project context.
 	const workspaceProvider = new WorkspaceContextProvider();
 	void workspaceProvider.refresh();
+
+	const chatStorageKey = `classmate.chatConversations.${workspaceId}`;
+	chatSession.configurePersistence(
+		context.workspaceState.get<PersistedChatData>(chatStorageKey),
+		(data) => context.workspaceState.update(chatStorageKey, data)
+	);
+	chatSession.setReferenceHandlers(
+		() => {
+			const editor = workspaceProvider.getContext().activeEditor;
+			if (!editor) {
+				return [];
+			}
+			return [{
+				label: editor.fileName.split(/[\\/]/).pop() ?? editor.fileName,
+				uri: editor.uri,
+				startLine: editor.selectionStartLine,
+				endLine: editor.selectionEndLine,
+			}];
+		},
+		(reference: ChatReference) => {
+			void vscode.workspace.openTextDocument(vscode.Uri.parse(reference.uri)).then(async (document) => {
+				const lastLine = Math.max(0, document.lineCount - 1);
+				const startLine = Math.min(lastLine, Math.max(0, (reference.startLine ?? 1) - 1));
+				const endLine = Math.min(lastLine, Math.max(startLine, (reference.endLine ?? reference.startLine ?? 1) - 1));
+				await vscode.window.showTextDocument(document, {
+					selection: new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length),
+				});
+			});
+		}
+	);
 
 	// Initialize the skill-based system prompt builder.
 	const skillDir = vscode.Uri.joinPath(context.extensionUri, 'skill', 'classmate');
