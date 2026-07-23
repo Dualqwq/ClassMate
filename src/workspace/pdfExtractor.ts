@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import pdfParse = require('pdf-parse');
+import type pdfParseType = require('pdf-parse');
+
+// pdf-parse 1.1.1 的包入口 index.js 带有依赖作者用于本地调试的测试代码。
+// webpack 打包后，入口中的 `!module.parent` 可能被误判为 true，于是它会尝试读取
+// 依赖仓库里并未随扩展发布的示例 PDF。真正的解析实现位于 lib/pdf-parse.js，
+// 因此这里直接加载该实现，绕过有副作用的入口；类型仍由 @types/pdf-parse 提供。
+const pdfParse: typeof pdfParseType = require('pdf-parse/lib/pdf-parse.js');
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const MAX_EXTRACTED_CHARACTERS = 200_000;

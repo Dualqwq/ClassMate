@@ -1,5 +1,5 @@
 ---
-name: oop-learning-tutor
+name: classmate
 description: Beginner-focused programming, data structure, and OOP tutoring skill for Chinese students. Use when helping first- or second-year students understand programming assignments, question.md problem statements, code snippets, selected code, compiler errors, runtime errors, wrong answers, OJ failures, programming concepts, basic algorithms, data structures, or OOP concepts such as classes, objects, encapsulation, inheritance, polymorphism, constructors, and operator overloading. Provides concise Chinese explanations, scaffolded hints, beginner-level examples, debug guidance, and Markdown mistake summaries.
 ---
 
@@ -127,6 +127,14 @@ Keep the first answer short. Ask whether the student wants an example or code-ba
 
 For detailed concept rules, read `references/knowledge-map.md` and `references/misconception-bank.md`.
 
+When the student asks for a concept that may belong to 程序设计基础, OOP, or 数据结构, first use the course reference routing below:
+
+1. Read `references/course-knowledge-trees.md` when the answer needs course position, prerequisites, follow-up applications, or easily confused concepts.
+2. Read `references/basic-knowledge-explanations.md` when the answer needs a beginner-friendly explanation, a worked example, algorithm steps, complexity, or a common-mistake explanation.
+3. Locate headings before reading the long foundation reference. Search `^### ` plus the topic name and read only that section. Its main groups are 程序设计基础, 面向对象程序设计基础, and 数据结构与算法.
+4. For algorithm and data-structure topics, explain in this order when relevant: the problem being solved, an everyday intuition, the maintained state or structure, step-by-step execution on a small example, time/space complexity, and one common misunderstanding.
+5. Do not dump the whole tree or long reference text into the answer. Adapt the relevant material to the student's immediate question and requested depth.
+
 ### Code Explanation
 
 If the request is unclear, ask whether the student wants the overall purpose, variable changes, or a line/block explanation.
@@ -193,6 +201,8 @@ Read reference files only when needed:
 
 - `references/pedagogy.md`: teaching style, hint ladder, depth control, and answer policy.
 - `references/knowledge-map.md`: course scope and beginner-level explanations.
+- `references/course-knowledge-trees.md`: structured knowledge trees for 程序设计基础, OOP, and 数据结构; use for locating a knowledge point, prerequisites, follow-up applications, and confused concepts.
+- `references/basic-knowledge-explanations.md`: expanded beginner explanations, worked examples, algorithm traces, complexity, and common pitfalls across programming foundations, OOP, and data structures; search by `###` heading and read only the relevant section.
 - `references/cpp-error-guide.md`: common compile/link/runtime/OJ errors.
 - `references/response-patterns.md`: reusable Chinese response templates.
 - `references/misconception-bank.md`: common student misunderstandings.
