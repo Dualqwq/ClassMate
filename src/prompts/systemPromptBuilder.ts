@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { LLMMessage } from '../llm/types';
 import type { MessageIntent } from '../chat/types';
 import { PromptLoader } from './promptLoader';
+import { classifyRequest, RequestType } from './intentRouter';
 
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
 import type { WorkspaceContext } from '../workspace/types';
@@ -35,44 +36,42 @@ export class SystemPromptBuilder {
 	 */
 	public async build(
 		frontendIntent: MessageIntent | undefined,
-		_userText: string
+		userText: string
 	): Promise<LLMMessage[]> {
-		// Keep the instructional prefix identical between turns so DeepSeek can
-		// reuse it as a prompt-cache prefix. Request-specific routing is already
-		// described by SKILL.md and can be inferred from the current user turn.
-		const [skill, pedagogy, ...references] = await this._loader.loadAll(this._skillDir, [
+		const requestType = classifyRequest(frontendIntent, userText);
+
+		// Static identity + pedagogy blocks (cacheable).
+		const [skill, pedagogy] = await this._loader.loadAll(this._skillDir, [
 			'SKILL.md',
 			'references/pedagogy.md',
-			'references/cpp-error-guide.md',
-			'references/response-patterns.md',
-			'references/knowledge-map.md',
-			'references/misconception-bank.md',
 		]);
 
 		const messages: LLMMessage[] = [
 			{ role: 'system', content: skill },
-			{ role: 'system', content: this._buildPedagogyPrompt(pedagogy) },
-			...references.map((content) => ({ role: 'system' as const, content })),
+			{ role: 'system', content: this._buildPedagogyPrompt(pedagogy, requestType) },
 		];
 
+		// Dynamic reference blocks (not cached).
+		const references = this._selectReferences(requestType, userText);
+		if (references.length > 0) {
+			const contents = await this._loader.loadAll(this._skillDir, references);
+			for (const content of contents) {
+				messages.push({ role: 'system', content });
+			}
+		}
+
 		// Dynamic workspace context (not cached).
-		// Refresh at request time so an edit immediately followed by Send cannot
-		// race the editor-change watcher and produce stale source/selection data.
-		const workspaceContext = await this._workspaceProvider.refresh();
+		const workspaceContext = this._workspaceProvider.getContext();
 		const workspacePrompt = this._buildWorkspaceContextPrompt(workspaceContext);
 		if (workspacePrompt) {
 			messages.push({ role: 'system', content: workspacePrompt });
 		}
-		if (frontendIntent === 'code_edit') {
-			messages.push({
-				role: 'system',
-				content: [
-					'The user requested a code edit.',
-					'Return a concise explanation followed by exactly one fenced code block containing the complete replacement content of the active file.',
-					'Do not omit unchanged sections and do not use ellipses or partial snippets.',
-				].join(' '),
-			});
-		}
+
+		// Remind the model of the request type so it follows the right workflow.
+		messages.push({
+			role: 'system',
+			content: `Request classification: ${requestType}. Follow the matching workflow from SKILL.md.`,
+		});
 
 		return messages;
 	}
@@ -86,59 +85,10 @@ export class SystemPromptBuilder {
 			hasContent = true;
 		}
 
-		if (context.codeDocuments.length > 0) {
-			parts.push('');
-			parts.push('--- Complete workspace code snapshot ---');
-			for (const document of context.codeDocuments) {
-				parts.push(`File: ${document.fileName} (${document.languageId})`);
-				parts.push(`\`\`\`${document.languageId}`);
-				parts.push(document.content);
-				parts.push('```');
-			}
-			hasContent = true;
-		}
-
-		if (context.codeChanges.length > 0) {
-			parts.push('');
-			parts.push('--- Code change timeline (current extension session) ---');
-			for (const change of context.codeChanges) {
-				const position = change.startLine !== undefined
-					? ` at ${change.startLine}:${change.startColumn}-${change.endLine}:${change.endColumn}`
-					: '';
-				parts.push(`[${new Date(change.timestamp).toISOString()}] ${change.kind} ${change.fileName}${position}`);
-				if (change.insertedText !== undefined) {
-					parts.push(`Inserted text: ${JSON.stringify(change.insertedText)}`);
-				}
-				if (change.removedLength !== undefined) {
-					parts.push(`Removed characters: ${change.removedLength}`);
-				}
-			}
-			hasContent = true;
-		}
-
 		if (context.questionText) {
 			parts.push('');
-			parts.push(`--- Problem description${context.questionFile ? ` (${context.questionFile})` : ''} ---`);
+			parts.push('--- Problem description ---');
 			parts.push(context.questionText);
-			hasContent = true;
-		}
-
-		if (context.activeEditor) {
-			const editor = context.activeEditor;
-			parts.push('');
-			parts.push('--- Active editor ---');
-			parts.push(`File: ${editor.fileName}`);
-			parts.push(`Language: ${editor.languageId}`);
-			if (editor.selection) {
-				parts.push('Selected text:');
-				parts.push(editor.selection);
-			}
-			if (context.codeDocuments.some((document) => document.fileName === editor.fileName)) {
-				parts.push('The full current file content is included in the workspace code snapshot above.');
-			} else {
-				parts.push('Current file content:');
-				parts.push(editor.content);
-			}
 			hasContent = true;
 		}
 
@@ -172,11 +122,78 @@ export class SystemPromptBuilder {
 		return parts.join('\n');
 	}
 
-	private _buildPedagogyPrompt(pedagogy: string): string {
+	private _buildPedagogyPrompt(pedagogy: string, requestType: RequestType): string {
 		return [
 			'=== Teaching configuration ===',
+			`Primary request type for this turn: ${requestType}`,
 			'',
 			pedagogy,
 		].join('\n');
 	}
+
+	private _selectReferences(requestType: RequestType, userText: string): string[] {
+		const references: string[] = [];
+		const text = userText.toLowerCase();
+
+		// Error/debug contexts benefit from the error guide and response patterns.
+		if (
+			requestType === 'compile_error_help' ||
+			requestType === 'runtime_error_help' ||
+			requestType === 'wrong_output_help' ||
+			requestType === 'oj_failure_help'
+		) {
+			references.push('references/cpp-error-guide.md');
+			references.push('references/response-patterns.md');
+		}
+
+		// Concept and OOP confusion contexts benefit from the knowledge map.
+		if (
+			requestType === 'concept_explanation' ||
+			requestType === 'oop_confusion' ||
+			looksLikeConceptQuestion(text)
+		) {
+			references.push('references/knowledge-map.md');
+		}
+
+		// Structured responses (explanations, hints, summaries) use response patterns.
+		if (
+			requestType === 'code_explanation' ||
+			requestType === 'concept_explanation' ||
+			requestType === 'problem_hint' ||
+			requestType === 'mistake_summary'
+		) {
+			references.push('references/response-patterns.md');
+		}
+
+		// If the text mentions common confusion keywords, load the misconception bank.
+		if (looksLikeMisconception(text) || requestType === 'oop_confusion') {
+			references.push('references/misconception-bank.md');
+		}
+
+		return [...new Set(references)];
+	}
+}
+
+function looksLikeConceptQuestion(text: string): boolean {
+	return (
+		text.includes('什么是') ||
+		text.includes('什么叫') ||
+		text.includes('解释一下') ||
+		text.includes('给我讲讲') ||
+		text.includes('讲讲') ||
+		text.includes('介绍一下') ||
+		text.includes('概念')
+	);
+}
+
+function looksLikeMisconception(text: string): boolean {
+	return (
+		text.includes('为什么') ||
+		text.includes('难道不是') ||
+		text.includes('我以为') ||
+		text.includes('混淆') ||
+		text.includes('区别') ||
+		text.includes('不同') ||
+		text.includes('一样吗')
+	);
 }

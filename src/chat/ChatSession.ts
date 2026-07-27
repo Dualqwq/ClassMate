@@ -1,8 +1,8 @@
 import { formatDebugLog, formatRawDebugLog } from './debugLogFormatter';
 import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
-import type { ChatAttachment, ChatImage, ChatMessage, ChatReference, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, PersistedChatConversation, PersistedChatData, ProposedCodeEdit, WebviewPresenter, WebviewToExtensionMessage } from './types';
-import type { LLMAdapter, LLMRequest, LLMStreamCallbacks, LLMTokenUsage } from '../llm/types';
+import type { ChatMessage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, WebviewPresenter, WebviewToExtensionMessage } from './types';
+import type { LLMAdapter, LLMRequest, LLMStreamCallbacks } from '../llm/types';
 import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
 import { buildJourneySummary, type JourneySummary } from '../debug/debugJourneySummary';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
@@ -14,14 +14,6 @@ import { ClaudeAdapter } from '../llm/ClaudeAdapter';
 import { OpenAIAdapter } from '../llm/OpenAIAdapter';
 import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
 import { getApiKey } from '../config/apiKey';
-import { extractPdfBuffer, formatPdfExtraction } from '../workspace/pdfExtractor';
-import {
-	ClassMateGraphRunner,
-	type ClassMateGraphServices,
-} from '../graph/ClassMateGraphRunner';
-import { AdapterGraphModelClient } from '../graph/modelClient';
-import { addTokenUsage } from '../llm/tokenUsage';
-import { looksLikeCodeEditRequest } from './codeEditIntent';
 
 const HINT_INTENTS: MessageIntent[] = [
 	'hint',
@@ -32,10 +24,6 @@ const HINT_INTENTS: MessageIntent[] = [
 	'summary',
 ];
 
-function createConversationId(): string {
-	return `conversation-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
 export class ChatSession {
 	private static _instance: ChatSession | undefined;
 
@@ -44,14 +32,7 @@ export class ChatSession {
 		inputDraft: '',
 		isStreaming: false,
 		currentStreamMessageId: null,
-		processingStage: null,
-		activeConversationId: createConversationId(),
-		conversations: [],
 	};
-	private readonly _conversationRecords = new Map<string, PersistedChatConversation>();
-	private _onPersist?: (data: PersistedChatData) => Thenable<void>;
-	private _referenceProvider?: () => ChatReference[];
-	private _onOpenReference?: (reference: ChatReference) => void;
 
 	private _presenters: Set<WebviewPresenter> = new Set();
 
@@ -62,9 +43,6 @@ export class ChatSession {
 	private _llmConfig?: LLMConfig;
 	private _currentAdapter?: LLMAdapter;
 	private _promptBuilder?: SystemPromptBuilder;
-	private _graphServices?: Omit<ClassMateGraphServices, 'model' | 'signal'>;
-	private _onPerformanceTrace?: (event: string, data: unknown) => void;
-	private _graphAbortController?: AbortController;
 	private _debugStore?: DebugJourneyStore;
 	private _sessionId?: string;
 	private _workspaceId?: string;
@@ -351,14 +329,6 @@ export class ChatSession {
 		this._promptBuilder = builder;
 	}
 
-	public setGraphServices(services: Omit<ClassMateGraphServices, 'model' | 'signal'>): void {
-		this._graphServices = services;
-	}
-
-	public setPerformanceTraceSink(callback: (event: string, data: unknown) => void): void {
-		this._onPerformanceTrace = callback;
-	}
-
 	public setDebugStore(store: DebugJourneyStore, sessionId: string, workspaceId: string): void {
 		this._debugStore = store;
 		this._sessionId = sessionId;
@@ -400,16 +370,13 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
-	public addUserMessage(text: string, options?: { intent?: MessageIntent; isCommandGenerated?: boolean; images?: ChatImage[]; attachments?: ChatAttachment[] }): ChatMessage {
+	public addUserMessage(text: string, options?: { intent?: MessageIntent; isCommandGenerated?: boolean }): ChatMessage {
 		const message: ChatMessage = {
 			id: this._generateId(),
 			role: 'user',
 			content: text,
 			intent: options?.intent,
 			isCommandGenerated: options?.isCommandGenerated,
-			references: this._referenceProvider?.(),
-			images: options?.images,
-			attachments: options?.attachments,
 			timestamp: Date.now(),
 		};
 		this._state = {
@@ -434,7 +401,6 @@ export class ChatSession {
 			messages: [...this._state.messages, message],
 			isStreaming: true,
 			currentStreamMessageId: message.id,
-			processingStage: '正在准备请求…',
 		};
 		this._broadcast({ type: 'streamStart', message });
 		return message;
@@ -450,21 +416,12 @@ export class ChatSession {
 		this._broadcast({ type: 'appendToken', messageId, token });
 	}
 
-	private _setProcessingStage(stage: string | null): void {
-		if (this._state.processingStage === stage) {
-			return;
-		}
-		this._state = { ...this._state, processingStage: stage };
-		this._broadcast({ type: 'stateSync', state: this._state });
-	}
-
 	public endStream(): void {
 		const endedId = this._state.currentStreamMessageId;
 		this._state = {
 			...this._state,
 			isStreaming: false,
 			currentStreamMessageId: null,
-			processingStage: null,
 		};
 		if (endedId) {
 			this._broadcast({
@@ -475,95 +432,12 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
-	public configurePersistence(
-		data: PersistedChatData | undefined,
-		onPersist: (value: PersistedChatData) => Thenable<void>
-	): void {
-		this._onPersist = onPersist;
-		if (data?.conversations.length) {
-			for (const conversation of data.conversations) {
-				this._conversationRecords.set(conversation.id, conversation);
-			}
-			const active = this._conversationRecords.get(data.activeConversationId)
-				?? data.conversations[0];
-			this._state = {
-				messages: active.messages,
-				inputDraft: active.inputDraft,
-				isStreaming: false,
-				currentStreamMessageId: null,
-				processingStage: null,
-				activeConversationId: active.id,
-				conversations: [],
-			};
-		}
-		this._syncConversationState();
-	}
-
-	public setReferenceHandlers(
-		provider: () => ChatReference[],
-		onOpen: (reference: ChatReference) => void
-	): void {
-		this._referenceProvider = provider;
-		this._onOpenReference = onOpen;
-	}
-
-	public newConversation(): void {
-		if (this._state.isStreaming) {
-			return;
-		}
-		this._saveActiveConversation();
-		this._state = {
-			messages: [],
-			inputDraft: '',
-			isStreaming: false,
-			currentStreamMessageId: null,
-			processingStage: null,
-			activeConversationId: createConversationId(),
-			conversations: this._state.conversations,
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
-	}
-
-	public switchConversation(conversationId: string): void {
-		if (this._state.isStreaming || conversationId === this._state.activeConversationId) {
-			return;
-		}
-		const target = this._conversationRecords.get(conversationId);
-		if (!target) {
-			return;
-		}
-		this._saveActiveConversation();
-		this._state = {
-			messages: target.messages,
-			inputDraft: target.inputDraft,
-			isStreaming: false,
-			currentStreamMessageId: null,
-			processingStage: null,
-			activeConversationId: target.id,
-			conversations: this._state.conversations,
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
-	}
-
-	private _setMessageUsage(messageId: string, usage: import('../llm/types').LLMTokenUsage): void {
-		this._state = {
-			...this._state,
-			messages: this._state.messages.map((message) =>
-				message.id === messageId ? { ...message, usage } : message
-			),
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
-	}
-
 	public clear(): void {
 		this._state = {
 			messages: [],
 			inputDraft: '',
 			isStreaming: false,
 			currentStreamMessageId: null,
-			processingStage: null,
-			activeConversationId: this._state.activeConversationId,
-			conversations: this._state.conversations,
 		};
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
@@ -574,7 +448,9 @@ export class ChatSession {
 				this.setInputDraft(message.text);
 				break;
 			case 'sendMessage':
-				void this._handleSendMessage(message);
+				this.addUserMessage(message.text, { intent: message.intent });
+				this._recordHintRequested(message.text, message.intent);
+				void this._callLLM(message.text, message.intent);
 				break;
 			case 'requestContainerToggle':
 				// The extension host decides actual container switching.
@@ -587,18 +463,6 @@ export class ChatSession {
 				break;
 			case 'saveLLMConfig':
 				this._onSaveLLMConfig?.(message.provider, message.model, message.apiKey, message.apiUrl);
-				break;
-			case 'newConversation':
-				this.newConversation();
-				break;
-			case 'switchConversation':
-				this.switchConversation(message.conversationId);
-				break;
-			case 'openReference':
-				this._onOpenReference?.(message.reference);
-				break;
-			case 'applyProposedEdit':
-				void this._applyProposedEdit(message.messageId);
 				break;
 			default:
 				console.log('Unhandled webview message:', message);
@@ -638,42 +502,39 @@ export class ChatSession {
 	}
 
 	private async _callLLM(userText: string, frontendIntent?: MessageIntent): Promise<void> {
-		if (userText.trim() === '//show-log') {
-			await this._insertDebugLog(userText);
-			return;
-		}
-		if (userText.trim() === '//show-raw-log') {
-			await this._insertRawDebugLog(userText);
-			return;
-		}
-		if (userText.trim() === '//knowledge-cards') {
-			await this._insertKnowledgeCards(userText);
-			return;
-		}
-		if (userText.trim() === '//show-journey') {
-			await this._insertDebugJourney(userText);
-			return;
-		}
-
 		let messages: LLMRequest['messages'] = [];
 		try {
-			const showPrompt = userText.trim() === '//show-prompt';
-			if (this._promptBuilder && (showPrompt || !this._graphServices)) {
+			if (this._promptBuilder) {
 				const systemMessages = await this._promptBuilder.build(frontendIntent, userText);
-				messages = [...systemMessages, ...this._getConversationHistory()];
-				if (showPrompt) {
+				messages = [...systemMessages, { role: 'user', content: userText }];
+				if (userText.trim() === '//show-prompt') {
 					this._insertSystemPromptDebug(systemMessages, userText);
 					return;
 				}
+				if (userText.trim() === '//show-log') {
+					await this._insertDebugLog(userText);
+					return;
+				}
+				if (userText.trim() === '//show-raw-log') {
+					await this._insertRawDebugLog(userText);
+					return;
+				}
+				if (userText.trim() === '//knowledge-cards') {
+					await this._insertKnowledgeCards(userText);
+					return;
+				}
+				if (userText.trim() === '//show-journey') {
+					await this._insertDebugJourney(userText);
+					return;
+				}
 			} else {
-				messages = this._getConversationHistory();
+				messages = [{ role: 'user', content: userText }];
 			}
 		} catch (error) {
 			console.error('Failed to build system prompt:', error);
-			messages = this._getConversationHistory();
+			messages = [{ role: 'user', content: userText }];
 		}
 
-		const editTarget = frontendIntent === 'code_edit' ? await this._captureEditTarget() : undefined;
 		const assistantMessage = this.startAssistantMessage(frontendIntent);
 
 		const cfg = this._llmConfig;
@@ -699,128 +560,6 @@ export class ChatSession {
 
 		this._currentAdapter = adapter;
 
-		if (this._graphServices) {
-			this._graphAbortController?.abort();
-			const controller = new AbortController();
-			this._graphAbortController = controller;
-			const graphRequestId = this._generateId();
-			const graphStartedAt = Date.now();
-			this._onPerformanceTrace?.('request_started', {
-				requestId: graphRequestId,
-				startedAt: graphStartedAt,
-				userText,
-			});
-			// 一个图流程会多次调用模型，这里累计每次调用的用量。
-			let graphUsage: LLMTokenUsage | undefined;
-			let firstAnswerTokenAt: number | undefined;
-			let hasAnswerToken = false;
-			const graphUsageByNode: Record<string, LLMTokenUsage> = {};
-			const model = new AdapterGraphModelClient(adapter, cfg.model, (usage, label) => {
-				graphUsage = addTokenUsage(graphUsage, usage);
-				const usageLabel = label ?? 'unknown';
-				graphUsageByNode[usageLabel] = addTokenUsage(
-					graphUsageByNode[usageLabel],
-					usage
-				);
-				this._setMessageUsage(assistantMessage.id, graphUsage);
-				this._onPerformanceTrace?.('model_usage', {
-					requestId: graphRequestId,
-					node: usageLabel,
-					usage,
-				});
-			});
-			const runner = new ClassMateGraphRunner({
-				...this._graphServices,
-				model,
-				signal: controller.signal,
-				onAnswerToken: (token) => {
-					if (!hasAnswerToken && token.length > 0) {
-						hasAnswerToken = true;
-						this._setProcessingStage(null);
-					}
-					if (firstAnswerTokenAt === undefined && token.length > 0) {
-						firstAnswerTokenAt = Date.now();
-						this._onPerformanceTrace?.('answer_first_token', {
-							requestId: graphRequestId,
-							elapsedMs: firstAnswerTokenAt - graphStartedAt,
-						});
-					}
-					this.appendToken(assistantMessage.id, token);
-				},
-				onProgress: (_node, message) => {
-					if (!hasAnswerToken) {
-						this._setProcessingStage(message);
-					}
-				},
-				onDebug: (event, data) => {
-					console.debug(`[ClassMate graph] ${event}`, data);
-					this._onPerformanceTrace?.(event, {
-						requestId: graphRequestId,
-						data,
-					});
-				},
-			});
-			try {
-				const history = this._getConversationHistory()
-					.filter((message): message is typeof message & { role: 'user' | 'assistant' } =>
-						message.role === 'user' || message.role === 'assistant'
-					)
-					.map((message) => ({
-						role: message.role,
-						content: message.content,
-						images: message.images,
-						attachments: message.attachments,
-					}));
-				const result = await runner.run({
-					requestId: graphRequestId,
-					conversationId: this._state.activeConversationId,
-					userText,
-					frontendIntent,
-					requestSource: frontendIntent && frontendIntent !== 'chat'
-						? 'button'
-						: 'conversation',
-					buttonId: frontendIntent && frontendIntent !== 'chat'
-						? frontendIntent
-						: undefined,
-					conversationHistory: history,
-				});
-				console.info('[ClassMate graph performance]', JSON.stringify({
-					requestId: result.state.request.requestId,
-					totalDurationMs: result.totalDurationMs,
-					nodeTimings: result.nodeTimings,
-				}));
-				this._onPerformanceTrace?.('request_completed', {
-					requestId: graphRequestId,
-					totalDurationMs: result.totalDurationMs,
-					nodeTimings: result.nodeTimings,
-					usage: graphUsage,
-					usageByNode: graphUsageByNode,
-				});
-				if (editTarget) {
-					this._attachProposedEdit(assistantMessage.id, editTarget);
-				}
-			} catch (error) {
-				if (!controller.signal.aborted) {
-					const message = error instanceof Error ? error.message : String(error);
-					console.error('ClassMate graph error:', error);
-					this._onPerformanceTrace?.('request_failed', {
-						requestId: graphRequestId,
-						totalDurationMs: Date.now() - graphStartedAt,
-						error: message,
-						usage: graphUsage,
-						usageByNode: graphUsageByNode,
-					});
-					this.appendToken(assistantMessage.id, `\n\n[Error: ${message}]`);
-				}
-			} finally {
-				if (this._graphAbortController === controller) {
-					this._graphAbortController = undefined;
-				}
-				this.endStream();
-			}
-			return;
-		}
-
 		const request: LLMRequest = {
 			messages,
 			model: cfg.model,
@@ -830,11 +569,7 @@ export class ChatSession {
 
 		adapter.streamResponse(body, {
 			onToken: (token) => {
-				this._setProcessingStage(null);
 				this.appendToken(assistantMessage.id, token);
-			},
-			onUsage: (usage) => {
-				this._setMessageUsage(assistantMessage.id, usage);
 			},
 			onError: (error) => {
 				console.error('LLM stream error:', error);
@@ -842,100 +577,9 @@ export class ChatSession {
 				this.endStream();
 			},
 			onComplete: () => {
-				if (editTarget) {
-					this._attachProposedEdit(assistantMessage.id, editTarget);
-				}
 				this.endStream();
 			},
 		});
-	}
-
-	private async _handleSendMessage(message: Extract<WebviewToExtensionMessage, { type: 'sendMessage' }>): Promise<void> {
-		const attachments = await Promise.all((message.attachments ?? []).map(async (attachment) => {
-			if (attachment.mimeType !== 'application/pdf' || !attachment.dataUrl) {
-				return attachment;
-			}
-			try {
-				const base64 = attachment.dataUrl.replace(/^data:[^;]+;base64,/, '');
-				const content = formatPdfExtraction(await extractPdfBuffer(Buffer.from(base64, 'base64')));
-				return { ...attachment, content, dataUrl: undefined };
-			} catch (error) {
-				return {
-					...attachment,
-					content: `[Unable to parse PDF locally: ${error instanceof Error ? error.message : String(error)}]`,
-					dataUrl: undefined,
-				};
-			}
-		}));
-		const intent = message.intent ?? (looksLikeCodeEditRequest(message.text) ? 'code_edit' : undefined);
-		this.addUserMessage(message.text, { intent, images: message.images, attachments });
-		this._recordHintRequested(message.text, intent);
-		await this._callLLM(message.text, intent);
-	}
-
-	/** Return every effective turn in the current in-memory conversation. */
-	private _getConversationHistory(): LLMRequest['messages'] {
-		return this._state.messages
-			.filter((message) =>
-				(message.role === 'user' || message.role === 'assistant') &&
-				message.content.trim().length > 0
-			)
-			.map((message) => ({
-				role: message.role,
-				content: message.content,
-				images: message.images,
-				attachments: message.attachments,
-			}));
-	}
-
-	private async _captureEditTarget(): Promise<Omit<ProposedCodeEdit, 'newText'> | undefined> {
-		const reference = this._referenceProvider?.()[0];
-		if (!reference) {
-			return undefined;
-		}
-		try {
-			const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(reference.uri));
-			return { uri: reference.uri, fileName: reference.label, expectedText: document.getText() };
-		} catch {
-			return undefined;
-		}
-	}
-
-	private _attachProposedEdit(messageId: string, target: Omit<ProposedCodeEdit, 'newText'>): void {
-		const message = this._state.messages.find((item) => item.id === messageId);
-		if (!message) {
-			return;
-		}
-		const blocks = [...message.content.matchAll(/```(?:[\w+#.-]+)?\s*\n([\s\S]*?)```/g)];
-		const newText = blocks.at(-1)?.[1];
-		if (!newText) {
-			return;
-		}
-		this._state = {
-			...this._state,
-			messages: this._state.messages.map((item) =>
-				item.id === messageId ? { ...item, proposedEdit: { ...target, newText } } : item
-			),
-		};
-	}
-
-	private async _applyProposedEdit(messageId: string): Promise<void> {
-		const proposed = this._state.messages.find((message) => message.id === messageId)?.proposedEdit;
-		if (!proposed) {
-			return;
-		}
-		const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(proposed.uri));
-		if (document.getText() !== proposed.expectedText) {
-			void vscode.window.showWarningMessage('文件在方案生成后已发生变化，已取消应用，请重新生成修改方案。');
-			return;
-		}
-		const lastLine = document.lineAt(document.lineCount - 1);
-		const edit = new vscode.WorkspaceEdit();
-		edit.replace(document.uri, new vscode.Range(0, 0, lastLine.lineNumber, lastLine.text.length), proposed.newText);
-		if (await vscode.workspace.applyEdit(edit)) {
-			await vscode.window.showTextDocument(document);
-			void vscode.window.showInformationMessage(`已应用对 ${proposed.fileName} 的修改，请检查后保存。`);
-		}
 	}
 
 	private _createAdapter(cfg: LLMConfig, apiKey: string | undefined): LLMAdapter | undefined {
@@ -966,43 +610,9 @@ export class ChatSession {
 		}
 	}
 
-	private _saveActiveConversation(): void {
-		const existing = this._conversationRecords.get(this._state.activeConversationId);
-		const now = Date.now();
-		const firstUserMessage = this._state.messages.find((message) => message.role === 'user');
-		const generatedTitle = firstUserMessage?.content.trim().slice(0, 42) || '新对话';
-		this._conversationRecords.set(this._state.activeConversationId, {
-			id: this._state.activeConversationId,
-			title: existing?.messages.some((message) => message.role === 'user')
-				? existing.title
-				: generatedTitle,
-			createdAt: existing?.createdAt ?? firstUserMessage?.timestamp ?? now,
-			updatedAt: this._state.messages.at(-1)?.timestamp ?? now,
-			messages: this._state.messages,
-			inputDraft: this._state.inputDraft,
-		});
-	}
-
-	private _syncConversationState(): void {
-		this._saveActiveConversation();
-		const conversations = [...this._conversationRecords.values()]
-			.sort((a, b) => b.updatedAt - a.updatedAt)
-			.map(({ id, title, createdAt, updatedAt }) => ({ id, title, createdAt, updatedAt }));
-		this._state = { ...this._state, conversations };
-		void this._onPersist?.({
-			activeConversationId: this._state.activeConversationId,
-			conversations: [...this._conversationRecords.values()],
-		});
-	}
-
 	private _broadcast(message: ExtensionToWebviewMessage): void {
-		let outgoing = message;
-		if (message.type === 'stateSync') {
-			this._syncConversationState();
-			outgoing = { type: 'stateSync', state: this._state };
-		}
 		for (const presenter of this._presenters) {
-			presenter.postMessage(outgoing);
+			presenter.postMessage(message);
 		}
 	}
 

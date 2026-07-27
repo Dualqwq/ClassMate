@@ -1,6 +1,5 @@
 import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
-import { readdir } from 'fs/promises';
 
 export interface CompileResult {
     exitCode: number | null;
@@ -105,30 +104,11 @@ export async function spawnGpp(
     options?: { timeout?: number; signal?: AbortSignal }
 ): Promise<CompileResult> {
     const outputPath = resolveOutputPath(sourcePath);
-    const sourcePaths = await discoverRelatedSourceFiles(sourcePath);
-    const args = buildCompileArgs(sourcePaths, outputPath);
+    const args = ['-std=c++17', '-O2', '-Wall', '-o', outputPath, sourcePath];
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
 
     const result = await spawnProcess('g++', args, { timeout, signal: options?.signal });
     return { ...result, outputPath };
-}
-
-const CPP_SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
-
-/** Include all implementation files beside the active source for typical coursework projects. */
-export async function discoverRelatedSourceFiles(sourcePath: string): Promise<string[]> {
-    const directory = path.dirname(sourcePath);
-    const entries = await readdir(directory, { withFileTypes: true });
-    const related = entries
-        .filter((entry) => entry.isFile() && CPP_SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
-        .map((entry) => path.join(directory, entry.name))
-        .sort((a, b) => a.localeCompare(b));
-
-    return related.length > 0 ? related : [sourcePath];
-}
-
-export function buildCompileArgs(sourcePaths: string[], outputPath: string): string[] {
-    return ['-std=c++17', '-O2', '-Wall', ...sourcePaths, '-o', outputPath];
 }
 
 /**

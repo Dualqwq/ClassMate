@@ -26,9 +26,6 @@ export function getInitialState(): ChatState {
 			inputDraft: '',
 			isStreaming: false,
 			currentStreamMessageId: null,
-			processingStage: null,
-			activeConversationId: 'initial',
-			conversations: [],
 		}
 	);
 }

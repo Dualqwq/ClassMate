@@ -2,24 +2,6 @@ import * as vscode from 'vscode';
 
 const CONFIG_SECTION = 'classmate';
 const ENABLED_LANGUAGES_KEY = 'enabledLanguages';
-const C_FAMILY_LANGUAGES = new Set(['c', 'cpp']);
-
-export type DocumentLanguageKind = 'c' | 'cpp' | 'markdown' | 'text' | 'other';
-
-export function classifyDocumentLanguage(languageId: string | undefined): DocumentLanguageKind {
-	const normalized = languageId?.toLowerCase();
-	if (normalized === 'c' || normalized === 'cpp' || normalized === 'markdown') {
-		return normalized;
-	}
-	if (normalized === 'plaintext' || normalized === 'text') {
-		return 'text';
-	}
-	return 'other';
-}
-
-export function isCFamilyLanguage(languageId: string | undefined): boolean {
-	return !!languageId && C_FAMILY_LANGUAGES.has(languageId.toLowerCase());
-}
 
 /**
  * Read the user-configured list of enabled language identifiers.
@@ -31,7 +13,7 @@ export function getEnabledLanguages(): string[] {
 	if (Array.isArray(languages) && languages.length > 0) {
 		return languages.map((lang) => lang.toLowerCase().trim()).filter(Boolean);
 	}
-	return ['c', 'cpp'];
+	return ['cpp'];
 }
 
 /**
@@ -41,7 +23,7 @@ export function isLanguageEnabled(languageId: string | undefined): boolean {
 	if (!languageId) {
 		return false;
 	}
-	return isCFamilyLanguage(languageId) && getEnabledLanguages().includes(languageId.toLowerCase());
+	return getEnabledLanguages().includes(languageId.toLowerCase());
 }
 
 /**

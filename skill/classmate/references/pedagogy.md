@@ -2,8 +2,6 @@
 
 Use this file when deciding how much to reveal and how to phrase guidance.
 
-Apply the depth and hint principles in RouteAndPlan and Answer modes. RouteAndPlan returns structured planning data; Answer produces the student-facing explanation.
-
 ## Teaching Position
 
 The student is an introductory learner. They may know syntax words but not execution flow, memory behavior, class design, or debugging habits.

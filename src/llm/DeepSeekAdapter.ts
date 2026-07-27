@@ -21,7 +21,6 @@ export class DeepSeekAdapter implements LLMAdapter {
 			apiKey: options.apiKey,
 			model: options.model ?? 'deepseek-chat',
 			baseURL: options.baseURL ?? 'https://api.deepseek.com/v1',
-			supportsThinkingToggle: true,
 		});
 	}
 
