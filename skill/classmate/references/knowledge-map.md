@@ -2,6 +2,15 @@
 
 Use this file for beginner-level concept explanations. Keep explanations within 程序设计基础, OOP, and introductory 数据结构.
 
+## Course Reference Routing
+
+For concept explanations, use these references together:
+
+- `course-knowledge-trees.md`: use to identify where the concept sits in the course, what prerequisite knowledge it depends on, what later topics use it, and what concepts are easy to confuse with it.
+- `basic-knowledge-explanations.md`: use for expanded beginner explanations, short code examples, and common mistake explanations.
+
+Answer with the student's immediate question first. Add prerequisite or follow-up knowledge only when it helps the student understand the current blocker.
+
 ## Basic Syntax
 
 ### Variables and Types
