@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { classifyRequest } from '../prompts/intentRouter';
+import { classifyRequest, preclassifyRequest } from '../prompts/intentRouter';
 
 describe('Intent Router Test Suite', () => {
 	it('frontend code_explanation intent is preserved', () => {
@@ -21,6 +21,15 @@ describe('Intent Router Test Suite', () => {
 	it('frontend hint maps to problem_hint', () => {
 		const result = classifyRequest('hint', '没思路');
 		assert.strictEqual(result, 'problem_hint');
+	});
+
+	it('locks an explicit first-level hint request before model routing', () => {
+		const route = preclassifyRequest(
+			undefined,
+			'请只给我第一层提示，不要直接告诉我完整改法'
+		);
+		assert.strictEqual(route.requestType, 'problem_hint');
+		assert.strictEqual(route.lockPolicy, 'family-locked');
 	});
 
 	it('text analysis detects concept question', () => {

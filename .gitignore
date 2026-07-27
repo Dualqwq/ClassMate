@@ -1,7 +1,28 @@
-out
-dist
-node_modules
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+out/
 .vscode-test/
 *.vsix
-test.cpp
+*.map
+coverage/
+
+# Local runtime artifacts
+*.log
 test.exe
+test.cpp
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

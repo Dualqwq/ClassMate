@@ -1,16 +1,26 @@
+.github/**
 .vscode/**
 .vscode-test/**
+docs/**
 out/**
 node_modules/**
 src/**
 webview/**
+*.vsix
 .gitignore
-.yarnrc
+.vscode-test.mjs
 webpack.config.js
-vsc-extension-quickstart.md
 **/tsconfig.json
 **/eslint.config.mjs
 **/*.map
 **/*.ts
-**/.vscode-test.*
+
+# Production bundle chunks use content-based numeric names. Exclude only
+# obsolete development chunks that may remain after switching build modes.
+dist/1.extension.js
+dist/2.extension.js
+dist/3.extension.js
+dist/4.extension.js
+
+# Skill files are required at runtime.
 !skill/**
