@@ -1,6 +1,6 @@
 # ClassMate
 
-ClassMate 是一款面向 C/C++、程序设计基础和 OOP 初学者的 VS Code AI 学习助手。
+ClassMate 是一款面向 C/C++、数据结构、程序设计基础和 OOP 初学者的 VS Code AI 学习助手。当前版本为 `0.0.5`。
 
 它可以帮助学生理解题目、寻找解题思路、读懂代码和分析编译错误。回答会尽量从提示开始，逐步增加细节，而不是一开始直接给出完整答案。
 
@@ -15,6 +15,8 @@ ClassMate 是一款面向 C/C++、程序设计基础和 OOP 初学者的 VS Code
 - 代码逻辑解释；
 - 编译错误和 Debug 建议；
 - OJ 错误排查；
+- 结合题目目录和结构化知识卡片分析常见数据结构作业；
+- 在模型输出前显示当前处理阶段，并在回答后展示实际读取的文件；
 - Markdown 错题总结。
 
 ### 选中代码解释
@@ -52,7 +54,7 @@ ClassMate 可以调用本机 `g++`：
 1. 打开 VS Code 的扩展页面；
 2. 点击右上角的 `...`；
 3. 选择 `Install from VSIX...`；
-4. 选择项目中的 `classmate-0.0.1.vsix`；
+4. 选择本地生成的 `classmate-*.vsix`；
 5. 安装完成后重新加载 VS Code。
 
 ### 2. 打开对话
@@ -159,3 +161,40 @@ ClassMate: Set API Key
 ```
 
 API Key 会保存在 VS Code 的 Secret Storage 中，不会直接写入项目文件。
+
+## 从源码运行
+
+```bash
+git clone https://github.com/Dualqwq/ClassMate.git
+cd ClassMate
+npm ci
+npm run compile
+```
+
+在 VS Code 中打开项目并按 `F5`，即可启动 Extension Development Host。
+
+常用检查命令：
+
+```bash
+npm run compile-tests
+npm run lint
+npm test
+npm run package
+```
+
+## V5 文档
+
+- [V5 架构](docs/architecture-v5.md)
+- [题目知识卡片设计](docs/problem-knowledge-v5.md)
+- [V5 MVP 进展](MVP进展.V5.md)
+
+## 隐私与安全
+
+- API Key 只保存在 VS Code Secret Storage；
+- 模型只能读取控制器验证并放入上下文的工作区文件；
+- 绝对路径、目录穿越、超大文件和不支持的文件类型会被拒绝；
+- 题目知识卡片只作为提示，最终回答仍需以实际题面和代码为准。
+
+## License
+
+当前仓库尚未指定开源许可证。在添加许可证之前，默认不授予复制、修改或分发代码的权利。

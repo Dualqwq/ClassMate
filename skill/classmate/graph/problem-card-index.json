@@ -1,0 +1,453 @@
+{
+  "schemaVersion": 1,
+  "indexVersion": "2026-07-30.1",
+  "cards": [
+    {
+      "id": "ds.pa1.1-1-1.filename",
+      "course": "data-structures",
+      "series": "PA1",
+      "number": "1-1-1",
+      "ojIds": ["9489"],
+      "title": "filename",
+      "aliases": ["文件名", "带宽编辑距离", "banded edit distance"],
+      "source": {"path": "references/data-structure-pa1-cards.md", "headingPath": ["PA1 1-1-1 filename"]},
+      "fingerprints": {
+        "pathTokens": ["PA1", "1-1-1", "9489", "filename"],
+        "titleTokens": ["filename", "文件名"],
+        "distinctivePhrases": ["只能插入和删除", "字符串有五十万", "距离不超过K", "插入删除次数"],
+        "concepts": ["编辑距离", "动态规划", "滚动数组", "带状DP"],
+        "codeMarkers": ["101", "202", "dp"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa1.1-1-2.interview",
+      "course": "data-structures",
+      "series": "PA1",
+      "number": "1-1-2",
+      "ojIds": ["9490"],
+      "title": "Interview-old",
+      "aliases": ["Interview", "圆桌插入", "面试"],
+      "source": {"path": "references/data-structure-pa1-cards.md", "headingPath": ["PA1 1-1-2 Interview-old"]},
+      "fingerprints": {
+        "pathTokens": ["PA1", "1-1-2", "9490", "Interview-old"],
+        "titleTokens": ["Interview", "圆桌"],
+        "distinctivePhrases": ["不能使用vector", "往圆桌里面加人", "每次走m", "围成一圈"],
+        "concepts": ["循环双向链表", "数组模拟链表", "插入位置"],
+        "codeMarkers": ["people", "left", "right"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa1.1-2-1.gift",
+      "course": "data-structures",
+      "series": "PA1",
+      "number": "1-2-1",
+      "ojIds": ["9491"],
+      "title": "Gift",
+      "aliases": ["礼物", "折半搜索", "meet in the middle"],
+      "source": {"path": "references/data-structure-pa1-cards.md", "headingPath": ["PA1 1-2-1 Gift"]},
+      "fingerprints": {
+        "pathTokens": ["PA1", "1-2-1", "9491", "Gift"],
+        "titleTokens": ["Gift", "礼物"],
+        "distinctivePhrases": ["每份礼物有两个价格", "必须选一个", "总价不超过P", "n最多40"],
+        "concepts": ["折半搜索", "二分查找", "方案数"],
+        "codeMarkers": ["leftSum", "rightSum", "lower_bound", "upper_bound"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa1.1-2-2.graphics",
+      "course": "data-structures",
+      "series": "PA1",
+      "number": "1-2-2",
+      "ojIds": ["9492"],
+      "title": "Graphics",
+      "aliases": ["图形分区", "ToLeft", "叉积二分"],
+      "source": {"path": "references/data-structure-pa1-cards.md", "headingPath": ["PA1 1-2-2 Graphics"]},
+      "fingerprints": {
+        "pathTokens": ["PA1", "1-2-2", "9492", "Graphics"],
+        "titleTokens": ["Graphics", "ToLeft"],
+        "distinctivePhrases": ["不相交", "ToLeft", "点在线上", "判断点所在区域"],
+        "concepts": ["叉积", "排序", "二分查找", "计算几何"],
+        "codeMarkers": ["ToLeft", "cross"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa1.1-2-3.partial-order",
+      "course": "data-structures",
+      "series": "PA1",
+      "number": "1-2-3",
+      "ojIds": ["9493"],
+      "title": "二维偏序",
+      "aliases": ["2D partial order", "最大权不下降子序列"],
+      "source": {"path": "references/data-structure-pa1-cards.md", "headingPath": ["PA1 1-2-3 二维偏序"]},
+      "fingerprints": {
+        "pathTokens": ["PA1", "1-2-3", "9493", "二维偏序"],
+        "titleTokens": ["二维偏序", "a和b都要越来越大"],
+        "distinctivePhrases": ["a和b都要越来越大", "相同位置的点", "c小于等于0", "最大权"],
+        "concepts": ["二维偏序", "前缀最大值", "不下降子序列"],
+        "codeMarkers": ["lower_bound", "upper_bound", "map"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa2.2-1-2.risk",
+      "course": "data-structures",
+      "series": "PA2",
+      "number": "2-1-2",
+      "ojIds": ["9513"],
+      "title": "Risk",
+      "aliases": ["风险预警", "Max Queue", "单调队列"],
+      "source": {"path": "references/data-structure-pa2-cards.md", "headingPath": ["PA2 2-1-2 Risk"]},
+      "fingerprints": {
+        "pathTokens": ["PA2", "2-1-2", "9513", "Risk"],
+        "titleTokens": ["Risk", "Max Queue"],
+        "distinctivePhrases": ["每天往前看的范围", "预警人数", "很多组p、q", "窗口左边界"],
+        "concepts": ["单调队列", "排序", "二分查找", "滑动窗口"],
+        "codeMarkers": ["left", "maxQueue", "long long"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa2.2-2-2.polynomial",
+      "course": "data-structures",
+      "series": "PA2",
+      "number": "2-2-2",
+      "ojIds": ["9669"],
+      "title": "Polynomial",
+      "aliases": ["多项式", "中缀转后缀", "隐式乘法"],
+      "source": {"path": "references/data-structure-pa2-cards.md", "headingPath": ["PA2 2-2-2 Polynomial"]},
+      "fingerprints": {
+        "pathTokens": ["PA2", "2-2-2", "9669", "Polynomial"],
+        "titleTokens": ["Polynomial", "多项式"],
+        "distinctivePhrases": ["乘号还能省", "中缀转后缀", "x(x+1)", "补全省略的乘号"],
+        "concepts": ["表达式求值", "运算符栈", "后缀表达式", "多项式运算"],
+        "codeMarkers": ["process", "trans", "calcula", "tokens"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa2.2-3-2.sect",
+      "course": "data-structures",
+      "series": "PA2",
+      "number": "2-3-2",
+      "ojIds": ["9672"],
+      "title": "Sect",
+      "aliases": ["门派", "正统弟子", "引路人"],
+      "source": {"path": "references/data-structure-pa2-cards.md", "headingPath": ["PA2 2-3-2 Sect"]},
+      "fingerprints": {
+        "pathTokens": ["PA2", "2-3-2", "9672", "Sect"],
+        "titleTokens": ["Sect", "正统弟子", "引路人"],
+        "distinctivePhrases": ["正统弟子", "内力和", "引路人", "teacher默认值"],
+        "concepts": ["树", "后序遍历", "递归", "链式跳转"],
+        "codeMarkers": ["teacher", "power", "sum"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa3.3-1-2.dance",
+      "course": "data-structures",
+      "series": "PA3",
+      "number": "3-1-2",
+      "ojIds": ["9505"],
+      "title": "Dance",
+      "aliases": ["舞蹈队列", "隐式Splay", "区间翻转"],
+      "source": {"path": "references/data-structure-pa3-cards.md", "headingPath": ["PA3 3-1-2 Dance"]},
+      "fingerprints": {
+        "pathTokens": ["PA3", "3-1-2", "9505", "Dance"],
+        "titleTokens": ["Dance", "splay"],
+        "distinctivePhrases": ["插入和翻转", "整体旋转", "翻转那段跨过0", "交换名字"],
+        "concepts": ["隐式Splay", "懒标记", "区间翻转", "全局偏移"],
+        "codeMarkers": ["split", "merge", "movetoroot", "reverse", "lazy"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa3.3-2-2.kidd",
+      "course": "data-structures",
+      "series": "PA3",
+      "number": "3-2-2",
+      "ojIds": ["9508"],
+      "title": "Kidd",
+      "aliases": ["动态开点线段树", "区间翻转记录"],
+      "source": {"path": "references/data-structure-pa3-cards.md", "headingPath": ["PA3 3-2-2 Kidd"]},
+      "fingerprints": {
+        "pathTokens": ["PA3", "3-2-2", "9508", "Kidd", "X-1-2"],
+        "titleTokens": ["Kidd", "用到哪里才开节点"],
+        "distinctivePhrases": ["整棵线段树建出来", "用到哪里才开节点", "只改它中间一段", "原来的lazy"],
+        "concepts": ["动态线段树", "区间分裂", "懒标记"],
+        "codeMarkers": ["lazy", "split", "Node"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa3.3-3-3.nearest-neighbor",
+      "course": "data-structures",
+      "series": "PA3",
+      "number": "3-3-3",
+      "ojIds": ["9511"],
+      "title": "Nearest Neighbor",
+      "aliases": ["最近邻", "KD树", "3-2-3"],
+      "source": {"path": "references/data-structure-pa3-cards.md", "headingPath": ["PA3 3-3-3 Nearest Neighbor"]},
+      "fingerprints": {
+        "pathTokens": ["PA3", "3-3-3", "3-2-3", "9511", "Nearest Neighbor"],
+        "titleTokens": ["Nearest Neighbor", "最近邻", "KD树"],
+        "distinctivePhrases": ["每次都把所有点看一遍", "到分界线的距离", "另一边什么时候可以不看", "查询最近点"],
+        "concepts": ["KD树", "中位数划分", "超平面剪枝", "最近邻"],
+        "codeMarkers": ["median", "nearest", "dimension"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa4.4-1-2.game",
+      "course": "data-structures",
+      "series": "PA4",
+      "number": "4-1-2",
+      "ojIds": ["9495"],
+      "title": "Game",
+      "aliases": ["最短路方案数", "X-2-2"],
+      "source": {"path": "references/data-structure-pa4-cards.md", "headingPath": ["PA4 4-1-2 Game"]},
+      "fingerprints": {
+        "pathTokens": ["PA4", "4-1-2", "9495", "Game", "X-2-2"],
+        "titleTokens": ["Game", "boss"],
+        "distinctivePhrases": ["最快到boss", "还要算有几种走法", "方案数", "一样短的路"],
+        "concepts": ["Dijkstra", "最短路计数", "点权图"],
+        "codeMarkers": ["distance", "count", "priority_queue", "addnode"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa4.4-2-2.pattern-matching",
+      "course": "data-structures",
+      "series": "PA4",
+      "number": "4-2-2",
+      "ojIds": ["9760"],
+      "title": "Pattern Matching",
+      "aliases": ["二维模式匹配", "二维哈希", "4-1-2"],
+      "source": {"path": "references/data-structure-pa4-cards.md", "headingPath": ["PA4 4-2-2 Pattern Matching"]},
+      "fingerprints": {
+        "pathTokens": ["PA4", "4-2-2", "4-1-2", "9760", "Pattern Matching"],
+        "titleTokens": ["Pattern Matching", "二维哈希"],
+        "distinctivePhrases": ["大矩阵每个小块", "k个小矩阵", "一个字符一个字符地比", "unsigned long long"],
+        "concepts": ["二维滚动哈希", "滑动窗口", "哈希表"],
+        "codeMarkers": ["unsigned long long", "hash"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa4.4-3-2.component",
+      "course": "data-structures",
+      "series": "PA4",
+      "number": "4-3-2",
+      "ojIds": ["9763"],
+      "title": "Component",
+      "aliases": ["连通块第k大", "并查集左式堆", "X-3-1"],
+      "source": {"path": "references/data-structure-pa4-cards.md", "headingPath": ["PA4 4-3-2 Component"]},
+      "fingerprints": {
+        "pathTokens": ["PA4", "4-3-2", "9763", "Component", "X-3-1"],
+        "titleTokens": ["Component", "连通块"],
+        "distinctivePhrases": ["并查集加左式堆", "加边以后第k大", "每个连通块只留k个数", "查到旧的堆"],
+        "concepts": ["并查集", "左式堆", "第k大", "可并堆"],
+        "codeMarkers": ["merge", "find", "parent", "heap"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.pa4.4-3-3.sort",
+      "course": "data-structures",
+      "series": "PA4",
+      "number": "4-3-3",
+      "ojIds": ["9764"],
+      "title": "Sort",
+      "aliases": ["三元比较排序", "4-2-2 Sort"],
+      "source": {"path": "references/data-structure-pa4-cards.md", "headingPath": ["PA4 4-3-3 Sort"]},
+      "fingerprints": {
+        "pathTokens": ["PA4", "4-3-3", "4-2-2", "9764", "Sort"],
+        "titleTokens": ["Sort", "compare"],
+        "distinctivePhrases": ["compare一次非要放三个数", "只告诉我最大最小", "剩下那个数", "不能直接比较"],
+        "concepts": ["三元比较", "比较排序", "调用次数"],
+        "codeMarkers": ["compare", "sort_lib", "sort_sample"],
+        "contentHashes": []
+      },
+      "variants": []
+    },
+    {
+      "id": "ds.lab2.zuma",
+      "course": "data-structures",
+      "series": "LAB2",
+      "number": "LAB2",
+      "ojIds": ["9525"],
+      "title": "Zuma",
+      "aliases": ["祖玛", "CST LAB2 Zuma"],
+      "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["LAB2 Zuma 基础卡"]},
+      "fingerprints": {
+        "pathTokens": ["LAB2", "9525", "Zuma", "祖玛"],
+        "titleTokens": ["Zuma", "祖玛"],
+        "distinctivePhrases": ["插入珠子", "三个或更多", "连续消除", "发射珠子"],
+        "concepts": ["分块数组", "插入删除", "连续消除"],
+        "codeMarkers": ["play", "plen", "a2p", "p2a"],
+        "contentHashes": []
+      },
+      "variants": [
+        {
+          "id": "ds.lab2.zuma.bug-01-left-negative",
+          "title": "代码 01：连消左边界为负",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 01"]},
+          "fingerprints": {
+            "pathTokens": ["01.cpp", "代码01"],
+            "titleTokens": ["01.cpp"],
+            "distinctivePhrases": ["left可能取到-1"],
+            "concepts": ["数组越界", "Runtime Error"],
+            "codeMarkers": ["play(left - 1)"],
+            "contentHashes": ["040af4a03de47f9cd9e00341995ce1ce8819365b4cdc33bb1a27a3a32b59b2a6"]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-02-empty-access",
+          "title": "代码 02：清空后继续访问",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 02"]},
+          "fingerprints": {
+            "pathTokens": ["02.cpp", "代码02"],
+            "titleTokens": ["02.cpp"],
+            "distinctivePhrases": ["访问空字符串"],
+            "concepts": ["空字符串", "Runtime Error"],
+            "codeMarkers": ["play(next)"],
+            "contentHashes": ["32aa7dba64870fd0366c80044585af62e2f8603beab40b3ba5d76e6ae4c56c59"]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-03-linear-insert",
+          "title": "代码 03：顺序串插入超时",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 03"]},
+          "fingerprints": {
+            "pathTokens": ["03.cpp", "代码03"],
+            "titleTokens": ["03.cpp"],
+            "distinctivePhrases": ["插入时间复杂度", "程序跑得太慢"],
+            "concepts": ["TLE", "O(mn)"],
+            "codeMarkers": ["a.insert", "a.erase"],
+            "contentHashes": ["52ee4eb534e8b3c93720bf6cee9588add4dc623b1a31298feac50629371946e5"]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-04-left-boundary",
+          "title": "代码 04：消除左边界失效",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 04"]},
+          "fingerprints": {
+            "pathTokens": ["04.cpp", "代码04"],
+            "titleTokens": ["04.cpp"],
+            "distinctivePhrases": ["左边界失效", "不足三连"],
+            "concepts": ["Wrong Answer", "消除边界"],
+            "codeMarkers": ["min(rank, (int)a.size())"],
+            "contentHashes": ["e377a98f3599707622ede7aed31261813278aba2f9a55da2cc6aecb6de57795a"]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-05-empty-line-input",
+          "title": "代码 05：空初始串读入错误",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 05"]},
+          "fingerprints": {
+            "pathTokens": ["05.cpp", "代码05"],
+            "titleTokens": ["05.cpp"],
+            "distinctivePhrases": ["无法识别空行", "空初始串"],
+            "concepts": ["Wrong Answer", "输入"],
+            "codeMarkers": ["cin >> a"],
+            "contentHashes": ["03bd55c17704ffc8368c461e7b774925afe01c1bc85d71db0d1c28dd4b468ac6"]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-06-block-capacity",
+          "title": "代码 06：块满后未重组",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 06"]},
+          "fingerprints": {
+            "pathTokens": ["06.cpp", "代码06"],
+            "titleTokens": ["06.cpp"],
+            "distinctivePhrases": ["超过存储范围后没有重组", "覆盖相邻块"],
+            "concepts": ["块容量", "Wrong Answer"],
+            "codeMarkers": ["plen[pos.first]++", "plen_bound"],
+            "contentHashes": [
+              "ade022e78d9492022edf5844b06db7c807f2858590ca79743f8b754e0cf806c1",
+              "8788fac8ffc91ac2c580bd002f23515b53d57ef74bff1f3a9004d239b926ff09"
+            ]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-07-empty-blocks",
+          "title": "代码 07：没有连续跳过空块",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 07"]},
+          "fingerprints": {
+            "pathTokens": ["07.cpp", "代码07"],
+            "titleTokens": ["07.cpp"],
+            "distinctivePhrases": ["只考虑左移一个块", "多个空块"],
+            "concepts": ["跨块连消", "Wrong Answer"],
+            "codeMarkers": ["if (l.second < 0", "l.first--"],
+            "contentHashes": [
+              "271ae28cebc1f9a288b21390f5e6b6b00635fc9371f6af180c7755c2332d409b",
+              "ce78e58caa10bd67965a8af78fa2439da3335f50c02633ac9354eb007e2538a9"
+            ]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-08-chain-reaction",
+          "title": "代码 08：缺少连续消除",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 08"]},
+          "fingerprints": {
+            "pathTokens": ["08.cpp", "代码08"],
+            "titleTokens": ["08.cpp"],
+            "distinctivePhrases": ["没有考虑连续消除"],
+            "concepts": ["连锁消除", "Wrong Answer"],
+            "codeMarkers": ["play(rank, ch)"],
+            "contentHashes": ["9dc417e7169d2ae39b902c67b4ab4c25c58b0bf6c1eed04a889d01244e7bf713"]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-09-negative-length",
+          "title": "代码 09：同块消除使块长为负",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 09"]},
+          "fingerprints": {
+            "pathTokens": ["09.cpp", "代码09"],
+            "titleTokens": ["09.cpp"],
+            "distinctivePhrases": ["块的长度更新为负数", "同块相消"],
+            "concepts": ["块长度", "Runtime Error"],
+            "codeMarkers": ["plen[l.first] = l.second + 1"],
+            "contentHashes": [
+              "68df7fc995af30b4205e1e537405a8731a172e566f0fb24743fa753c7b790741",
+              "eb2f2c40af363727f52db8df2869bb32ebcaff9830ea1e8a8571bbf13589d9f8"
+            ]
+          }
+        },
+        {
+          "id": "ds.lab2.zuma.bug-10-extra-empty-block",
+          "title": "代码 10：跨块消除多标空块",
+          "source": {"path": "references/data-structure-lab2-cards.md", "headingPath": ["Zuma 错误子卡 10"]},
+          "fingerprints": {
+            "pathTokens": ["10.cpp", "代码10"],
+            "titleTokens": ["10.cpp"],
+            "distinctivePhrases": ["多标记了一个空块"],
+            "concepts": ["跨块消除", "Wrong Answer"],
+            "codeMarkers": ["plen[i] = 0"],
+            "contentHashes": [
+              "9c9130f0822102b0228241d1195c75cbe5e9f9e9faf23f5764d8f277243662c5",
+              "16bb10cdef869a0ffde13866ac9e070c32dc5556e0763ba68146961171ab0736"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

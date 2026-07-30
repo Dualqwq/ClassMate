@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { classifyRequest } from '../prompts/intentRouter';
+import { classifyRequest, preclassifyRequest } from '../prompts/intentRouter';
 
 describe('Intent Router Test Suite', () => {
 	it('frontend code_explanation intent is preserved', () => {
@@ -23,6 +23,15 @@ describe('Intent Router Test Suite', () => {
 		assert.strictEqual(result, 'problem_hint');
 	});
 
+	it('locks an explicit first-level hint request before model routing', () => {
+		const route = preclassifyRequest(
+			undefined,
+			'请只给我第一层提示，不要直接告诉我完整改法'
+		);
+		assert.strictEqual(route.requestType, 'problem_hint');
+		assert.strictEqual(route.lockPolicy, 'family-locked');
+	});
+
 	it('text analysis detects concept question', () => {
 		const result = classifyRequest(undefined, '什么是指针？');
 		assert.strictEqual(result, 'concept_explanation');
@@ -36,6 +45,17 @@ describe('Intent Router Test Suite', () => {
 	it('text analysis detects no-idea keywords', () => {
 		const result = classifyRequest(undefined, '完全没思路，不知道怎么开始');
 		assert.strictEqual(result, 'problem_hint');
+	});
+
+	it('detects natural wrong-answer wording used in assignment follow-ups', () => {
+		assert.strictEqual(
+			classifyRequest(undefined, '我这里到底哪里写错了'),
+			'wrong_output_help'
+		);
+		assert.strictEqual(
+			classifyRequest(undefined, '为什么结果全是0'),
+			'wrong_output_help'
+		);
 	});
 
 	it('text analysis falls back to chat', () => {

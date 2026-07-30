@@ -6,6 +6,59 @@ export interface CourseContext {
     body: string;
 }
 
+export type WorkspaceFileKind = 'code' | 'question' | 'text' | 'build' | 'pdf' | 'other';
+
+export interface WorkspaceFileEntry {
+    path: string;
+    uri: string;
+    kind: WorkspaceFileKind;
+    size: number;
+    modifiedAt: number;
+}
+
+export interface ActiveEditorMetadata {
+    fileName: string;
+    uri: string;
+    languageId: string;
+    selection?: string;
+    selectionStartLine?: number;
+    selectionEndLine?: number;
+}
+
+export interface WorkspaceCatalog {
+    files: WorkspaceFileEntry[];
+    activeEditor?: ActiveEditorMetadata;
+    questionFiles: string[];
+    classmateFile?: string;
+}
+
+export interface MinimalWorkspaceContext {
+    catalog: WorkspaceCatalog;
+    activeSelection?: string;
+    activeFilePreview?: string;
+    latestDiagnostic?: string;
+    expectedOutput?: string;
+    actualOutput?: string;
+    questionText?: string;
+    questionFile?: string;
+    courseContext?: CourseContext;
+}
+
+export interface LoadedWorkspaceItem {
+    path: string;
+    kind: WorkspaceFileKind;
+    content: string;
+    contentHash: string;
+    reason: string;
+}
+
+export interface WorkspaceContextSnapshot {
+    snapshotId: string;
+    createdAt: number;
+    minimal: MinimalWorkspaceContext;
+    loadedItems: LoadedWorkspaceItem[];
+}
+
 export interface WorkspaceContext {
     /** Relative paths of C/C++ source and header files in the workspace. */
     cppFiles: string[];

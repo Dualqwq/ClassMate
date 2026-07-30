@@ -10,6 +10,9 @@ export function getChatWebviewHtml(
 	const scriptUri = webview.asWebviewUri(
 		vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js')
 	);
+	const styleUri = webview.asWebviewUri(
+		vscode.Uri.joinPath(extensionUri, 'dist', 'webview.css')
+	);
 	const nonce = getNonce();
 	const stateScript = initialState
 		? `<script nonce="${nonce}">window.__CLASSMATE_INITIAL_STATE__ = ${JSON.stringify(initialState)}; window.__CLASSMATE_CONTAINER__ = ${JSON.stringify(container)};</script>`
@@ -22,6 +25,7 @@ export function getChatWebviewHtml(
 			<meta name="viewport" content="width=device-width, initial-scale=1.0">
 			<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src https:; img-src ${webview.cspSource} https: data:;">
 			<title>ClassMate Chat</title>
+			<link rel="stylesheet" href="${styleUri}">
 		</head>
 		<body>
 			<div id="root"></div>

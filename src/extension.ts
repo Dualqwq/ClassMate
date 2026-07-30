@@ -27,6 +27,16 @@ import { ClaudeAdapter } from './llm/ClaudeAdapter';
 import { OpenAIAdapter } from './llm/OpenAIAdapter';
 import { DeepSeekAdapter } from './llm/DeepSeekAdapter';
 import type { LLMAdapter } from './llm/types';
+import { SkillContentLoader } from './skill/skillContentLoader';
+import { SkillGraphLoader } from './skill/skillGraphLoader';
+import { SkillSectionExtractor } from './skill/skillSectionExtractor';
+import { ProblemCardExtractor } from './problemKnowledge/problemCardExtractor';
+import { ProblemCardFactsLoader } from './problemKnowledge/problemCardFactsLoader';
+import { ProblemCardIndexLoader } from './problemKnowledge/problemCardIndexLoader';
+import { WorkspaceContextLoader } from './workspace/workspaceContextLoader';
+import { AdapterGraphModelClient } from './graph/modelClient';
+import type { GraphModelClient } from './graph/modelClient';
+import type { LLMTokenUsage } from './llm/types';
 import type {
     CodeModifiedEvent,
     CompileErrorEvent,
@@ -39,6 +49,21 @@ function createSessionId(): string {
 }
 
 type ChatContainer = 'view' | 'panel';
+
+/**
+ * Development-only API used by the paid live-evaluation harness.
+ * It deliberately returns a configured model client instead of exposing the
+ * plaintext API key. Production extension activation returns no such API.
+ */
+export interface ClassMateDevelopmentApi {
+	createLiveEvalModel(
+		onUsage: (usage: LLMTokenUsage, label?: string) => void
+	): Promise<{
+		provider: LLMConfig['provider'];
+		model: string;
+		client: GraphModelClient;
+	}>;
+}
 
 function createChatPanel(
 	session: ChatSession,
@@ -710,12 +735,23 @@ async function promptToEnableCodeLens(context: vscode.ExtensionContext): Promise
 	}
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+export function activate(
+	context: vscode.ExtensionContext
+): ClassMateDevelopmentApi | undefined {
 	console.log('ClassMate extension is now active.');
 
 	void promptToEnableCodeLens(context);
 
 	const chatSession = ChatSession.getInstance();
+	const performanceOutput = vscode.window.createOutputChannel('ClassMate Performance');
+	context.subscriptions.push(performanceOutput);
+	chatSession.setPerformanceTraceSink((event, data) => {
+		performanceOutput.appendLine(JSON.stringify({
+			timestamp: new Date().toISOString(),
+			event,
+			data,
+		}));
+	});
 
 	// Initialize the debug journey store and session identifiers.
 	const sessionId = createSessionId();
@@ -765,6 +801,18 @@ export function activate(context: vscode.ExtensionContext): void {
 	const loader = createSkillLoader();
 	const promptBuilder = new SystemPromptBuilder(loader, skillDir, workspaceProvider);
 	chatSession.setPromptBuilder(promptBuilder);
+	const skillContentLoader = new SkillContentLoader(skillDir);
+	const problemCardIndexLoader = new ProblemCardIndexLoader(skillContentLoader);
+	chatSession.setGraphServices({
+		workspaceProvider,
+		workspaceLoader: new WorkspaceContextLoader(),
+		skillContentLoader,
+		skillGraphLoader: new SkillGraphLoader(skillContentLoader),
+		skillSectionExtractor: new SkillSectionExtractor(skillContentLoader),
+		problemCardIndexLoader,
+		problemCardExtractor: new ProblemCardExtractor(skillContentLoader),
+		problemCardFactsLoader: new ProblemCardFactsLoader(skillContentLoader),
+	});
 
 	// Register the sidebar WebviewView provider.
 	const chatViewProvider = createChatViewProvider(chatSession, context.extensionUri);
@@ -1015,6 +1063,42 @@ export function activate(context: vscode.ExtensionContext): void {
 	chatStatusBarItem.tooltip = 'Open ClassMate chat';
 	chatStatusBarItem.show();
 	context.subscriptions.push(chatStatusBarItem);
+
+	if (context.extensionMode !== vscode.ExtensionMode.Production) {
+		return {
+			createLiveEvalModel: async (onUsage) => {
+				const storedConfig = await getLLMConfig(context);
+				const providerOverride = process.env.CLASSMATE_LIVE_EVAL_PROVIDER;
+				const config: LLMConfig = {
+					...storedConfig,
+					provider: providerOverride === 'claude'
+						|| providerOverride === 'openai'
+						|| providerOverride === 'deepseek'
+						? providerOverride
+						: storedConfig.provider,
+					model: process.env.CLASSMATE_LIVE_EVAL_MODEL
+						?? storedConfig.model,
+					apiUrl: process.env.CLASSMATE_LIVE_EVAL_API_URL
+						?? storedConfig.apiUrl,
+				};
+				const apiKey = await getApiKey(context)
+					?? process.env.CLASSMATE_LIVE_EVAL_API_KEY;
+				if (!apiKey) {
+					throw new Error('ClassMate API key is not configured in VS Code SecretStorage.');
+				}
+				const adapter = createLLMAdapter(config, apiKey);
+				if (!adapter) {
+					throw new Error(`Unsupported ClassMate provider: ${config.provider}`);
+				}
+				return {
+					provider: config.provider,
+					model: config.model,
+					client: new AdapterGraphModelClient(adapter, config.model, onUsage),
+				};
+			},
+		};
+	}
+	return undefined;
 }
 
 export function deactivate(): void {

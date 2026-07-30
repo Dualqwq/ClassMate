@@ -1,9 +1,24 @@
-# Change Log
+# Changelog
 
-All notable changes to the "classmate" extension will be documented in this file.
+ClassMate 的重要变更记录在这里。
 
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
+## [0.0.5]
 
-## [Unreleased]
+- 优化作业目录识别与工作区上下文加载，支持按题目范围读取多个相关文件；
+- 新增结构化数据结构题目知识卡片，并在回答前进行受控匹配；
+- 重做聊天界面，增加快捷提问、多行输入、等待阶段、停止按钮和上下文文件展示；
+- 修复模型产生结果但可见文本流为空时界面一直等待的问题；
+- 为未经验证的知识卡片增加约束，避免编造具体输入、操作和期望输出；
+- 补充工作区安全、知识卡片、LangGraph、提示词和 Webview 回归测试。
 
-- Initial release
+## [0.0.4]
+
+- 引入 LangGraph RouteAndPlan、受控上下文加载和 Skill Graph 检索流程；
+- 保留最终回答的流式输出，并增加首个 Token 前的阶段状态；
+- 支持 `Makefile`、`GNUmakefile` 和 `*.mk` 工作区上下文；
+- 增加代码修改预览、写入确认与文件冲突检查；
+- 增加主要节点耗时与 Token 用量追踪。
+
+## [0.0.1]
+
+- 初始原型。

@@ -36,6 +36,12 @@ export interface ChatMessage {
 	images?: ChatImage[];
 	attachments?: ChatAttachment[];
 	proposedEdit?: ProposedCodeEdit;
+	/** 只展示本轮实际使用的工作区文件，不暴露内部 Skill 或知识卡片。 */
+	contextSummary?: ChatContextSummary;
+}
+
+export interface ChatContextSummary {
+	workspaceFiles: string[];
 }
 
 export interface ChatImage {
@@ -88,6 +94,7 @@ export interface ChatState {
 	inputDraft: string;
 	isStreaming: boolean;
 	currentStreamMessageId: string | null;
+	processingStage: string | null;
 	activeConversationId: string;
 	conversations: ChatConversationSummary[];
 }
@@ -107,7 +114,8 @@ export type WebviewToExtensionMessage =
 	| { type: 'newConversation' }
 	| { type: 'switchConversation'; conversationId: string }
 	| { type: 'openReference'; reference: ChatReference }
-	| { type: 'applyProposedEdit'; messageId: string };
+	| { type: 'applyProposedEdit'; messageId: string }
+	| { type: 'cancelResponse' };
 
 // Messages sent from the extension host to the webview frontend.
 export type ExtensionToWebviewMessage =

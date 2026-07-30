@@ -1,18 +1,18 @@
 import type { MessageIntent } from '../chat/types';
+import type {
+	InitialRoute,
+	LockPolicy,
+	RequestSource,
+	RequestType,
+} from '../graph/types';
+import { getTaskByButtonId, getTaskDefinition } from '../graph/taskRegistry';
 
-export type RequestType =
-	| 'problem_understanding'
-	| 'problem_hint'
-	| 'concept_explanation'
-	| 'code_explanation'
-	| 'compile_error_help'
-	| 'runtime_error_help'
-	| 'wrong_output_help'
-	| 'oj_failure_help'
-	| 'oop_confusion'
-	| 'mistake_summary'
-	| 'solution_request'
-	| 'chat';
+export type { RequestType } from '../graph/types';
+
+export interface PreclassifyOptions {
+	source?: RequestSource;
+	buttonId?: string;
+}
 
 /**
  * Combines the frontend-declared intent with lightweight text analysis to
@@ -25,34 +25,113 @@ export function classifyRequest(
 	frontendIntent: MessageIntent | undefined,
 	userText: string
 ): RequestType {
+	return preclassifyRequest(frontendIntent, userText).requestType;
+}
+
+export function preclassifyRequest(
+	frontendIntent: MessageIntent | undefined,
+	userText: string,
+	options: PreclassifyOptions = {}
+): InitialRoute {
 	const text = userText.toLowerCase();
+	const source = options.source ?? 'conversation';
+
+	if (options.buttonId) {
+		const buttonTask = getTaskByButtonId(options.buttonId);
+		if (!buttonTask) {
+			return {
+				requestType: 'unclassified',
+				confidence: 0,
+				source: 'button',
+				lockPolicy: 'fully-locked',
+				reason: `Unknown button id: ${options.buttonId}`,
+			};
+		}
+		return {
+			requestType: buttonTask.requestType,
+			confidence: 1,
+			source: 'button',
+			lockPolicy: buttonTask.lockPolicy,
+			reason: `Mapped from button id: ${options.buttonId}`,
+		};
+	}
 
 	// If the frontend explicitly chose a non-chat intent, treat it as authoritative
 	// but still allow the text analysis to refine the subtype.
 	if (frontendIntent && frontendIntent !== 'chat') {
+		let requestType: RequestType;
 		switch (frontendIntent) {
 			case 'hint':
-				return 'problem_hint';
+				requestType = 'problem_hint';
+				break;
 			case 'code_explanation':
-				return 'code_explanation';
+				requestType = 'code_explanation';
+				break;
 			case 'concept_explanation':
-				return 'concept_explanation';
+				requestType = 'concept_explanation';
+				break;
 			case 'error_explanation':
-				return inferErrorType(text);
+				requestType = inferErrorType(text);
+				break;
 			case 'debug_suggestion':
-				return inferDebugType(text);
+				requestType = inferDebugType(text);
+				break;
 			case 'summary':
-				return 'mistake_summary';
+				requestType = 'mistake_summary';
+				break;
+			case 'code_edit':
+				requestType = 'code_edit';
+				break;
 			default:
-				return 'chat';
+				requestType = 'chat';
+				break;
 		}
+		return {
+			requestType,
+			confidence: 0.98,
+			source,
+			lockPolicy: getTaskDefinition(requestType).lockPolicy,
+			reason: `Mapped from frontend intent: ${frontendIntent}`,
+		};
 	}
 
 	// No explicit frontend intent: infer from the text itself.
-	return inferFromText(text);
+	if (looksLikeExplicitHintRequest(text)) {
+		return {
+			requestType: 'problem_hint',
+			confidence: 0.98,
+			source,
+			lockPolicy: 'family-locked',
+			reason: 'The user explicitly requested a hint instead of a direct solution.',
+		};
+	}
+	const requestType = inferFromText(text);
+	return {
+		requestType,
+		confidence: requestType === 'chat' ? 0.55 : 0.75,
+		source,
+		lockPolicy: 'unlocked',
+		reason: requestType === 'chat'
+			? 'No stronger local classification signal was found.'
+			: `Matched local text heuristics for ${requestType}.`,
+	};
+}
+
+function looksLikeExplicitHintRequest(text: string): boolean {
+	return (
+		text.includes('提示') ||
+		text.includes('第一层') ||
+		text.includes('第1层') ||
+		text.includes('不要直接告诉') ||
+		text.includes('不要直接给') ||
+		/\b(hint|clue)\b/i.test(text)
+	);
 }
 
 function inferFromText(text: string): RequestType {
+	if (looksLikeCodeEdit(text)) {
+		return 'code_edit';
+	}
 	if (looksLikeError(text)) {
 		return inferErrorType(text);
 	}
@@ -94,6 +173,16 @@ function inferFromText(text: string): RequestType {
 	}
 
 	return 'chat';
+}
+
+function looksLikeCodeEdit(text: string): boolean {
+	return (
+		text.includes('修改代码') ||
+		text.includes('帮我修改') ||
+		text.includes('修复代码') ||
+		text.includes('替换代码') ||
+		/\b(edit|modify|refactor|fix the code)\b/i.test(text)
+	);
 }
 
 function inferErrorType(text: string): RequestType {
@@ -165,6 +254,9 @@ function looksLikeWrongOutput(text: string): boolean {
 		text.includes('输出错误') ||
 		text.includes('结果不对') ||
 		text.includes('答案错误') ||
+		text.includes('哪里写错') ||
+		text.includes('哪里错') ||
+		/结果.*(?:是|全是)?0/.test(text) ||
 		text.includes('wrong output') ||
 		text.includes('output wrong')
 	);

@@ -28,6 +28,10 @@ export interface LLMRequest {
 	model?: string;
 	temperature?: number;
 	maxTokens?: number;
+	/** Ask OpenAI-compatible providers to return one valid JSON object. */
+	jsonMode?: boolean;
+	/** Provider-specific reasoning toggle; unsupported adapters may ignore it. */
+	thinkingMode?: 'enabled' | 'disabled';
 }
 
 export interface LLMStreamCallbacks {

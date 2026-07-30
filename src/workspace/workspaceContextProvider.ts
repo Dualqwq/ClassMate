@@ -1,11 +1,35 @@
 import * as vscode from 'vscode';
-import type { WorkspaceContext, CourseContext, WorkspaceCodeChange, WorkspaceCodeDocument } from './types';
+import type {
+    WorkspaceContext,
+    CourseContext,
+    MinimalWorkspaceContext,
+    WorkspaceCatalog,
+    WorkspaceCodeChange,
+    WorkspaceFileEntry,
+    WorkspaceFileKind,
+} from './types';
 import { parseClassmateMd } from './classmateFileParser';
 import * as path from 'path';
 import { extractPdfUri, formatPdfExtraction } from './pdfExtractor';
 
-const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.markdown']);
+const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.markdown', '.in', '.out', '.ans']);
 const CODE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx']);
+const BUILD_FILE_NAMES = new Set(['makefile', 'gnumakefile']);
+const BUILD_EXTENSIONS = new Set(['.mk']);
+const PROBLEM_FILE_STEMS = new Set([
+    'question',
+    'problem',
+    '问题',
+    '题目',
+    '作业说明',
+    'assignment',
+]);
+const PROBLEM_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.pdf']);
+const ACTIVE_FILE_PREVIEW_LIMIT = 24_000;
+const WORKSPACE_FILE_LIMIT = 2_000;
+const STANDARD_WORKSPACE_GLOB = '**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,md,markdown,txt,in,out,ans,pdf}';
+const BUILD_WORKSPACE_GLOB = '**/{Makefile,makefile,GNUmakefile,*.mk}';
+const WORKSPACE_EXCLUDE_GLOB = '**/{node_modules,.git,.vscode-test,dist,out}/**';
 
 function isCodeFile(uri: vscode.Uri): boolean {
     return CODE_EXTENSIONS.has(path.extname(uri.fsPath).toLowerCase());
@@ -14,6 +38,22 @@ function isCodeFile(uri: vscode.Uri): boolean {
 function isTextFile(uri: vscode.Uri): boolean {
     const ext = uri.path.slice(uri.path.lastIndexOf('.')).toLowerCase();
     return TEXT_EXTENSIONS.has(ext);
+}
+
+export function isBuildFilePath(filePath: string): boolean {
+    const fileName = path.basename(filePath).toLowerCase();
+    const extension = path.extname(filePath).toLowerCase();
+    return BUILD_FILE_NAMES.has(fileName) || BUILD_EXTENSIONS.has(extension);
+}
+
+/**
+ * Recognizes exact, commonly used assignment filenames. Thus question.md and
+ * 问题.txt match, while question-answer.md does not.
+ */
+export function isProblemStatementPath(filePath: string): boolean {
+    const extension = path.extname(filePath).toLowerCase();
+    const stem = path.basename(filePath, extension).toLowerCase();
+    return PROBLEM_FILE_EXTENSIONS.has(extension) && PROBLEM_FILE_STEMS.has(stem);
 }
 
 async function readFirstTextFile(uris: vscode.Uri[]): Promise<string | undefined> {
@@ -39,20 +79,38 @@ function toRelativePath(uri: vscode.Uri): string {
     return vscode.workspace.asRelativePath(uri, false);
 }
 
-function languageIdForCodeFile(uri: vscode.Uri): string {
-    return path.extname(uri.fsPath).toLowerCase() === '.c' ? 'c' : 'cpp';
+export function getWorkspaceFileKind(uri: vscode.Uri): WorkspaceFileKind {
+    const extension = path.extname(uri.fsPath).toLowerCase();
+    if (CODE_EXTENSIONS.has(extension)) {
+        return 'code';
+    }
+    if (isProblemStatementPath(uri.fsPath) && extension !== '.pdf') {
+        return 'question';
+    }
+    if (extension === '.pdf') {
+        return 'pdf';
+    }
+    if (isBuildFilePath(uri.fsPath)) {
+        return 'build';
+    }
+    if (TEXT_EXTENSIONS.has(extension)) {
+        return 'text';
+    }
+    return 'other';
 }
 
-async function readCodeDocument(uri: vscode.Uri): Promise<WorkspaceCodeDocument | undefined> {
-    const openDocument = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString());
+async function toCatalogEntry(uri: vscode.Uri): Promise<WorkspaceFileEntry | undefined> {
     try {
-        const content = openDocument
-            ? openDocument.getText()
-            : Buffer.from(await vscode.workspace.fs.readFile(uri)).toString('utf-8');
+        const stat = await vscode.workspace.fs.stat(uri);
+        if (stat.type !== vscode.FileType.File) {
+            return undefined;
+        }
         return {
-            fileName: toRelativePath(uri),
-            languageId: openDocument?.languageId ?? languageIdForCodeFile(uri),
-            content,
+            path: toRelativePath(uri),
+            uri: uri.toString(),
+            kind: getWorkspaceFileKind(uri),
+            size: stat.size,
+            modifiedAt: stat.mtime,
         };
     } catch {
         return undefined;
@@ -74,25 +132,49 @@ export function selectQuestionFile(questionFiles: vscode.Uri[], activeFile?: vsc
     return sorted[0];
 }
 
+function pathSegments(value: string): string[] {
+    return path.resolve(value)
+        .toLowerCase()
+        .split(path.sep)
+        .filter(Boolean);
+}
+
+function directoryDistance(left: string, right: string): number {
+    const leftParts = pathSegments(left);
+    const rightParts = pathSegments(right);
+    let commonLength = 0;
+    while (
+        commonLength < leftParts.length
+        && commonLength < rightParts.length
+        && leftParts[commonLength] === rightParts[commonLength]
+    ) {
+        commonLength += 1;
+    }
+    return leftParts.length + rightParts.length - (2 * commonLength);
+}
+
 export function selectProblemFile(
     markdownFiles: vscode.Uri[],
     pdfFiles: vscode.Uri[],
     activeFile?: vscode.Uri
 ): vscode.Uri | undefined {
+    const candidates = [...markdownFiles, ...pdfFiles];
+    if (candidates.length === 0) {
+        return undefined;
+    }
     if (activeFile?.scheme === 'file') {
-        const activeDir = path.dirname(activeFile.fsPath).toLowerCase();
-        const sameDirectoryMarkdown = markdownFiles.find(
-            (uri) => path.dirname(uri.fsPath).toLowerCase() === activeDir
-        );
-        if (sameDirectoryMarkdown) {
-            return sameDirectoryMarkdown;
-        }
-        const sameDirectoryPdf = pdfFiles.find(
-            (uri) => path.dirname(uri.fsPath).toLowerCase() === activeDir
-        );
-        if (sameDirectoryPdf) {
-            return sameDirectoryPdf;
-        }
+        const activeDir = path.dirname(activeFile.fsPath);
+        return candidates.sort((left, right) => {
+            const distance = directoryDistance(activeDir, path.dirname(left.fsPath))
+                - directoryDistance(activeDir, path.dirname(right.fsPath));
+            if (distance !== 0) {
+                return distance;
+            }
+            const leftIsPdf = path.extname(left.fsPath).toLowerCase() === '.pdf';
+            const rightIsPdf = path.extname(right.fsPath).toLowerCase() === '.pdf';
+            return Number(leftIsPdf) - Number(rightIsPdf)
+                || left.fsPath.localeCompare(right.fsPath);
+        })[0];
     }
     return selectQuestionFile(markdownFiles, activeFile)
         ?? [...pdfFiles].sort((a, b) => a.fsPath.localeCompare(b.fsPath))[0];
@@ -116,9 +198,25 @@ export class WorkspaceContextProvider {
         codeDocuments: [],
         codeChanges: [],
     };
+    private _catalog: WorkspaceCatalog = {
+        files: [],
+        questionFiles: [],
+    };
     private readonly _codeChanges: WorkspaceCodeChange[] = [];
     /** Last real text editor, retained while focus moves into the chat webview. */
     private _lastActiveTextEditor: vscode.TextEditor | undefined;
+
+    /**
+     * Output channels, diffs, and other virtual documents can temporarily
+     * become VS Code's active text editor. They are not workspace source
+     * files, so keep using the most recent real file editor in that case.
+     */
+    private _getRelevantEditor(): vscode.TextEditor | undefined {
+        const active = vscode.window.activeTextEditor;
+        return active?.document.uri.scheme === 'file'
+            ? active
+            : this._lastActiveTextEditor;
+    }
 
     constructor() {
         const initialEditor = vscode.window.activeTextEditor;
@@ -129,23 +227,67 @@ export class WorkspaceContextProvider {
         // Initial load is performed lazily or can be awaited by the caller.
     }
 
-    public async refresh(): Promise<WorkspaceContext> {
-        const [sourceFiles, headerFiles, questionFiles, questionPdfFiles, classmateFiles] = await Promise.all([
-            vscode.workspace.findFiles('**/*.{c,cc,cpp,cxx}', '**/node_modules/**'),
-            vscode.workspace.findFiles('**/*.{h,hh,hpp,hxx}', '**/node_modules/**'),
-            vscode.workspace.findFiles('**/question.md', '**/node_modules/**'),
-            vscode.workspace.findFiles('**/question.pdf', '**/node_modules/**'),
-            vscode.workspace.findFiles('CLASSMATE.md', '**/.git/**', 1),
+    public async refreshCatalog(): Promise<WorkspaceCatalog> {
+        const [standardUris, buildUris] = await Promise.all([
+            vscode.workspace.findFiles(
+                STANDARD_WORKSPACE_GLOB,
+                WORKSPACE_EXCLUDE_GLOB,
+                WORKSPACE_FILE_LIMIT
+            ),
+            vscode.workspace.findFiles(
+                BUILD_WORKSPACE_GLOB,
+                WORKSPACE_EXCLUDE_GLOB,
+                WORKSPACE_FILE_LIMIT
+            ),
         ]);
-
-        const allSourceFiles = [...sourceFiles, ...headerFiles].sort((a, b) =>
-            a.fsPath.localeCompare(b.fsPath)
+        const uris = [...new Map(
+            [...standardUris, ...buildUris].map((uri) => [uri.toString(), uri])
+        ).values()].slice(0, WORKSPACE_FILE_LIMIT);
+        const entries = (await Promise.all(uris.map(toCatalogEntry)))
+            .filter((entry): entry is WorkspaceFileEntry => entry !== undefined)
+            .sort((a, b) => a.path.localeCompare(b.path));
+        const editor = this._getRelevantEditor();
+        const classmateFile = entries.find(
+            (entry) => path.basename(entry.path).toLowerCase() === 'classmate.md'
         );
-        const codeDocuments = (await Promise.all(allSourceFiles.map(readCodeDocument)))
-            .filter((document): document is WorkspaceCodeDocument => document !== undefined);
+        this._catalog = {
+            files: entries,
+            questionFiles: entries
+                .filter((entry) => isProblemStatementPath(entry.path))
+                .map((entry) => entry.path),
+            classmateFile: classmateFile?.path,
+            activeEditor: editor ? {
+                fileName: toRelativePath(editor.document.uri),
+                uri: editor.document.uri.toString(),
+                languageId: editor.document.languageId,
+                selection: !editor.selection.isEmpty
+                    ? editor.document.getText(editor.selection)
+                    : undefined,
+                selectionStartLine: !editor.selection.isEmpty ? editor.selection.start.line + 1 : undefined,
+                selectionEndLine: !editor.selection.isEmpty ? editor.selection.end.line + 1 : undefined,
+            } : undefined,
+        };
+        return this._catalog;
+    }
 
-        const editor = vscode.window.activeTextEditor ?? this._lastActiveTextEditor;
-        const selectedQuestion = selectProblemFile(questionFiles, questionPdfFiles, editor?.document.uri);
+    public getCatalog(): WorkspaceCatalog {
+        return this._catalog;
+    }
+
+    public async getMinimalContext(): Promise<MinimalWorkspaceContext> {
+        const catalog = await this.refreshCatalog();
+        const editor = this._getRelevantEditor();
+        const questionEntries = catalog.files.filter(
+            (entry) => isProblemStatementPath(entry.path) && entry.kind !== 'pdf'
+        );
+        const questionPdfEntries = catalog.files.filter(
+            (entry) => isProblemStatementPath(entry.path) && entry.kind === 'pdf'
+        );
+        const selectedQuestion = selectProblemFile(
+            questionEntries.map((entry) => vscode.Uri.parse(entry.uri)),
+            questionPdfEntries.map((entry) => vscode.Uri.parse(entry.uri)),
+            editor?.document.uri
+        );
         let questionText: string | undefined;
         if (selectedQuestion && path.extname(selectedQuestion.fsPath).toLowerCase() === '.pdf') {
             try {
@@ -161,26 +303,46 @@ export class WorkspaceContextProvider {
             : undefined;
 
         let courseContext: CourseContext | undefined;
-        if (classmateFiles.length > 0) {
-            courseContext = await parseClassmateMd(classmateFiles[0]) ?? undefined;
+        const classmateEntry = catalog.files.find(
+            (entry) => path.basename(entry.path).toLowerCase() === 'classmate.md'
+        );
+        if (classmateEntry) {
+            courseContext = await parseClassmateMd(vscode.Uri.parse(classmateEntry.uri)) ?? undefined;
         }
 
-        this._context = {
-            cppFiles: allSourceFiles.map(toRelativePath),
-            codeDocuments,
-            codeChanges: [...this._codeChanges],
+        return {
+            catalog,
+            activeSelection: selection,
+            activeFilePreview: editor
+                ? editor.document.getText().slice(0, ACTIVE_FILE_PREVIEW_LIMIT)
+                : undefined,
             questionText,
             questionFile: selectedQuestion ? toRelativePath(selectedQuestion) : undefined,
+            courseContext,
+        };
+    }
+
+    public async refresh(): Promise<WorkspaceContext> {
+        const minimal = await this.getMinimalContext();
+        const editor = this._getRelevantEditor();
+        this._context = {
+            cppFiles: minimal.catalog.files
+                .filter((entry) => entry.kind === 'code')
+                .map((entry) => entry.path),
+            codeDocuments: [],
+            codeChanges: [...this._codeChanges],
+            questionText: minimal.questionText,
+            questionFile: minimal.questionFile,
             activeEditor: editor ? {
                 fileName: toRelativePath(editor.document.uri),
                 uri: editor.document.uri.toString(),
                 languageId: editor.document.languageId,
-                content: editor.document.getText(),
-                selection,
+                content: minimal.activeFilePreview ?? '',
+                selection: minimal.activeSelection,
                 selectionStartLine: !editor.selection.isEmpty ? editor.selection.start.line + 1 : undefined,
                 selectionEndLine: !editor.selection.isEmpty ? editor.selection.end.line + 1 : undefined,
             } : undefined,
-            courseContext,
+            courseContext: minimal.courseContext,
         };
 
         return this._context;
@@ -192,10 +354,10 @@ export class WorkspaceContextProvider {
 
     private _registerWatchers(): void {
         const classmateWatcher = vscode.workspace.createFileSystemWatcher('**/CLASSMATE.md');
-        const questionWatcher = vscode.workspace.createFileSystemWatcher('**/question.md');
-        const questionPdfWatcher = vscode.workspace.createFileSystemWatcher('**/question.pdf');
+        const questionWatcher = vscode.workspace.createFileSystemWatcher('**/*.{md,markdown,txt,pdf}');
         const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{c,cc,cpp,cxx}');
         const headerWatcher = vscode.workspace.createFileSystemWatcher('**/*.{h,hh,hpp,hxx}');
+        const buildWatcher = vscode.workspace.createFileSystemWatcher(BUILD_WORKSPACE_GLOB);
 
         const onChange = () => {
             void this.refresh().then(() => this._onDidChange.fire());
@@ -209,15 +371,15 @@ export class WorkspaceContextProvider {
         questionWatcher.onDidCreate(onChange);
         questionWatcher.onDidDelete(onChange);
 
-        questionPdfWatcher.onDidChange(onChange);
-        questionPdfWatcher.onDidCreate(onChange);
-        questionPdfWatcher.onDidDelete(onChange);
-
         sourceWatcher.onDidCreate(onChange);
         sourceWatcher.onDidDelete(onChange);
 
         headerWatcher.onDidCreate(onChange);
         headerWatcher.onDidDelete(onChange);
+
+        buildWatcher.onDidChange(onChange);
+        buildWatcher.onDidCreate(onChange);
+        buildWatcher.onDidDelete(onChange);
 
         const recordFileChange = (uri: vscode.Uri, kind: 'file_created' | 'file_deleted') => {
             if (!isCodeFile(uri)) {
@@ -267,7 +429,7 @@ export class WorkspaceContextProvider {
                     });
                 }
             }
-            const contextEditor = vscode.window.activeTextEditor ?? this._lastActiveTextEditor;
+            const contextEditor = this._getRelevantEditor();
             if (event.document === contextEditor?.document) {
                 onChange();
             }

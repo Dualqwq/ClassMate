@@ -4,6 +4,34 @@ import type { ChatAttachment, ChatImage, ChatState, ExtensionToWebviewMessage, L
 import { getInitialState, getContainer, sendMessage, subscribeToExtension } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
 import { SettingsPanel } from './components/SettingsPanel';
+import './classmate.css';
+
+const QUICK_PROMPTS: Array<{
+	title: string;
+	description: string;
+	text: string;
+}> = [
+	{
+		title: '这题我没思路',
+		description: '结合当前题目给我第一步提示',
+		text: '这题我没思路，能先告诉我应该从哪里开始想吗？',
+	},
+	{
+		title: '帮我看看代码',
+		description: '定位当前代码里最可能的问题',
+		text: '帮我看看当前代码哪里可能有问题，先说最需要检查的一处。',
+	},
+	{
+		title: '为什么会超时',
+		description: '分析瓶颈和时间复杂度',
+		text: '我的代码为什么会超时？请结合当前代码分析时间复杂度。',
+	},
+	{
+		title: '解释一个概念',
+		description: '用初学者能听懂的话说明',
+		text: '我有一个概念不太懂：',
+	},
+];
 
 function formatConversationDate(timestamp: number): string {
 	const elapsedDays = Math.floor((Date.now() - timestamp) / 86_400_000);
@@ -28,7 +56,9 @@ export const App: React.FC = () => {
 	const [showHistory, setShowHistory] = useState(false);
 	const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
 	const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+	const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const shouldScrollToBottomRef = useRef(true);
 
 	useEffect(() => {
@@ -86,6 +116,15 @@ export const App: React.FC = () => {
 		}
 	}, [state.messages, state.isStreaming]);
 
+	useEffect(() => {
+		const el = inputRef.current;
+		if (!el) {
+			return;
+		}
+		el.style.height = 'auto';
+		el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
+	}, [input]);
+
 	const handleScroll = useCallback(() => {
 		const el = scrollRef.current;
 		if (!el) {
@@ -94,6 +133,7 @@ export const App: React.FC = () => {
 		const nearBottomThreshold = 32;
 		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
 		shouldScrollToBottomRef.current = distanceFromBottom <= nearBottomThreshold;
+		setShowJumpToLatest(distanceFromBottom > 160);
 	}, []);
 
 	const handleInputChange = useCallback(
@@ -127,7 +167,8 @@ export const App: React.FC = () => {
 		if (!files) {
 			return;
 		}
-		const readableExtensions = /\.(c|cc|cpp|cxx|h|hh|hpp|hxx|md|txt|json|js|jsx|ts|tsx|py|java|css|html|xml|yaml|yml|toml|ini|csv)$/i;
+		const readableExtensions = /\.(c|cc|cpp|cxx|h|hh|hpp|hxx|md|txt|mk|json|js|jsx|ts|tsx|py|java|css|html|xml|yaml|yml|toml|ini|csv)$/i;
+		const isMakefileName = (fileName: string) => /^(?:gnu)?makefile$/i.test(fileName);
 		for (const file of Array.from(files)) {
 			if (file.size > 10 * 1024 * 1024) {
 				continue;
@@ -148,7 +189,11 @@ export const App: React.FC = () => {
 						}]);
 					};
 					pdfReader.readAsDataURL(file);
-				} else if (file.type.startsWith('text/') || readableExtensions.test(file.name)) {
+				} else if (
+					file.type.startsWith('text/') ||
+					readableExtensions.test(file.name) ||
+					isMakefileName(file.name)
+				) {
 					const textReader = new FileReader();
 					textReader.onload = () => {
 						setPendingAttachments((current) => [...current, {
@@ -180,84 +225,96 @@ export const App: React.FC = () => {
 		sendMessage({ type: 'requestContainerToggle' });
 	}, []);
 
+	const chooseQuickPrompt = useCallback((text: string) => {
+		handleInputChange(text);
+		requestAnimationFrame(() => {
+			inputRef.current?.focus();
+			inputRef.current?.setSelectionRange(text.length, text.length);
+		});
+	}, [handleInputChange]);
+
+	const jumpToLatest = useCallback(() => {
+		const el = scrollRef.current;
+		if (!el) {
+			return;
+		}
+		shouldScrollToBottomRef.current = true;
+		setShowJumpToLatest(false);
+		el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+	}, []);
+
 	return (
-		<div
-			style={{
-				display: 'flex',
-				flexDirection: 'column',
-				height: '100%',
-				fontFamily: 'var(--vscode-font-family), sans-serif',
-				background: 'var(--vscode-editor-background)',
-				color: 'var(--vscode-foreground)',
-			}}
-		>
-			<div
-				style={{
-					padding: '8px 12px',
-					borderBottom: '1px solid var(--vscode-panel-border)',
-					background: 'var(--vscode-sideBar-background)',
-				}}
-			>
-				<div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+		<div className="classmate-app">
+			<header className="classmate-header">
+				<div className="classmate-header-row">
+					<div className="classmate-brand">
+						<div className="classmate-mark" aria-hidden="true">C</div>
+						<div className="classmate-brand-copy">
+							<div className="classmate-title">ClassMate</div>
+							<div className="classmate-subtitle">结合当前题目和代码回答</div>
+						</div>
+					</div>
+					<span className="classmate-spacer" />
 					<button
 						onClick={() => setShowHistory((value) => !value)}
-						style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontWeight: 600 }}
+						className="icon-button"
+						title="查看历史会话"
+						aria-expanded={showHistory}
 					>
-						会话 {showHistory ? '⌃' : '⌄'}
+						历史 {showHistory ? '⌃' : '⌄'}
 					</button>
-					<span style={{ flex: 1 }} />
 					<button
 						onClick={() => sendMessage({ type: 'newConversation' })}
 						title="新建对话"
-						style={{ border: 'none', background: 'transparent', color: 'inherit', cursor: 'pointer', fontSize: '18px' }}
+						className="icon-button"
+						disabled={state.isStreaming}
 					>
 						＋
 					</button>
 				</div>
 				{showHistory && (
-					<div style={{ marginTop: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+					<div className="history-panel">
 						{state.conversations.map((conversation) => (
 							<button
 								key={conversation.id}
 								onClick={() => sendMessage({ type: 'switchConversation', conversationId: conversation.id })}
-								style={{
-									display: 'block',
-									width: '100%',
-									padding: '7px 8px',
-									textAlign: 'left',
-									border: 'none',
-									borderRadius: '6px',
-									background: conversation.id === state.activeConversationId
-										? 'var(--vscode-list-activeSelectionBackground)'
-										: 'transparent',
-									color: 'inherit',
-									cursor: 'pointer',
-								}}
+								className={`history-item ${
+									conversation.id === state.activeConversationId ? 'active' : ''
+								}`}
 							>
-								<div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-									{conversation.title}
-								</div>
-								<div style={{ fontSize: '10px', color: 'var(--vscode-descriptionForeground)', marginTop: '2px' }}>
+								<div className="history-title">{conversation.title}</div>
+								<div className="history-date">
 									{formatConversationDate(conversation.updatedAt)}
 								</div>
 							</button>
 						))}
 					</div>
 				)}
-			</div>
+			</header>
 			<div
 				ref={scrollRef}
 				onScroll={handleScroll}
-				style={{
-					flex: 1,
-					overflowY: 'auto',
-					padding: '16px',
-					borderBottom: '1px solid var(--vscode-panel-border)',
-				}}
+				className="classmate-messages"
 			>
 				{state.messages.length === 0 && (
-					<div style={{ color: 'var(--vscode-descriptionForeground)' }}>
-						Ask ClassMate anything about your C++ code.
+					<div className="welcome-card">
+						<h1>现在卡在哪里？</h1>
+						<p>
+							直接用平时提问的方式说就可以。ClassMate 会优先查看当前题目和代码，
+							再给出适合初学者的下一步。
+						</p>
+						<div className="quick-prompts">
+							{QUICK_PROMPTS.map((prompt) => (
+								<button
+									key={prompt.title}
+									className="quick-prompt"
+									onClick={() => chooseQuickPrompt(prompt.text)}
+								>
+									<strong>{prompt.title}</strong>
+									<span>{prompt.description}</span>
+								</button>
+							))}
+						</div>
 					</div>
 				)}
 				{state.messages.map((msg) => (
@@ -266,113 +323,77 @@ export const App: React.FC = () => {
 						message={msg}
 						isStreaming={state.isStreaming}
 						isCurrentStream={msg.id === state.currentStreamMessageId}
+						processingStage={
+							msg.id === state.currentStreamMessageId
+								? state.processingStage
+								: null
+						}
 					/>
 				))}
+				{showJumpToLatest && (
+					<button className="jump-latest" onClick={jumpToLatest}>
+						回到最新 ↓
+					</button>
+				)}
 			</div>
 
-			<div
-				style={{
-					padding: '12px',
-					borderTop: '1px solid var(--vscode-panel-border)',
-					background: 'var(--vscode-sideBar-background)',
-					flexShrink: 0,
-				}}
-			>
+			<div className="classmate-composer">
 				{pendingImages.length > 0 && (
-					<div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+					<div className="pending-items">
 						{pendingImages.map((image, index) => (
-							<div key={`${image.name}-${index}`} style={{ position: 'relative' }}>
-								<img src={image.dataUrl} alt={image.name} style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '6px' }} />
+							<div key={`${image.name}-${index}`} className="pending-image">
+								<img src={image.dataUrl} alt={image.name} />
 								<button
 									onClick={() => setPendingImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-									style={{ position: 'absolute', right: '-5px', top: '-5px', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
+									className="remove-image"
+									title={`移除 ${image.name}`}
 								>×</button>
 							</div>
 						))}
 					</div>
 				)}
 				{pendingAttachments.length > 0 && (
-					<div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+					<div className="pending-items">
 						{pendingAttachments.map((attachment, index) => (
 							<button
 								key={`${attachment.name}-${index}`}
 								onClick={() => setPendingAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))}
 								title="点击移除"
-								style={{ border: '1px solid var(--vscode-panel-border)', borderRadius: '6px', padding: '5px 8px', background: 'transparent', color: 'inherit', cursor: 'pointer' }}
+								className="attachment-chip"
 							>
 								📎 {attachment.name} ×
 							</button>
 						))}
 					</div>
 				)}
-				<div
-					style={{
-						display: 'flex',
-						flexWrap: 'wrap',
-						alignItems: 'center',
-						gap: '8px',
-						marginBottom: '8px',
-					}}
-				>
+				<div className="classmate-toolbar">
 					<button
 						onClick={handleToggleContainer}
-						title={container === 'view' ? 'Open in Panel' : 'Move to Sidebar'}
-						style={{
-							background: 'transparent',
-							border: 'none',
-							color: 'var(--vscode-foreground)',
-							cursor: 'pointer',
-							fontSize: '13px',
-							padding: '4px',
-						}}
+						title={container === 'view' ? '在编辑器区域中打开' : '移回侧边栏'}
+						className="icon-button"
 					>
 						{container === 'view' ? '⛶' : '☰'}
 					</button>
 					<button
 						onClick={() => setShowSettings(true)}
-						title="LLM Settings"
-						style={{
-							background: 'transparent',
-							border: 'none',
-							color: 'var(--vscode-foreground)',
-							cursor: 'pointer',
-							fontSize: '13px',
-							padding: '4px',
-						}}
+						title="模型设置"
+						className="icon-button"
 					>
 						⚙
 					</button>
 					{llmConfig && (
-						<span
-							style={{
-								color: 'var(--vscode-descriptionForeground)',
-								fontSize: '11px',
-								flex: 1,
-							}}
-						>
+						<span className="model-label">
 							{llmConfig.provider} · {llmConfig.model}
 						</span>
 					)}
-					<span style={{ flex: 1 }} />
-					{state.isStreaming && (
-						<span style={{ color: 'var(--vscode-descriptionForeground)', fontSize: '12px' }}>
-							Thinking…
-						</span>
-					)}
+					<span className="classmate-spacer" />
 				</div>
-				<div
-					style={{
-						display: 'flex',
-						flexWrap: 'wrap',
-						gap: '8px',
-						alignItems: 'stretch',
-					}}
-				>
+				<div className="composer-shell">
 					<label
 						title="上传图片或附件（单文件最大10MB）"
-						style={{ padding: '8px', cursor: 'pointer', fontSize: '18px' }}
+						className="attach-label"
 					>
-						＋
+						📎
 						<input
 							type="file"
 							multiple
@@ -380,42 +401,40 @@ export const App: React.FC = () => {
 							style={{ display: 'none' }}
 						/>
 					</label>
-					<input
-						type="text"
+					<textarea
+						ref={inputRef}
+						rows={1}
 						value={input}
 						onChange={(e) => handleInputChange(e.target.value)}
-						onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-						placeholder="Ask ClassMate..."
+						onKeyDown={(event) => {
+							if (event.key === 'Enter' && !event.shiftKey) {
+								event.preventDefault();
+								handleSend();
+							}
+						}}
+						placeholder="直接说你卡在哪里…"
 						disabled={state.isStreaming}
-						style={{
-							flex: '1 1 0',
-							minWidth: '80px',
-							padding: '8px 12px',
-							borderRadius: '6px',
-							border: '1px solid var(--vscode-input-border)',
-							background: 'var(--vscode-input-background)',
-							color: 'var(--vscode-input-foreground)',
-							boxSizing: 'border-box',
-						}}
+						className="composer-input"
 					/>
-					<button
-						onClick={() => handleSend()}
-						disabled={state.isStreaming || (!input.trim() && pendingImages.length === 0 && pendingAttachments.length === 0)}
-						style={{
-							padding: '8px 12px',
-							borderRadius: '6px',
-							border: 'none',
-							background: 'var(--vscode-button-background)',
-							color: 'var(--vscode-button-foreground)',
-							cursor: 'pointer',
-							whiteSpace: 'nowrap',
-							minWidth: '48px',
-							boxSizing: 'border-box',
-						}}
-					>
-						Send
-					</button>
+					{state.isStreaming ? (
+						<button
+							onClick={() => sendMessage({ type: 'cancelResponse' })}
+							className="stop-button"
+							title="停止当前回答"
+						>
+							停止
+						</button>
+					) : (
+						<button
+							onClick={() => handleSend()}
+							disabled={!input.trim() && pendingImages.length === 0 && pendingAttachments.length === 0}
+							className="primary-button"
+						>
+							发送
+						</button>
+					)}
 				</div>
+				<div className="composer-help">Enter 发送 · Shift+Enter 换行</div>
 			</div>
 
 			{showSettings && (

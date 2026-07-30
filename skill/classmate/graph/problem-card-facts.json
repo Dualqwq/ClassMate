@@ -1,0 +1,283 @@
+{
+  "schemaVersion": 1,
+  "factsVersion": "2026-07-31.1",
+  "entries": [
+    {
+      "id": "ds.pa1.1-1-1.filename",
+      "kind": "solution",
+      "primaryConclusion": "只计算主对角线附近宽度为 K 的编辑距离状态，并使用滚动数组保存相邻两层。",
+      "evidence": ["操作只有插入和删除。", "只需要判断距离是否不超过 K。", "当两个字符串长度差大于 K 时可以直接判定失败。"],
+      "complexity": {"time": "O((N + M)K)", "space": "O(K)"},
+      "pitfalls": ["滚动数组中的越界状态必须重新初始化。", "带状 DP 的下标偏移会随当前行变化。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["不需要计算完整的 O(NM) 动态规划表。"],
+      "answerRequirements": ["先解释为什么答案只可能出现在主对角线附近，再给状态转移。"]
+    },
+    {
+      "id": "ds.pa1.1-1-2.interview",
+      "kind": "solution",
+      "primaryConclusion": "用数组保存每个人的前驱和后继，模拟循环双向链表中的移动与插入。",
+      "evidence": ["题目需要从当前位置沿圆桌移动。", "插入后相邻关系会局部改变。", "题目不允许直接使用 vector。"],
+      "complexity": {"time": "总时间为各轮移动步数之和，最坏 O(n^2)", "space": "O(n)"},
+      "pitfalls": ["移动步数应先对当前人数取模。", "插入时必须同时更新左右两侧的链接。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["循环链表不能把最坏时间自动降为 O(n log n)。"],
+      "answerRequirements": ["用一个小圆桌例子说明 left、right 数组如何变化。"]
+    },
+    {
+      "id": "ds.pa1.1-2-1.gift",
+      "kind": "solution",
+      "primaryConclusion": "把礼物分成两半分别枚举价格和，再排序其中一侧并用二分统计合法组合。",
+      "evidence": ["每件礼物有两个价格且必须二选一。", "n 较大时直接枚举 2^n 不可行。", "两半的方案数约为 2^(n/2)。"],
+      "complexity": {"time": "O(n·2^(n/2))", "space": "O(2^(n/2))"},
+      "pitfalls": ["价格和与方案数可能需要 64 位整数。", "二分边界要与“不超过预算”保持一致。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["普通深搜剪枝不能保证通过所有最坏数据。"],
+      "answerRequirements": ["解释一次左半方案如何与右半有序数组配对。"]
+    },
+    {
+      "id": "ds.pa1.1-2-2.graphics",
+      "kind": "solution",
+      "primaryConclusion": "先按分割线顺序排序，再用叉积判断点位于线的哪一侧，并二分找到所属区域。",
+      "evidence": ["分割线互不相交，具有稳定顺序。", "ToLeft 可以用叉积符号实现。", "每个点只需定位到相邻两条线之间。"],
+      "complexity": {"time": "O(n log n + m log n)", "space": "O(n)"},
+      "pitfalls": ["叉积必须使用足够宽的整数类型。", "点在线上时的归属规则必须按题意统一。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["不能只比较某一个端点的横坐标来判断区域。"],
+      "answerRequirements": ["先画出或描述二分过程中的左右区域含义。"]
+    },
+    {
+      "id": "ds.pa1.1-2-3.partial-order",
+      "kind": "solution",
+      "primaryConclusion": "按一个坐标排序后维护另一个坐标的前缀最大值，从而判断是否存在支配关系。",
+      "evidence": ["偏序比较同时涉及两个维度。", "排序后第一维的顺序已经固定。", "前缀最大值能概括此前第二维的最佳候选。"],
+      "complexity": {"time": "O(n log n)", "space": "O(n)"},
+      "pitfalls": ["相同第一坐标的元素需要按题意处理顺序。", "初值不能默认所有坐标都为正数。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["只检查排序后的相邻元素可能漏掉更早的支配者。"],
+      "answerRequirements": ["明确排序规则和前缀最大值代表什么。"]
+    },
+    {
+      "id": "ds.pa2.2-1-2.risk",
+      "kind": "solution",
+      "primaryConclusion": "先用单调队列预处理每一天对应区间的最大风险，再排序结果并用二分回答询问。",
+      "evidence": ["每一天需要查询一个向前延伸的区间最大值。", "区间右端点随天数单调前进。", "多个询问适合在预处理后统一二分。"],
+      "complexity": {"time": "O(n log n + T log n)", "space": "O(n)"},
+      "pitfalls": ["队首元素过期时要及时弹出。", "队尾必须保持对应值单调。", "累计值可能需要 64 位整数。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["每个询问重新扫描所有天数会重复大量工作。"],
+      "answerRequirements": ["区分单调队列负责的预处理与排序后二分负责的询问。"]
+    },
+    {
+      "id": "ds.pa2.2-2-2.polynomial",
+      "kind": "solution",
+      "primaryConclusion": "先完成词法切分和隐式乘法补全，再把中缀表达式转为后缀表达式并用多项式运算求值。",
+      "evidence": ["表达式同时包含数字、变量、括号和运算符。", "相邻因子之间可能省略乘号。", "运算符优先级和结合性必须统一处理。"],
+      "complexity": {"time": "解析接近 O(n)，若多项式项采用低效插入，整体可能退化到 O(n^2)", "space": "O(n) 加中间多项式存储"},
+      "pitfalls": ["一元负号不能一律当作二元减法。", "幂运算的结合性和适用对象要按题意处理。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["只靠逐字符立即计算很难正确处理括号和优先级。"],
+      "answerRequirements": ["把词法分析、语法转换和多项式计算分成三个阶段讲解。"]
+    },
+    {
+      "id": "ds.pa2.2-3-2.sect",
+      "kind": "solution",
+      "primaryConclusion": "建立完整树后序计算子树内力和，再按合法弟子条件确定引路人。",
+      "evidence": ["节点答案依赖整棵子树的信息。", "输入顺序不保证父节点已经计算完成。", "后序遍历能保证先得到所有孩子的结果。"],
+      "complexity": {"time": "O(n)", "space": "O(n)"},
+      "pitfalls": ["不要假设输入天然是拓扑顺序。", "不存在父亲或引路人的哨兵值要与正常编号区分。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["按输入顺序直接累计不能保证子树信息完整。"],
+      "answerRequirements": ["先分别解释正统弟子、内力和、引路人的定义，再说明计算顺序。"]
+    },
+    {
+      "id": "ds.pa3.3-1-2.dance",
+      "kind": "solution",
+      "primaryConclusion": "用隐式伸展树按位置 split/merge，并用懒标记完成区间翻转和整体偏移。",
+      "evidence": ["操作作用于序列中的位置区间。", "区间翻转需要延迟传播才能避免逐项修改。", "split 和 merge 能把目标区间暂时分离。"],
+      "complexity": {"time": "均摊 O(M log N)", "space": "O(N)"},
+      "pitfalls": ["旋转或访问孩子前必须下传 reverse 标记。", "每次结构改变后都要更新子树大小。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["对数组每次直接翻转区间会在大数据上超时。"],
+      "answerRequirements": ["用“切成三段—修改中段—重新拼接”解释一次区间操作。"]
+    },
+    {
+      "id": "ds.pa3.3-2-2.kidd",
+      "kind": "solution",
+      "primaryConclusion": "用动态开点线段树表示大坐标范围，并让新建子节点继承尚未下传的懒标记。",
+      "evidence": ["坐标范围大但实际访问位置有限。", "区间更新要求延迟传播。", "动态创建节点可以避免完整建树。"],
+      "complexity": {"time": "参考实现通常为每次 O(log n)", "space": "O(m log n) 的节点上界，取决于操作覆盖情况"},
+      "pitfalls": ["新节点必须继承父区间当前状态。", "空节点不能被误认为数值为零且没有历史更新。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["动态开点不等于可以忽略懒标记的继承。"],
+      "answerRequirements": ["重点说明为什么晚创建的节点仍要知道以前的区间更新。"]
+    },
+    {
+      "id": "ds.pa3.3-3-3.nearest-neighbor",
+      "kind": "solution",
+      "primaryConclusion": "按坐标维度交替取中位数建立 KD 树，查询时先走近侧，再用分割平面距离判断是否搜索远侧。",
+      "evidence": ["数据是二维或多维点集。", "中位数划分能避免明显失衡。", "当前最优距离可用于剪枝另一子树。"],
+      "complexity": {"time": "构建常见 O(n log^2 n)，查询期望接近 O(log n)、最坏 O(n)", "space": "O(n)"},
+      "pitfalls": ["比较距离时可使用平方距离以避免浮点误差。", "距离相同的编号或坐标顺序要按题意处理。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["KD 树查询并不保证所有数据上都是严格 O(log n)。"],
+      "answerRequirements": ["解释“先搜近侧”和“为什么可能还要搜远侧”两个判断。"]
+    },
+    {
+      "id": "ds.pa4.4-1-2.game",
+      "kind": "solution",
+      "primaryConclusion": "在非负权图上运行 Dijkstra，同时在松弛时维护最短路条数。",
+      "evidence": ["目标同时包含最短距离和达到该距离的方案数。", "发现更短距离时应覆盖方案数。", "发现相同最短距离时应累加方案数。"],
+      "complexity": {"time": "图规模正常时 O((N + M) log N)；若建图本身枚举过多边，可能退化到 O(M^2)", "space": "O(N + M)"},
+      "pitfalls": ["优先队列弹出的旧状态必须跳过。", "更短与等长两种松弛对方案数的处理不同。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["只改 Dijkstra 主循环无法修复建图阶段产生的平方级边数。"],
+      "answerRequirements": ["先检查建图规模，再解释距离和路径数的两种松弛。"]
+    },
+    {
+      "id": "ds.pa4.4-2-2.pattern-matching",
+      "kind": "solution",
+      "primaryConclusion": "使用二维滚动哈希快速比较每个候选子矩阵与模式矩阵。",
+      "evidence": ["需要大量重复比较固定大小的二维区域。", "二维前缀式哈希可在常数时间取得子矩阵哈希。", "预处理避免逐字符重复比较。"],
+      "complexity": {"time": "O(MN + k·mn)，具体取决于模式数量和记号定义", "space": "O(MN)"},
+      "pitfalls": ["主矩阵与模式矩阵的行列符号容易写反。", "无符号整数溢出作为哈希时必须保持运算一致。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["对每个位置逐格比较模式会产生过多重复计算。"],
+      "answerRequirements": ["先统一题目中的行列记号，再写子矩阵哈希公式。"]
+    },
+    {
+      "id": "ds.pa4.4-3-2.component",
+      "kind": "solution",
+      "primaryConclusion": "用并查集维护连通块，并为每个根维护只保留前 k 个候选值的可并堆。",
+      "evidence": ["连边操作会合并两个连通块。", "询问只关心每个连通块中的第 k 个候选。", "可并堆适合在集合合并时合并候选。"],
+      "complexity": {"time": "常见实现约 O((m + q) log k)", "space": "O(n)"},
+      "pitfalls": ["合并后只有新根拥有有效堆。", "堆顶代表第 k 大还是当前最小保留值必须定义清楚。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["每次合并后重新排序整个连通块会重复处理大量元素。"],
+      "answerRequirements": ["明确堆中保留哪些元素以及堆顶为什么能回答询问。"]
+    },
+    {
+      "id": "ds.pa4.4-3-3.sort",
+      "kind": "solution",
+      "primaryConclusion": "把三元比较结果转化为可确定的相对次序，并设计总调用次数为 O(n log n) 的排序过程。",
+      "evidence": ["一次接口调用比较三个对象。", "返回结果足以确定三者中的中间者或相对信息。", "题目通常限制比较接口调用次数。"],
+      "complexity": {"time": "O(n log n) 次量级的比较调用", "space": "视归并或辅助结构而定，通常 O(n)"},
+      "pitfalls": ["接口参数是编号还是数值必须分清。", "普通比较排序的比较函数不能直接假设二元关系已知。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["忽略接口调用上限的暴力比较即使结果正确也不能通过。"],
+      "answerRequirements": ["先写清一次三元比较能推出什么，再讨论如何嵌入排序。"]
+    },
+    {
+      "id": "ds.lab2.zuma",
+      "kind": "solution",
+      "primaryConclusion": "用支持按位置定位和局部修改的分块序列处理插入，并在每次消除后持续检查新的跨边界连锁反应。",
+      "evidence": ["插入位置按当前序列排名给出。", "一次消除可能让左右两段同色珠子重新相邻。", "空串是合法的中间状态和最终状态。"],
+      "complexity": {"time": "取决于分块维护策略，但必须避免每次对整串执行 O(n) 插入或删除", "space": "O(n)"},
+      "pitfalls": ["块长度必须始终非负且不超过容量。", "位置映射与块边界在插入、删除后都要更新。", "消除后要循环处理连锁反应。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["不能只凭题名认定某一个具体 bug，必须先核对当前代码。"],
+      "answerRequirements": ["诊断时先引用当前代码证据；知识卡片只提供排查方向。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-01-left-negative",
+      "kind": "diagnostic",
+      "primaryConclusion": "当插入位置在最左端时，代码把 left 变成 -1 并继续调用 play(left)，会产生越界访问或运行时错误。",
+      "evidence": ["插入位置为 0 时左邻位置不存在。", "代码路径没有在调用 play 前拦截负下标。"],
+      "pitfalls": ["不能把不存在的左邻位置当成普通下标。"],
+      "verifiedTests": [{"name": "最左端连续插入", "input": "A\n3\n0 A\n0 A\n0 A\n", "expectedOutput": "A\n", "purpose": "触发插入位置为 0 后使用负下标的路径。"}],
+      "rejectedClaims": ["初始一个 A 再插入一个 A 就会触发三连消除。"],
+      "answerRequirements": ["引用产生负下标和调用 play 的真实语句。", "复现时保持 3 次操作，不要擅自缩短输入。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-02-empty-access",
+      "kind": "diagnostic",
+      "primaryConclusion": "珠串被消空后代码仍访问 a.at(0) 或调用 play(0)，因此可能抛出越界异常。",
+      "evidence": ["一次消除可以使字符串长度变为 0。", "后续逻辑没有先判断空串就读取第 0 个元素。"],
+      "pitfalls": ["空串不是异常输入，而是合法状态。"],
+      "verifiedTests": [{"name": "消除到空串", "input": "AA\n1\n0 A\n", "expectedOutput": "\n", "purpose": "一次插入形成三个 A，正确结果为空串。"}],
+      "rejectedClaims": ["空串时可以安全读取下标 0。"],
+      "answerRequirements": ["先说明何时变为空串，再指出空串后的具体访问。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-03-linear-insert",
+      "kind": "diagnostic",
+      "primaryConclusion": "核心更新仍使用 std::string 的中间 insert/erase，单次移动 O(n) 个字符，累计会退化为 O(mn) 并超时。",
+      "evidence": ["std::string 中间插入和删除需要移动后续字符。", "操作次数与珠串长度都可能很大。"],
+      "complexity": {"time": "最坏 O(mn)", "space": "O(n)"},
+      "pitfalls": ["外面套一层位置数组并不会降低 string 本体移动字符的成本。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["排名指向旧字符是这里的主要超时原因。"],
+      "answerRequirements": ["回答超时时先量化单次 insert/erase 和累计复杂度。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-04-left-boundary",
+      "kind": "diagnostic",
+      "primaryConclusion": "向左统计同色段时越过了真正边界，把第一个不同色珠子也计入或删掉，导致错误消除。",
+      "evidence": ["左扩展循环停止时指针已经位于第一个不同色字符。", "后续长度或删除区间仍把该位置算在同色段内。"],
+      "pitfalls": ["循环结束位置与同色区间左端点相差 1。"],
+      "verifiedTests": [{"name": "左侧紧邻不同色", "input": "BAB\n1\n2 A\n", "expectedOutput": "BAAB\n", "purpose": "插入后没有三个连续同色珠子，左侧 B 必须保留。"}],
+      "rejectedClaims": ["该输入应发生消除。"],
+      "answerRequirements": ["逐字符模拟边界指针停止的位置。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-05-empty-line-input",
+      "kind": "diagnostic",
+      "primaryConclusion": "使用 cin >> a 读取初始珠串会跳过空行，随后把操作数或下一行误读为珠串。",
+      "evidence": ["格式化提取运算符会忽略前导空白和换行。", "题目允许初始珠串为空。"],
+      "pitfalls": ["切换 getline 与 operator>> 时要处理残留换行。"],
+      "verifiedTests": [{"name": "空初始串", "input": "\n1\n0 A\n", "expectedOutput": "A\n", "purpose": "验证第一行为空时仍能正确读取后续操作。"}],
+      "rejectedClaims": ["operator>> 能把空行读取成空字符串。"],
+      "answerRequirements": ["明确区分 getline 与 cin >> string 对空行的行为。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-06-block-capacity",
+      "kind": "diagnostic",
+      "primaryConclusion": "插入使块长度超过 plen_bound 后没有立即拆块或重组，继续写入固定容量数组会越界。",
+      "evidence": ["代码执行 plen++ 增长块长度。", "对应路径没有在超过容量后调用拆分或重组。"],
+      "pitfalls": ["逻辑块长度不能超过底层数组的实际容量。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["只要初始建块不超容量，后续插入就一定安全。"],
+      "answerRequirements": ["引用增加 plen 的语句和缺失的容量检查。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-07-empty-blocks",
+      "kind": "diagnostic",
+      "primaryConclusion": "清理空块时只使用一次 if，连续多个空块只能跳过一个，后续定位会落在仍为空的块上。",
+      "evidence": ["一次连锁消除可能产生相邻的多个空块。", "代码仅进行一次条件跳转而不是循环跳过。"],
+      "pitfalls": ["块编号有效不代表该块含有字符。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["一次消除最多只会留下一个空块。"],
+      "answerRequirements": ["说明为什么这里需要 while 或统一压缩空块。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-08-chain-reaction",
+      "kind": "diagnostic",
+      "primaryConclusion": "代码只消除插入点附近的第一段，没有在两侧重新接触后继续检查，因此漏掉连锁消除。",
+      "evidence": ["第一段消失后，原本分开的同色珠子可能相邻。", "当前流程消除一次后直接结束本轮操作。"],
+      "pitfalls": ["下一次检查位置应落在新形成的左右边界附近。"],
+      "verifiedTests": [{"name": "两阶段连锁消除", "input": "AABBA\n1\n3 B\n", "expectedOutput": "\n", "purpose": "BBB 先消除，剩余 AAA 随后也必须消除。"}],
+      "rejectedClaims": ["每次插入最多发生一次消除。"],
+      "answerRequirements": ["按 BBB、AAA 两个阶段完整模拟。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-09-negative-length",
+      "kind": "diagnostic",
+      "primaryConclusion": "同一块内的消除却按跨块方式分别扣减长度，使 plen 被重复减少甚至变成负数。",
+      "evidence": ["左右边界可能位于同一个块。", "跨块分支对左右块分别更新，而两者实际上是同一块。"],
+      "pitfalls": ["必须先区分同块消除和跨块消除。"],
+      "verifiedTests": [{"name": "同块三连消除", "input": "ABBA\n1\n2 B\n", "expectedOutput": "AA\n", "purpose": "BBB 完全位于同一块，消除后块长度应为 2。"}],
+      "rejectedClaims": ["左右块编号相同时仍可按两个独立块更新。"],
+      "answerRequirements": ["引用两次修改 plen 的语句并指出它们操作的是同一个块。"]
+    },
+    {
+      "id": "ds.lab2.zuma.bug-10-extra-empty-block",
+      "kind": "diagnostic",
+      "primaryConclusion": "跨块删除循环把左侧仍应保留的块也清空，循环边界包含了 l.first。",
+      "evidence": ["左边界块中可能仍有消除区间之前的残留字符。", "清空循环覆盖到 l.first 会抹掉这些残留字符。"],
+      "pitfalls": ["跨块删除要分别处理左边界块、中间整块和右边界块。"],
+      "verifiedTests": [],
+      "rejectedClaims": ["可以用一个包含左右端点的循环清空所有相关块。", "没有核验前不要编造一个很短的跨 2048 块样例。"],
+      "answerRequirements": ["说明正确的三个区间分工。", "若构造复现输入，要满足真实块大小，不得伪造短样例。"]
+    }
+  ]
+}

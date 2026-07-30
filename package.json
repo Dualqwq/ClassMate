@@ -2,7 +2,11 @@
   "name": "classmate",
   "displayName": "ClassMate",
   "description": "AI tutor for C/C++ beginners",
-  "version": "0.0.1",
+  "version": "0.0.5",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dualqwq/ClassMate.git"
+  },
   "type": "commonjs",
   "engines": {
     "vscode": "^1.125.0"
@@ -304,6 +308,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@langchain/core": "^1.2.3",
+    "@langchain/langgraph": "^1.4.8",
     "diff": "^8.0.4",
     "gray-matter": "^4.0.3",
     "openai": "^4.77.0",
@@ -313,7 +319,8 @@
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.5.0",
     "remark-gfm": "^4.0.0",
-    "vsce": "^2.15.0"
+    "vsce": "^2.15.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/diff": "^7.0.2",

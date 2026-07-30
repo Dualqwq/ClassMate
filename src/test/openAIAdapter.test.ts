@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
+import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
 import { normalizeOpenAIUsage, OpenAIAdapter } from '../llm/OpenAIAdapter';
 
 describe('OpenAI-compatible cache usage', () => {
@@ -9,6 +10,38 @@ describe('OpenAI-compatible cache usage', () => {
 			messages: [{ role: 'user', content: 'hello' }],
 		}) as Record<string, unknown>;
 		assert.deepStrictEqual(body.stream_options, { include_usage: true });
+	});
+
+	it('enables JSON object mode only when requested', () => {
+		const adapter = new OpenAIAdapter({ apiKey: 'test', model: 'test-model' });
+		const jsonBody = adapter.buildRequest({
+			messages: [{ role: 'user', content: 'return json' }],
+			jsonMode: true,
+		}) as Record<string, unknown>;
+		const textBody = adapter.buildRequest({
+			messages: [{ role: 'user', content: 'return text' }],
+		}) as Record<string, unknown>;
+
+		assert.deepStrictEqual(jsonBody.response_format, { type: 'json_object' });
+		assert.strictEqual(textBody.response_format, undefined);
+	});
+
+	it('disables thinking for DeepSeek planning without leaking the parameter to OpenAI', () => {
+		const deepSeek = new DeepSeekAdapter({ apiKey: 'test', model: 'deepseek-v4-flash' });
+		const openAI = new OpenAIAdapter({ apiKey: 'test', model: 'gpt-test' });
+		const request = {
+			messages: [{ role: 'user' as const, content: 'plan' }],
+			thinkingMode: 'disabled' as const,
+		};
+
+		assert.deepStrictEqual(
+			(deepSeek.buildRequest(request) as Record<string, unknown>).thinking,
+			{ type: 'disabled' }
+		);
+		assert.strictEqual(
+			(openAI.buildRequest(request) as Record<string, unknown>).thinking,
+			undefined
+		);
 	});
 
 	it('encodes attached images as OpenAI-compatible image_url content', () => {

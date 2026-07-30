@@ -10,7 +10,6 @@ import { buildTextWithAttachments } from './messageContent';
 // to bind only to Claude, skill files could be uploaded via
 // client.beta.skills.create(...) and referenced by ID. For now we keep the
 // implementation provider-agnostic by injecting skill content as system blocks.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnthropicSDK = any;
 
 export interface ClaudeAdapterOptions {
@@ -113,7 +112,6 @@ export class ClaudeAdapter implements LLMAdapter {
 	}
 
 	private async _consumeStream(
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		stream: Promise<AsyncIterable<any>>,
 		callbacks: LLMStreamCallbacks
 	): Promise<void> {
@@ -153,7 +151,6 @@ export class ClaudeAdapter implements LLMAdapter {
 
 	private _loadSDK(): AnthropicSDK {
 		try {
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
 			return require('@anthropic-ai/sdk');
 		} catch {
 			throw new Error(
