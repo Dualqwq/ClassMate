@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "graphVersion": "2026-07-24.1",
+  "graphVersion": "2026-08-01.2",
   "nodes": [
     {
       "id": "cpp.variable-memory",
@@ -270,6 +270,611 @@
       ]
     },
     {
+      "id": "ds.recurrence-analysis",
+      "title": "Master Theorem 与 Akra-Bazzi Theorem",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "Master Theorem 与 Akra-Bazzi Theorem"]
+      },
+      "concepts": ["递推式", "Master Theorem", "Akra-Bazzi", "分治复杂度"],
+      "aliases": ["主定理", "递归复杂度怎么算", "分治为什么是nlogn", "T(n)=aT(n/b)+f(n)"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.recursion" }
+      ]
+    },
+    {
+      "id": "ds.maximum-sum-interval",
+      "title": "最大总和区间",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "最大总和区间"]
+      },
+      "concepts": ["最大总和区间", "区间和", "分治", "前缀后缀"],
+      "aliases": ["最大区间和", "最大连续区间", "跨中点区间", "这道区间题没思路"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.recursion" },
+        { "type": "confused_with", "target": "ds.maximum-subarray" }
+      ]
+    },
+    {
+      "id": "ds.longest-common-subsequence",
+      "title": "最长公共子序列",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "最长公共子序列"]
+      },
+      "concepts": ["最长公共子序列", "LCS", "动态规划", "状态转移"],
+      "aliases": ["公共子序列", "子序列和子串", "LCS没看懂", "二维dp为什么这样转移"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.recursion" }
+      ]
+    },
+    {
+      "id": "ds.vector-operations",
+      "title": "向量插入、删除与扩容",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "向量插入、删除与扩容"]
+      },
+      "concepts": ["向量", "插入", "删除", "扩容", "size", "capacity"],
+      "aliases": ["vector扩容", "动态数组扩容", "为什么要搬元素", "size和capacity", "插入删除为什么慢"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "runtime_error_help", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.vector-api" },
+        { "type": "next_concept", "target": "ds.amortized-analysis" }
+      ]
+    },
+    {
+      "id": "ds.amortized-analysis",
+      "title": "均摊分析",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "均摊分析"]
+      },
+      "concepts": ["均摊分析", "均摊复杂度", "扩容", "势能"],
+      "aliases": ["amortized", "均摊O(1)", "有一次O(n)为什么还是O(1)", "平均复杂度和均摊复杂度"],
+      "requestTypes": ["problem_understanding", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.vector-operations" }
+      ]
+    },
+    {
+      "id": "ds.interpolation-search",
+      "title": "插值查找",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "插值查找"]
+      },
+      "concepts": ["插值查找", "有序序列", "均匀分布", "查找位置估计"],
+      "aliases": ["interpolation search", "插值查找和二分", "为什么按比例猜位置", "什么时候比二分快"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.vector-operations" }
+      ]
+    },
+    {
+      "id": "ds.bitmap",
+      "title": "位图",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "位图"]
+      },
+      "concepts": ["位图", "bitmap", "位运算", "集合表示"],
+      "aliases": ["一个bit存一个状态", "位图怎么省空间", "bitmap去重", "大量整数判重"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.array-index" }
+      ]
+    },
+    {
+      "id": "ds.histogram-max-rectangle",
+      "title": "直方图最大矩形",
+      "source": {
+        "path": "references/ds-high-frequency-difficulties.md",
+        "headingPath": ["直方图最大矩形的单调栈过程"]
+      },
+      "concepts": ["直方图最大矩形", "单调栈", "左右边界", "柱状图"],
+      "aliases": ["最大矩形", "直方图为什么用栈", "弹栈怎么算宽度", "左右第一个更小", "柱子面积"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.bracket-matching",
+      "title": "括号匹配问题",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "括号匹配问题"]
+      },
+      "concepts": ["括号匹配", "栈", "后进先出", "表达式检查"],
+      "aliases": ["括号是否合法", "为什么用栈匹配括号", "左右括号数量一样", "括号顺序"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.max-stack-queue",
+      "title": "最大栈与最大队列",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "最大栈与最大队列"]
+      },
+      "concepts": ["最大栈", "最大队列", "辅助栈", "单调队列", "滑动窗口"],
+      "aliases": ["O(1)取最大值", "栈里找最大值", "队列里找最大值", "滑动窗口最大值", "两个栈做队列"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.huffman",
+      "title": "Huffman 算法",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "Huffman算法"]
+      },
+      "concepts": ["Huffman", "哈夫曼树", "前缀编码", "带权路径长度", "贪心"],
+      "aliases": ["哈夫曼编码", "频率高为什么编码短", "每次合并最小权重", "最优前缀码"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.binary-heap" }
+      ]
+    },
+    {
+      "id": "ds.maximum-subarray",
+      "title": "最大子数组和",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "最大子数组和"]
+      },
+      "concepts": ["最大子数组和", "Kadane", "动态规划", "连续子数组"],
+      "aliases": ["最大连续子数组", "最大连续和", "Kadane算法", "全是负数怎么办", "当前和为什么小于0就丢掉"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "confused_with", "target": "ds.maximum-sum-interval" }
+      ]
+    },
+    {
+      "id": "ds.avl-tree",
+      "title": "AVL 树",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "AVL 树"]
+      },
+      "concepts": ["AVL树", "平衡因子", "旋转", "LL", "RR", "LR", "RL"],
+      "aliases": ["平衡二叉搜索树", "AVL树", "平衡因子", "为什么要保持平衡", "插入删除复衡"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.interval-tree",
+      "title": "区间树",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "区间树"]
+      },
+      "concepts": ["区间树", "区间重叠", "maxEnd", "增强搜索树"],
+      "aliases": ["interval tree", "找重叠区间", "maxEnd有什么用", "区间查询"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "confused_with", "target": "ds.segment-tree" }
+      ]
+    },
+    {
+      "id": "ds.segment-tree",
+      "title": "线段树",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "线段树"]
+      },
+      "concepts": ["线段树", "区间查询", "区间修改", "懒惰标记"],
+      "aliases": ["segment tree", "区间和", "区间最值", "lazy tag", "懒标记为什么能省时间"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "confused_with", "target": "ds.interval-tree" }
+      ]
+    },
+    {
+      "id": "ds.kd-tree",
+      "title": "KD 树",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "KD树"]
+      },
+      "concepts": ["KD树", "多维搜索", "空间划分", "最近邻"],
+      "aliases": ["k-d tree", "二维点怎么建树", "交替按坐标划分", "最近邻搜索"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.red-black-tree",
+      "title": "红黑树",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "红黑树"]
+      },
+      "concepts": ["红黑树", "黑高", "双红", "双黑", "旋转", "染色"],
+      "aliases": ["红黑树五条性质", "颜色怎么控制高度", "插入为什么变色", "删除双黑", "红黑树和AVL"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "confused_with", "target": "ds.avl-tree" }
+      ]
+    },
+    {
+      "id": "ds.hash-table",
+      "title": "哈希表",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "哈希表"]
+      },
+      "concepts": ["哈希表", "散列表", "散列函数", "冲突", "装填因子", "开放定址"],
+      "aliases": ["hash table", "为什么会冲突", "线性试探", "装填因子", "平均O(1)", "重散列"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "runtime_error_help", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.skip-list",
+      "title": "跳表",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "跳表"]
+      },
+      "concepts": ["跳表", "多层索引", "随机层高", "有序链表"],
+      "aliases": ["skip list", "链表怎么做到logn", "为什么要随机层数", "多层链表"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.linked-list-operations" }
+      ]
+    },
+    {
+      "id": "ds.binary-heap",
+      "title": "完全二叉堆与删除",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "完全二叉堆与删除"]
+      },
+      "concepts": ["二叉堆", "完全二叉树", "优先级队列", "上滤", "下滤", "删除堆顶"],
+      "aliases": ["最大堆", "最小堆", "堆为什么不是有序数组", "删堆顶", "下滤和上滤", "优先级队列"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.array-index" },
+        { "type": "confused_with", "target": "cpp.stack-heap" },
+        { "type": "next_concept", "target": "ds.leftist-heap" }
+      ]
+    },
+    {
+      "id": "ds.leftist-heap",
+      "title": "左式堆",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "左式堆"]
+      },
+      "concepts": ["左式堆", "可合并堆", "NPL", "右链", "堆合并"],
+      "aliases": ["leftist heap", "为什么故意左倾", "空路径长度", "为什么沿右链合并", "删除堆顶怎么合并"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.binary-heap" }
+      ]
+    },
+    {
+      "id": "ds.graph-bfs-dfs",
+      "title": "图中的 BFS 与 DFS",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "图中的 BFS 与 DFS"]
+      },
+      "concepts": ["图", "BFS", "DFS", "广度优先搜索", "深度优先搜索", "访问标记"],
+      "aliases": ["图遍历", "一层一层搜索", "走到底再回来", "BFS和DFS怎么选", "为什么BFS用队列", "为什么DFS用栈"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "runtime_error_help", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.kmp",
+      "title": "KMP 算法",
+      "source": {
+        "path": "references/ds-sorting-and-kmp.md",
+        "headingPath": ["KMP 逐步执行"]
+      },
+      "concepts": ["KMP", "字符串匹配", "next表", "前缀", "后缀", "失配跳转"],
+      "aliases": ["主串为什么不回退", "next数组", "最长相等前后缀", "KMP没看懂", "失配以后跳到哪"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "confused_with", "target": "ds.bm" }
+      ]
+    },
+    {
+      "id": "ds.bm",
+      "title": "BM 算法",
+      "source": {
+        "path": "references/basic-knowledge-explanations.md",
+        "headingPath": ["数据结构与算法", "串", "BM 算法"]
+      },
+      "concepts": ["BM", "Boyer-Moore", "字符串匹配", "坏字符", "好后缀"],
+      "aliases": ["BM算法", "为什么从右往左比", "坏字符规则", "好后缀规则", "模式串能跳多远"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "confused_with", "target": "ds.kmp" }
+      ]
+    },
+    {
+      "id": "ds.topological-sort",
+      "title": "拓扑排序",
+      "source": { "path": "references/ds-graph-algorithms.md", "headingPath": ["拓扑排序"] },
+      "concepts": ["拓扑排序", "DAG", "入度", "依赖关系", "有向无环图"],
+      "aliases": ["topological sort", "先修关系怎么排序", "为什么可能有多个拓扑序", "怎么判断图里有环", "零入度算法"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "prerequisite", "target": "ds.graph-bfs-dfs" }]
+    },
+    {
+      "id": "ds.dijkstra",
+      "title": "Dijkstra 算法",
+      "source": { "path": "references/ds-graph-algorithms.md", "headingPath": ["Dijkstra 算法"] },
+      "concepts": ["Dijkstra", "单源最短路", "松弛", "非负边权", "最短路径树"],
+      "aliases": ["为什么每次选最小距离", "最短距离为什么能确定", "负边为什么不能用", "dist数组", "松弛是什么意思"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help", "solution_request"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.graph-bfs-dfs" },
+        { "type": "confused_with", "target": "ds.prim" },
+        { "type": "confused_with", "target": "ds.floyd-warshall" }
+      ]
+    },
+    {
+      "id": "ds.prim",
+      "title": "Prim 算法",
+      "source": { "path": "references/ds-graph-algorithms.md", "headingPath": ["Prim 算法"] },
+      "concepts": ["Prim", "最小生成树", "割", "安全边", "key数组"],
+      "aliases": ["Prim在维护什么", "每次选哪条边", "和Dijkstra有什么区别", "最轻跨割边", "生成树怎么长出来"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.graph-bfs-dfs" },
+        { "type": "confused_with", "target": "ds.dijkstra" },
+        { "type": "confused_with", "target": "ds.kruskal" }
+      ]
+    },
+    {
+      "id": "ds.kruskal",
+      "title": "Kruskal 算法",
+      "source": { "path": "references/ds-graph-algorithms.md", "headingPath": ["Kruskal 算法"] },
+      "concepts": ["Kruskal", "最小生成树", "边排序", "森林", "避免成环"],
+      "aliases": ["为什么按边从小到大", "怎么判断会不会成环", "最短边为什么能选", "Kruskal和Prim", "选够n-1条边"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.union-find" },
+        { "type": "confused_with", "target": "ds.prim" }
+      ]
+    },
+    {
+      "id": "ds.union-find",
+      "title": "并查集",
+      "source": { "path": "references/ds-graph-algorithms.md", "headingPath": ["并查集"] },
+      "concepts": ["并查集", "Union-Find", "find", "union", "路径压缩", "按秩合并"],
+      "aliases": ["怎么判断两个点连通", "parent数组", "路径压缩改了什么", "集合合并", "为什么接近O(1)"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "prerequisite", "target": "cpp.array-index" }]
+    },
+    {
+      "id": "ds.floyd-warshall",
+      "title": "Floyd-Warshall 算法",
+      "source": { "path": "references/ds-graph-algorithms.md", "headingPath": ["Floyd-Warshall 算法"] },
+      "concepts": ["Floyd", "Floyd-Warshall", "多源最短路", "动态规划", "中间点", "负环"],
+      "aliases": ["三层循环为什么k在外面", "所有点对最短路", "经过k是什么意思", "Floyd状态转移", "怎么判断负环"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "confused_with", "target": "ds.dijkstra" }]
+    },
+    {
+      "id": "ds.binary-tree-traversal",
+      "title": "二叉树遍历",
+      "source": { "path": "references/ds-tree-algorithms.md", "headingPath": ["二叉树遍历"] },
+      "concepts": ["二叉树遍历", "前序", "中序", "后序", "层序", "递归栈"],
+      "aliases": ["根左右左根右左右根", "递归怎么走完整棵树", "层序为什么用队列", "遍历顺序记不住", "前中后序有什么用"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "prerequisite", "target": "cpp.recursion" }]
+    },
+    {
+      "id": "ds.bst",
+      "title": "二叉搜索树 BST",
+      "source": { "path": "references/ds-tree-algorithms.md", "headingPath": ["二叉搜索树 BST"] },
+      "concepts": ["BST", "二叉搜索树", "查找", "插入", "删除", "前驱", "后继"],
+      "aliases": ["左小右大", "为什么查找更快", "删除两个孩子节点", "为什么会退化成链", "中序有序"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.binary-tree-traversal" },
+        { "type": "next_concept", "target": "ds.avl-rotations" }
+      ]
+    },
+    {
+      "id": "ds.avl-rotations",
+      "title": "AVL 旋转",
+      "source": { "path": "references/ds-tree-algorithms.md", "headingPath": ["AVL 旋转"] },
+      "concepts": ["AVL旋转", "平衡因子", "LL", "RR", "LR", "RL", "复衡"],
+      "aliases": ["四种旋转记不住", "单旋和双旋", "旋转为什么不破坏顺序", "插入修一次删除继续修", "g p v"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.bst" },
+        { "type": "explains", "target": "ds.avl-tree" },
+        { "type": "confused_with", "target": "ds.splay-tree" }
+      ]
+    },
+    {
+      "id": "ds.splay-tree",
+      "title": "伸展树",
+      "source": { "path": "references/ds-tree-algorithms.md", "headingPath": ["伸展树"] },
+      "concepts": ["伸展树", "Splay", "Zig", "Zig-zig", "Zig-zag", "局部性", "均摊"],
+      "aliases": ["为什么把访问节点转到根", "双层伸展", "最近访问为什么更快", "单次O(n)为什么还能用", "查找失败也伸展吗"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "ds.bst" },
+        { "type": "confused_with", "target": "ds.avl-rotations" },
+        { "type": "prerequisite", "target": "ds.amortized-analysis" }
+      ]
+    },
+    {
+      "id": "ds.b-tree",
+      "title": "B 树",
+      "source": { "path": "references/ds-tree-algorithms.md", "headingPath": ["B 树"] },
+      "concepts": ["B树", "多路搜索树", "外存", "上溢", "下溢", "分裂", "合并"],
+      "aliases": ["一个节点为什么放很多关键码", "B树为什么降低IO", "中间关键码上提", "向兄弟借关键码", "节点下溢"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "prerequisite", "target": "ds.bst" }]
+    },
+    {
+      "id": "ds.merge-sort",
+      "title": "归并排序",
+      "source": { "path": "references/ds-sorting-and-kmp.md", "headingPath": ["归并排序"] },
+      "concepts": ["归并排序", "merge sort", "分治", "合并有序段", "稳定排序"],
+      "aliases": ["为什么先分再合", "合并两个有序数组", "归并为什么是nlogn", "相等时先取哪边", "归并过程"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.recursion" },
+        { "type": "confused_with", "target": "ds.quick-sort" },
+        { "type": "explains", "target": "ds.sort-stability" }
+      ]
+    },
+    {
+      "id": "ds.quick-sort",
+      "title": "快速排序",
+      "source": { "path": "references/ds-sorting-and-kmp.md", "headingPath": ["快速排序"] },
+      "concepts": ["快速排序", "quick sort", "pivot", "partition", "轴点", "三路划分"],
+      "aliases": ["pivot到底做什么", "为什么有序数组会退化", "重复元素死循环", "一次划分是不是排好了", "快排为什么不稳定"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "prerequisite", "target": "cpp.recursion" },
+        { "type": "confused_with", "target": "ds.merge-sort" },
+        { "type": "explains", "target": "ds.sort-stability" }
+      ]
+    },
+    {
+      "id": "ds.sort-stability",
+      "title": "排序稳定性",
+      "source": { "path": "references/ds-sorting-and-kmp.md", "headingPath": ["排序稳定性"] },
+      "concepts": ["排序稳定性", "稳定排序", "相等关键字", "相对顺序"],
+      "aliases": ["稳定不稳定有什么区别", "相等元素顺序", "归并为什么稳定", "快排为什么不稳定", "多关键字排序"],
+      "requestTypes": ["problem_understanding", "concept_explanation", "code_explanation", "wrong_output_help"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [
+        { "type": "explains", "target": "ds.merge-sort" },
+        { "type": "explains", "target": "ds.quick-sort" }
+      ]
+    },
+    {
+      "id": "ds.comparison-sort-lower-bound",
+      "title": "比较排序下界",
+      "source": { "path": "references/ds-sorting-and-kmp.md", "headingPath": ["比较排序下界"] },
+      "concepts": ["比较排序下界", "决策树", "n!", "Omega(nlogn)", "非比较排序"],
+      "aliases": ["比较排序为什么不能O(n)", "决策树没听懂", "log(n!)", "排序最少比较多少次", "计数排序为什么能线性"],
+      "requestTypes": ["problem_understanding", "concept_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
+    },
+    {
+      "id": "ds.monotonic-stack",
+      "title": "单调栈基础",
+      "source": { "path": "references/ds-high-frequency-difficulties.md", "headingPath": ["单调栈基础"] },
+      "concepts": ["单调栈", "候选下标", "第一个更大", "第一个更小", "不变式"],
+      "aliases": ["单调到底在哪里", "为什么可以弹栈", "栈里保存什么", "右边第一个更小", "while为什么还是O(n)"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "next_concept", "target": "ds.histogram-max-rectangle" }]
+    },
+    {
+      "id": "ds.bottom-up-heapify",
+      "title": "自底向上建堆为什么是 O(n)",
+      "source": { "path": "references/ds-high-frequency-difficulties.md", "headingPath": ["自底向上建堆为什么是 O(n)"] },
+      "concepts": ["建堆", "heapify", "自底向上", "下滤", "O(n)"],
+      "aliases": ["建堆为什么不是nlogn", "每个节点下滤logn", "从最后内部节点开始", "堆化复杂度", "逐个插入和建堆"],
+      "requestTypes": ["problem_understanding", "concept_explanation", "code_explanation"],
+      "purposes": ["definition", "example", "misconception", "prerequisite"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "prerequisite", "target": "ds.binary-heap" }]
+    },
+    {
+      "id": "ds.hash-tombstone",
+      "title": "哈希表删除墓碑",
+      "source": { "path": "references/ds-high-frequency-difficulties.md", "headingPath": ["哈希表删除墓碑"] },
+      "concepts": ["哈希墓碑", "开放定址删除", "deleted", "试探链", "重散列"],
+      "aliases": ["删除墓碑", "删除为什么不能直接设为空", "查不到后面的元素", "deleted标记", "墓碑太多怎么办", "线性试探删除"],
+      "requestTypes": ["problem_understanding", "concept_explanation", "code_explanation", "wrong_output_help", "oj_failure_help"],
+      "purposes": ["definition", "example", "debug", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": [{ "type": "prerequisite", "target": "ds.hash-table" }]
+    },
+    {
       "id": "oop.destructor",
       "title": "析构函数与资源释放",
       "source": {
@@ -351,6 +956,20 @@
       "relations": [
         { "type": "used_for_debugging", "target": "cpp.array-index" }
       ]
+    },
+    {
+      "id": "response.algorithm-understanding",
+      "title": "Algorithm Understanding",
+      "source": {
+        "path": "references/algorithm-response-patterns.md",
+        "headingPath": ["Algorithm Understanding"]
+      },
+      "concepts": ["算法理解", "算法过程", "为什么正确", "维护状态", "逐步执行"],
+      "aliases": ["算法没看懂", "到底在做什么", "为什么这样做", "一步一步走", "只会背代码", "解释算法"],
+      "requestTypes": ["problem_understanding", "problem_hint", "concept_explanation", "code_explanation"],
+      "purposes": ["response_pattern", "example", "misconception"],
+      "learnerLevels": ["beginner", "intermediate", "unknown"],
+      "relations": []
     },
     {
       "id": "response.problem-hint",
