@@ -1,7 +1,9 @@
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import type { LLMMessage } from '../llm/types';
 import { AnswerPromptBuilder } from '../prompts/answerPromptBuilder';
+import { CorrectnessCheckPromptBuilder } from '../prompts/correctnessCheckPromptBuilder';
 import { preclassifyRequest } from '../prompts/intentRouter';
+import { ProblemConstraintPromptBuilder } from '../prompts/problemConstraintPromptBuilder';
 import { ProblemIdentifierPromptBuilder } from '../prompts/problemIdentifierPromptBuilder';
 import { RouteAndPlanPromptBuilder } from '../prompts/routeAndPlanPromptBuilder';
 import type { ProblemCardExtractor } from '../problemKnowledge/problemCardExtractor';
@@ -40,13 +42,19 @@ import {
 	sanitizePlannerResult,
 	validateStudentAnswer,
 } from './planning';
-import { parseJsonObject, routeAndPlanWireSchema } from './schemas';
+import {
+	correctnessVerificationWireSchema,
+	parseJsonObject,
+	problemConstraintsWireSchema,
+	routeAndPlanWireSchema,
+} from './schemas';
 import type {
 	ClassMateGraphState,
 	ClassMateRequest,
 	ContextRequest,
 	GraphNodeTiming,
 	InitialRoute,
+	ProblemConstraints,
 	RequestType,
 	RouteAndPlanResult,
 } from './types';
@@ -55,6 +63,16 @@ import type { GraphModelClient } from './modelClient';
 const MAX_ANSWER_RETRIES = 1;
 const PURE_SOCIAL_PATTERN =
 	/^(你好|您好|谢谢|感谢|再见|你是谁|hello|hi|thanks|thank you)[！!。.？?\s]*$/i;
+const HIGH_RISK_REQUEST_TYPES = new Set<RequestType>([
+	'compile_error_help',
+	'runtime_error_help',
+	'wrong_output_help',
+	'oj_failure_help',
+	'solution_request',
+	'code_edit',
+]);
+const HIGH_RISK_QUESTION_PATTERN =
+	/反例|举例|样例|复杂度|超时|\bTLE\b|\bWA\b|\bRE\b|写完整|完整代码|直接给.*代码|选哪个|哪项|算一下|计算|最短路|最小生成树|Dijkstra|Prim|Kruskal|Floyd|AVL|B\s*树|KMP/i;
 
 export interface ClassMateGraphServices {
 	workspaceProvider: WorkspaceContextProvider;
@@ -99,6 +117,8 @@ const NODE_PROGRESS_MESSAGES: Readonly<Record<string, string>> = {
 	build_answer_prompt: '正在组织回答材料…',
 	answer: '正在等待模型生成回答…',
 	validate: '正在检查回答…',
+	extract_constraints: '正在提取题目约束…',
+	correctness_check: '正在核对答案正确性…',
 };
 
 function nextState(current: WrappedState, patch: Partial<ClassMateGraphState>): WrappedState {
@@ -111,6 +131,40 @@ function contextRequestKey(request: ContextRequest): string {
 		request.target.trim().replace(/\\/g, '/').toLowerCase(),
 		request.section?.trim().toLowerCase() ?? '',
 	].join('|');
+}
+
+function uniqueNonEmpty(values: string[], limit: number): string[] {
+	return [...new Set(values.map((value) => value.trim()).filter(Boolean))].slice(0, limit);
+}
+
+function shouldRunCorrectnessCheck(state: ClassMateGraphState): boolean {
+	const requestType = state.requestType ?? state.answerPlan?.requestType ?? 'unclassified';
+	return HIGH_RISK_REQUEST_TYPES.has(requestType)
+		|| HIGH_RISK_QUESTION_PATTERN.test(state.request.userText)
+		|| Boolean(state.problemIdentification?.evidence.includes(
+			'Exact indexed content hash matched.'
+		));
+}
+
+function buildFallbackProblemConstraints(state: ClassMateGraphState): ProblemConstraints {
+	const minimal = state.workspaceSnapshot?.minimal;
+	return {
+		hardConstraints: uniqueNonEmpty(state.answerPlan?.mustInclude ?? [], 12),
+		requiredOperations: [],
+		inputLimits: [],
+		expectedBehaviors: uniqueNonEmpty([
+			minimal?.expectedOutput
+				? `Expected output: ${minimal.expectedOutput.slice(0, 300)}`
+				: '',
+			minimal?.actualOutput
+				? `Actual output: ${minimal.actualOutput.slice(0, 300)}`
+				: '',
+		], 10),
+		uncertainItems: state.loadedWorkspaceItems.length === 0
+			? ['No workspace file body was loaded; do not invent assignment-specific facts.']
+			: [],
+		evidencePaths: state.loadedWorkspaceItems.map((item) => item.path).slice(0, 12),
+	};
 }
 
 /**
@@ -186,8 +240,11 @@ export class ClassMateGraphRunner {
 			retrievalDegraded: false,
 			problemCardCandidates: [],
 			problemKnowledgeDegraded: false,
+			constraintExtractionDegraded: false,
+			correctnessCheckRequired: false,
 			answerMessages: [],
 			answerRetryCount: 0,
+			answerDelivered: false,
 			nodeTimings: [],
 		};
 
@@ -208,12 +265,16 @@ export class ClassMateGraphRunner {
 				this._measureNode('retrieve_skill', state, () => this._retrieveSkill(state)))
 			.addNode('freeze_context', (state) =>
 				this._measureNode('freeze_context', state, () => this._freezeContext(state)))
+			.addNode('extract_constraints', (state) =>
+				this._measureNode('extract_constraints', state, () => this._extractConstraints(state)))
 			.addNode('build_answer_prompt', (state) =>
 				this._measureNode('build_answer_prompt', state, () => this._buildAnswerPrompt(state)))
 			.addNode('answer', (state) =>
 				this._measureNode('answer', state, () => this._answer(state)))
 			.addNode('validate', (state) =>
 				this._measureNode('validate', state, () => this._validate(state)))
+			.addNode('correctness_check', (state) =>
+				this._measureNode('correctness_check', state, () => this._correctnessCheck(state)))
 			.addEdge(START, 'prepare')
 			.addEdge('prepare', 'route_and_plan')
 			.addEdge('route_and_plan', 'load_context')
@@ -222,15 +283,21 @@ export class ClassMateGraphRunner {
 			.addEdge('identify_problem', 'load_problem_card')
 			.addEdge('load_problem_card', 'retrieve_skill')
 			.addEdge('retrieve_skill', 'freeze_context')
-			.addEdge('freeze_context', 'build_answer_prompt')
+			.addEdge('freeze_context', 'extract_constraints')
+			.addEdge('extract_constraints', 'build_answer_prompt')
 			.addEdge('build_answer_prompt', 'answer')
 			.addEdge('answer', 'validate')
 			.addConditionalEdges('validate', (state) =>
 				state.value.answerValidation?.shouldRegenerate
-					// A non-empty streamed answer is already visible to the user and
-					// must not be silently replaced. An empty stream showed nothing,
-					// so it is safe and useful to retry once.
-					&& (!this._services.onAnswerToken || !state.value.answer?.trim())
+					// 已经显示到界面的回答不能静默替换；仍在缓冲区的高风险回答可以重试。
+					&& !state.value.answerDelivered
+					&& state.value.answerRetryCount <= MAX_ANSWER_RETRIES
+					? 'answer'
+					: 'correctness_check'
+			)
+			.addConditionalEdges('correctness_check', (state) =>
+				state.value.answerValidation?.shouldRegenerate
+					&& !state.value.answerDelivered
 					&& state.value.answerRetryCount <= MAX_ANSWER_RETRIES
 					? 'answer'
 					: END
@@ -1058,6 +1125,73 @@ export class ClassMateGraphRunner {
 	}
 
 	/**
+	 * 高风险问题在生成答案前先提取短约束表。
+	 * 失败时退化到本地可确定的信息，不阻断正常答疑。
+	 */
+	private async _extractConstraints(state: WrappedState): Promise<WrappedState> {
+		const current = state.value;
+		const correctnessCheckRequired = shouldRunCorrectnessCheck(current);
+		const fallback = buildFallbackProblemConstraints(current);
+		if (!correctnessCheckRequired) {
+			return nextState(state, {
+				correctnessCheckRequired,
+				problemConstraints: fallback,
+			});
+		}
+		try {
+			this._assertNotCancelled();
+			const messages = new ProblemConstraintPromptBuilder().build({
+				userText: current.request.userText,
+				answerPlan: current.answerPlan!,
+				workspaceSnapshot: current.workspaceSnapshot!,
+				problemCardFacts: current.loadedProblemCardFacts,
+			});
+			const completion = await this._services.model.complete(messages, {
+				label: 'extract_constraints',
+				temperature: 0,
+				maxTokens: 700,
+				jsonMode: true,
+				thinkingMode: 'disabled',
+				signal: this._services.signal,
+			});
+			const parsed = problemConstraintsWireSchema.parse(
+				parseJsonObject(completion.content)
+			);
+			const allowedPaths = new Set(current.loadedWorkspaceItems.map((item) => item.path));
+			const problemConstraints: ProblemConstraints = {
+				hardConstraints: uniqueNonEmpty([...parsed.h, ...fallback.hardConstraints], 12),
+				requiredOperations: uniqueNonEmpty(parsed.o, 10),
+				inputLimits: uniqueNonEmpty(parsed.l, 10),
+				expectedBehaviors: uniqueNonEmpty([...parsed.e, ...fallback.expectedBehaviors], 10),
+				uncertainItems: uniqueNonEmpty(parsed.u, 8),
+				evidencePaths: uniqueNonEmpty(
+					[
+						...parsed.p.filter((path) => allowedPaths.has(path)),
+						...fallback.evidencePaths,
+					],
+					12
+				),
+			};
+			problemConstraints.uncertainItems = uniqueNonEmpty([
+				...problemConstraints.uncertainItems,
+				...fallback.uncertainItems,
+			], 8);
+			this._services.onDebug?.('problem_constraints_extracted', problemConstraints);
+			return nextState(state, {
+				correctnessCheckRequired,
+				problemConstraints,
+			});
+		} catch (error) {
+			this._services.onDebug?.('problem_constraint_extraction_degraded', String(error));
+			return nextState(state, {
+				correctnessCheckRequired,
+				problemConstraints: fallback,
+				constraintExtractionDegraded: true,
+			});
+		}
+	}
+
+	/**
 	 * 按用户要求，最终回答阶段仍完整提交精简后的 SKILL.md。
 	 * 同时只提交规划阶段选中的 Skill 小节，不提交完整 Skill 目录。
 	 */
@@ -1067,6 +1201,7 @@ export class ClassMateGraphRunner {
 			skillCore: await this._services.skillContentLoader.loadText('SKILL.md'),
 			pedagogy: await this._services.skillContentLoader.loadText('references/pedagogy.md'),
 			answerPlan: current.answerPlan!,
+			problemConstraints: current.problemConstraints,
 			assembledSkillContext: current.assembledSkillContext ?? '',
 			assembledProblemCardContext: current.assembledProblemCardContext,
 			problemCardFacts: current.loadedProblemCardFacts,
@@ -1099,6 +1234,9 @@ export class ClassMateGraphRunner {
 				].join('\n'),
 			});
 		}
+		// 高风险回答先缓冲，等正确性检查通过后再交给界面；普通问题继续直接流式输出。
+		const streamImmediately = !current.correctnessCheckRequired
+			&& current.answerRetryCount === 0;
 		const completion = await this._services.model.complete(messages, {
 			label: 'answer',
 			temperature: current.problemIdentification?.evidence.includes(
@@ -1118,13 +1256,16 @@ export class ClassMateGraphRunner {
 			// If the first streamed attempt returned no text, retry through the
 			// adapter's non-streaming completion path. Nothing was shown to the user,
 			// and this avoids repeating a provider-specific empty-stream failure.
-			onToken: current.answerRetryCount === 0
+			onToken: streamImmediately
 				? this._services.onAnswerToken
 				: undefined,
 		});
+		const answer = completion.content.trim();
 		return nextState(state, {
-			answer: completion.content.trim(),
+			answer,
 			answerRetryCount: current.answerRetryCount + 1,
+			answerDelivered: current.answerDelivered
+				|| Boolean(streamImmediately && this._services.onAnswerToken && answer),
 		});
 	}
 
@@ -1145,5 +1286,129 @@ export class ClassMateGraphRunner {
 		}
 		this._services.onDebug?.('answer_validation', answerValidation);
 		return nextState(state, { answer, answerValidation });
+	}
+
+	/** 把已经通过检查的缓冲回答按小块交给原有流式 UI。 */
+	private _deliverBufferedAnswer(answer: string): boolean {
+		const onToken = this._services.onAnswerToken;
+		if (!onToken || !answer) {
+			return false;
+		}
+		const characters = Array.from(answer);
+		for (let index = 0; index < characters.length; index += 48) {
+			onToken(characters.slice(index, index + 48).join(''));
+		}
+		return true;
+	}
+
+	/**
+	 * 只为高风险回答调用一次短检查器；若发现问题，最多触发一次 Answer 重写。
+	 * 第二次仍未通过时，优先采用检查器给出的完整修正版，否则明确说明无法确认。
+	 */
+	private async _correctnessCheck(state: WrappedState): Promise<WrappedState> {
+		const current = state.value;
+		if (!current.correctnessCheckRequired) {
+			return state;
+		}
+		const candidateAnswer = current.answer ?? '';
+		try {
+			this._assertNotCancelled();
+			const allowCorrection = current.answerRetryCount > MAX_ANSWER_RETRIES;
+			const messages = new CorrectnessCheckPromptBuilder().build({
+				userText: current.request.userText,
+				candidateAnswer,
+				answerPlan: current.answerPlan!,
+				constraints: current.problemConstraints ?? buildFallbackProblemConstraints(current),
+				problemCardFacts: current.loadedProblemCardFacts,
+				allowCorrection,
+			});
+			const completion = await this._services.model.complete(messages, {
+				label: 'correctness_check',
+				temperature: 0,
+				maxTokens: allowCorrection ? 2600 : 700,
+				jsonMode: true,
+				thinkingMode: 'disabled',
+				signal: this._services.signal,
+			});
+			const parsed = correctnessVerificationWireSchema.parse(
+				parseJsonObject(completion.content)
+			);
+			const passed = parsed.p && parsed.s === 'none' && parsed.i.length === 0;
+			const verification = {
+				checked: true,
+				passed,
+				severity: passed ? 'none' : parsed.s === 'none' ? 'minor' : parsed.s,
+				issues: parsed.i.map((issue) => ({
+					category: issue.c,
+					description: issue.d,
+					correction: issue.f,
+				})),
+				correctedAnswer: parsed.a,
+			} as const;
+			this._services.onDebug?.('correctness_verification', verification);
+
+			if (verification.passed) {
+				const delivered = current.answerDelivered
+					|| this._deliverBufferedAnswer(candidateAnswer);
+				return nextState(state, {
+					correctnessVerification: verification,
+					answerValidation: {
+						valid: true,
+						problems: [],
+						shouldRegenerate: false,
+					},
+					answerDelivered: delivered,
+				});
+			}
+
+			const problems = verification.issues.map((issue) =>
+				`[${issue.category}] ${issue.description} 修正要求：${issue.correction}`
+			);
+			if (!allowCorrection) {
+				return nextState(state, {
+					correctnessVerification: verification,
+					answerValidation: {
+						valid: false,
+						problems: problems.length > 0
+							? problems
+							: ['候选回答没有通过正确性检查，请重新核对题目约束。'],
+						shouldRegenerate: true,
+					},
+				});
+			}
+
+			const correctedAnswer = verification.correctedAnswer?.trim();
+			const correctedValidation = correctedAnswer
+				? validateStudentAnswer(correctedAnswer, current.answerPlan!)
+				: undefined;
+			const finalAnswer = correctedAnswer && correctedValidation?.valid
+				? correctedAnswer
+				: '我暂时无法确认当前答案满足题目的全部约束，因此不想把可能错误的结论直接告诉你。你可以补充完整题面、数据范围或相关代码，我再继续核对。';
+			const delivered = current.answerDelivered || this._deliverBufferedAnswer(finalAnswer);
+			return nextState(state, {
+				answer: finalAnswer,
+				correctnessVerification: verification,
+				answerValidation: {
+					valid: true,
+					problems,
+					shouldRegenerate: false,
+				},
+				answerDelivered: delivered,
+			});
+		} catch (error) {
+			this._services.onDebug?.('correctness_verification_degraded', String(error));
+			const delivered = current.answerDelivered
+				|| this._deliverBufferedAnswer(candidateAnswer);
+			return nextState(state, {
+				correctnessVerification: {
+					checked: false,
+					passed: false,
+					severity: 'none',
+					issues: [],
+					degraded: true,
+				},
+				answerDelivered: delivered,
+			});
+		}
 	}
 }

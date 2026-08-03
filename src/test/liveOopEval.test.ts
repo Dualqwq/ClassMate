@@ -83,6 +83,11 @@ interface LiveEvalResult {
 	retrievedSkillIds?: string[];
 	conversationWorkspaceContext?: ConversationWorkspaceContext;
 	problemIdentification?: unknown;
+	problemConstraints?: unknown;
+	constraintExtractionDegraded?: boolean;
+	correctnessCheckRequired?: boolean;
+	correctnessVerification?: unknown;
+	answerRetryCount?: number;
 	problemCandidates?: Array<{
 		id: string;
 		score: number;
@@ -364,6 +369,12 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					conversationWorkspaceContext:
 						result.state.conversationWorkspaceContext,
 					problemIdentification: result.state.problemIdentification,
+					problemConstraints: result.state.problemConstraints,
+					constraintExtractionDegraded:
+						result.state.constraintExtractionDegraded,
+					correctnessCheckRequired: result.state.correctnessCheckRequired,
+					correctnessVerification: result.state.correctnessVerification,
+					answerRetryCount: result.state.answerRetryCount,
 					problemCandidates: result.state.problemCardCandidates.map((candidate) => ({
 						id: candidate.card.id,
 						score: candidate.score,

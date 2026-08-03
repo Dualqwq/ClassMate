@@ -106,6 +106,7 @@ describe('RouteAndPlan compact context', () => {
 
 		assert.match(prompt, /FULL_SHORT_SKILL/);
 		assert.match(prompt, /cpp\.pointer/);
+		assert.match(prompt, /response\.algorithm-understanding/);
 		assert.doesNotMatch(prompt, /SECRET_ACTIVE_FILE_BODY/);
 		assert.doesNotMatch(prompt, /SECRET_QUESTION_BODY/);
 	});
