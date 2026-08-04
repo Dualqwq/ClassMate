@@ -79,11 +79,17 @@ export const App: React.FC = () => {
 	//   "user is editing" flag that blocks the next external inputDraft sync.
 	const inputDraftFromBackendRef = useRef<string>(getInitialState().inputDraft);
 	const suppressExternalSyncUntilChangeRef = useRef(false);
-	// Mirror of the textarea's value, only kept in sync for places that need
-	// to read the current text (handleSend, chooseQuickPrompt, clear-on-switch).
-	// We intentionally do NOT use this for rendering — that would re-introduce
-	// the controlled-component reconciliation that fights IME.
-	const inputValueRef = useRef<string>(getInitialState().inputDraft);
+	// 程序设置 `el.value` 不会触发 input / change 事件,也不会让 ResizeObserver
+	// 立即触发,所以手动设置 textarea 高度的地方(chooseQuickPrompt / handleSend)
+	// 都必须显式调一次 autosize,否则高度会卡在旧值,直到下一次任意 state 变化。
+	const autosize = useCallback(() => {
+		const el = inputRef.current;
+		if (!el) {
+			return;
+		}
+		el.style.height = 'auto';
+		el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+	}, []);
 
 	useEffect(() => {
 		// Request LLM config on mount.
@@ -146,11 +152,9 @@ export const App: React.FC = () => {
 			return;
 		}
 		el.value = backendDraft;
-		inputValueRef.current = backendDraft;
 		setComposerHasContent(backendDraft.trim().length > 0);
 		// Re-run autosize after the DOM value changed externally.
-		el.style.height = 'auto';
-		el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+		autosize();
 	}, [state.inputDraft, state.activeConversationId]);
 
 	// Auto-scroll to bottom when new messages arrive or streaming continues,
@@ -173,22 +177,18 @@ export const App: React.FC = () => {
 		if (!el) {
 			return;
 		}
-		const adjust = () => {
-			el.style.height = 'auto';
-			el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
-		};
-		adjust();
-		const ro = new ResizeObserver(adjust);
+		autosize();
+		const ro = new ResizeObserver(autosize);
 		ro.observe(el);
 		// Also listen for direct input events so the very first keystroke
 		// (before ResizeObserver fires) still gets a height update.
-		const onInput = () => adjust();
+		const onInput = () => autosize();
 		el.addEventListener('input', onInput);
 		return () => {
 			ro.disconnect();
 			el.removeEventListener('input', onInput);
 		};
-	}, []);
+	}, [autosize]);
 
 	const handleScroll = useCallback(() => {
 		const el = scrollRef.current;
@@ -207,7 +207,6 @@ export const App: React.FC = () => {
 			return;
 		}
 		const text = el.value;
-		inputValueRef.current = text;
 		setComposerHasContent(text.trim().length > 0);
 		// Mark that the user is editing; the external-sync useLayoutEffect will
 		// see this and skip syncing the DOM until the user blurs / switches
@@ -217,12 +216,11 @@ export const App: React.FC = () => {
 	}, []);
 
 	const flushDraftBeforeNavigation = useCallback(() => {
-		// Switching conversations: any pending inputDraftChanged from the
-		// ref-suppression window must reach the backend before we ask it to
-		// load a different conversation's draft.
+		// 切会话/新建对话前:把当前 DOM 内容发到后端,确保后端草稿对得上用户刚才输入的字符。
+		// 即便之前 onInput 已经发过 inputDraftChanged,这里的覆盖路径在最坏情况下
+		// 只是写入相同的值,后端会幂等地更新 _state.inputDraft 和持久化记录。
 		const el = inputRef.current;
-		if (el && el.value !== inputValueRef.current) {
-			inputValueRef.current = el.value;
+		if (el) {
 			sendMessage({ type: 'inputDraftChanged', text: el.value });
 		}
 		suppressExternalSyncUntilChangeRef.current = false;
@@ -237,7 +235,8 @@ export const App: React.FC = () => {
 			}
 			if (el) {
 				el.value = '';
-				inputValueRef.current = '';
+				// 程序设值不会触发 input 事件 / ResizeObserver,手动收回高度。
+				autosize();
 			}
 			suppressExternalSyncUntilChangeRef.current = false;
 			setComposerHasContent(false);
@@ -252,7 +251,7 @@ export const App: React.FC = () => {
 			setPendingAttachments([]);
 			shouldScrollToBottomRef.current = true;
 		},
-		[pendingImages, pendingAttachments]
+		[pendingImages, pendingAttachments, autosize]
 	);
 
 	const handleFiles = useCallback((files: FileList | null) => {
@@ -319,10 +318,18 @@ export const App: React.FC = () => {
 
 	const chooseQuickPrompt = useCallback((text: string) => {
 		const el = inputRef.current;
-		if (el) {
-			el.value = text;
-			inputValueRef.current = text;
+		if (!el) {
+			return;
 		}
+		// 用户明确点 quick prompt → 覆盖是预期行为。
+		// 但要先把当前 textarea 内容作为草稿 flush 到后端,这样:
+		// - 后端拿到的是"覆盖前最后一刻"的真实文本,而不是覆盖后的 quick prompt 内容;
+		// - 即使前端卡住 / 关闭,这个草稿也能从持久化恢复回来。
+		// 紧接着再发一次 inputDraftChanged 把 quick prompt 的新内容同步给后端。
+		sendMessage({ type: 'inputDraftChanged', text: el.value });
+		el.value = text;
+		el.setSelectionRange(text.length, text.length);
+		autosize();
 		suppressExternalSyncUntilChangeRef.current = false;
 		setComposerHasContent(text.trim().length > 0);
 		sendMessage({ type: 'inputDraftChanged', text });
@@ -330,7 +337,7 @@ export const App: React.FC = () => {
 			inputRef.current?.focus();
 			inputRef.current?.setSelectionRange(text.length, text.length);
 		});
-	}, []);
+	}, [autosize]);
 
 	const jumpToLatest = useCallback(() => {
 		const el = scrollRef.current;
@@ -383,6 +390,9 @@ export const App: React.FC = () => {
 								key={conversation.id}
 								onClick={() => {
 									if (conversation.id === state.activeConversationId) {
+										// 当前活跃会话被重复点击:仍然 flush 一次,确保
+										// 用户最近一次输入(可能在 suppress 窗口中没到达后端)被同步。
+										flushDraftBeforeNavigation();
 										return;
 									}
 									flushDraftBeforeNavigation();
