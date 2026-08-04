@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatAttachment, ChatImage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent } from '../../src/chat/types';
 import { getInitialState, getContainer, sendMessage, subscribeToExtension } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
@@ -47,9 +47,10 @@ function formatConversationDate(timestamp: number): string {
 	return new Date(timestamp).toLocaleDateString('zh-CN');
 }
 
+const COMPOSER_MAX_HEIGHT = 132;
+
 export const App: React.FC = () => {
 	const [state, setState] = useState<ChatState>(getInitialState);
-	const [input, setInput] = useState(state.inputDraft);
 	const [container, setContainer] = useState<'view' | 'panel'>(getContainer);
 	const [llmConfig, setLlmConfig] = useState<LLMConfig | null>(null);
 	const [showSettings, setShowSettings] = useState(false);
@@ -57,19 +58,32 @@ export const App: React.FC = () => {
 	const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
 	const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
 	const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+	// 镜像 textarea 是否"有可发送内容",仅用于按钮 disabled 状态。
+	// 不参与 textarea 的受控渲染,只是 onInput / onSend 之后拨动一下。
+	const [composerHasContent, setComposerHasContent] = useState<boolean>(
+		(getInitialState().inputDraft.trim().length > 0)
+	);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const shouldScrollToBottomRef = useRef(true);
-	// Composer race protection (see 0803后要干的事情.md #10):
-	// isComposing — 用 useState,因为 textarea 的 value 依赖它做"非受控 / 受控"切换。
-	// composerDirtyRef — 本地已被用户改动,不要被 stateSync.inputDraft 覆盖(同会话内)。
-	// activeConversationIdRef — 切换会话的 stateSync 允许覆盖(新会话的草稿是权威的)。
-	// inputDraftFlushTimerRef — 防抖:快速打字时合并 inputDraftChanged,只在停下来时才发 IPC。
-	const [isComposing, setIsComposing] = useState(false);
-	const composerDirtyRef = useRef(false);
-	const activeConversationIdRef = useRef<string>(getInitialState().activeConversationId);
-	const inputDraftFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	const INPUT_DRAFT_FLUSH_MS = 80;
+	// Composer is fully uncontrolled: the textarea's `.value` is owned by the DOM.
+	// - React never sets `value` (only `defaultValue` on mount), so streaming
+	//   re-renders / parent stateSync / IME composition can never clobber the
+	//   text the user is typing.
+	// - `inputDraftFromBackendRef` mirrors the latest inputDraft pushed by the
+	//   backend; we sync it into the DOM only when the change is NOT a result
+	//   of the user's own typing (i.e. conversation switch, attach, clear).
+	//   We use a ref + useLayoutEffect instead of useEffect so the DOM update
+	//   happens before the browser paints — no visible flicker.
+	// - `suppressExternalSyncUntilChangeRef` lets the onChange handler arm a
+	//   "user is editing" flag that blocks the next external inputDraft sync.
+	const inputDraftFromBackendRef = useRef<string>(getInitialState().inputDraft);
+	const suppressExternalSyncUntilChangeRef = useRef(false);
+	// Mirror of the textarea's value, only kept in sync for places that need
+	// to read the current text (handleSend, chooseQuickPrompt, clear-on-switch).
+	// We intentionally do NOT use this for rendering — that would re-introduce
+	// the controlled-component reconciliation that fights IME.
+	const inputValueRef = useRef<string>(getInitialState().inputDraft);
 
 	useEffect(() => {
 		// Request LLM config on mount.
@@ -79,22 +93,7 @@ export const App: React.FC = () => {
 			switch (message.type) {
 				case 'stateSync':
 					setState(message.state);
-					// 切到了别的会话 → 新的 inputDraft 是权威值,允许覆盖。
-					const switchedConversation = message.state.activeConversationId !== activeConversationIdRef.current;
-					if (switchedConversation) {
-						activeConversationIdRef.current = message.state.activeConversationId;
-						composerDirtyRef.current = false;
-						setInput(message.state.inputDraft ?? '');
-						break;
-					}
-					// 同会话内:本地 dirty 时不动 input(等用户 blur 或切换会话再对齐)。
-					// 流期间"瘦身 stateSync"不带 inputDraft,这里也会自然跳过 setInput。
-					if (composerDirtyRef.current) {
-						break;
-					}
-					if (typeof message.state.inputDraft === 'string') {
-						setInput(message.state.inputDraft);
-					}
+					inputDraftFromBackendRef.current = message.state.inputDraft ?? '';
 					break;
 				case 'streamStart':
 					setState((prev) => ({
@@ -129,15 +128,30 @@ export const App: React.FC = () => {
 		});
 	}, []);
 
-	// 组件卸载时清掉待发的 inputDraft timer,避免 unmount 后还在 setState。
-	useEffect(() => {
-		return () => {
-			if (inputDraftFlushTimerRef.current !== null) {
-				clearTimeout(inputDraftFlushTimerRef.current);
-				inputDraftFlushTimerRef.current = null;
-			}
-		};
-	}, []);
+	// Sync external inputDraft changes (conversation switch, attach, clear) into
+	// the DOM — but never while the user is mid-edit.
+	useLayoutEffect(() => {
+		const el = inputRef.current;
+		if (!el) {
+			return;
+		}
+		const backendDraft = state.inputDraft ?? '';
+		if (backendDraft === el.value) {
+			// Already in sync.
+			return;
+		}
+		if (suppressExternalSyncUntilChangeRef.current) {
+			// The user is actively typing — don't touch their DOM value. The
+			// backend will catch up via inputDraftChanged messages.
+			return;
+		}
+		el.value = backendDraft;
+		inputValueRef.current = backendDraft;
+		setComposerHasContent(backendDraft.trim().length > 0);
+		// Re-run autosize after the DOM value changed externally.
+		el.style.height = 'auto';
+		el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+	}, [state.inputDraft, state.activeConversationId]);
 
 	// Auto-scroll to bottom when new messages arrive or streaming continues,
 	// but only if the user is already near the bottom.
@@ -151,14 +165,30 @@ export const App: React.FC = () => {
 		}
 	}, [state.messages, state.isStreaming]);
 
+	// ResizeObserver keeps the textarea height in sync with its DOM value
+	// without involving React state at all — keystrokes never trigger a React
+	// re-render, IME composition is never interrupted.
 	useEffect(() => {
 		const el = inputRef.current;
 		if (!el) {
 			return;
 		}
-		el.style.height = 'auto';
-		el.style.height = `${Math.min(el.scrollHeight, 132)}px`;
-	}, [input]);
+		const adjust = () => {
+			el.style.height = 'auto';
+			el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`;
+		};
+		adjust();
+		const ro = new ResizeObserver(adjust);
+		ro.observe(el);
+		// Also listen for direct input events so the very first keystroke
+		// (before ResizeObserver fires) still gets a height update.
+		const onInput = () => adjust();
+		el.addEventListener('input', onInput);
+		return () => {
+			ro.disconnect();
+			el.removeEventListener('input', onInput);
+		};
+	}, []);
 
 	const handleScroll = useCallback(() => {
 		const el = scrollRef.current;
@@ -171,64 +201,58 @@ export const App: React.FC = () => {
 		setShowJumpToLatest(distanceFromBottom > 160);
 	}, []);
 
-	const flushInputDraft = useCallback((text: string) => {
+	const handleInputChange = useCallback(() => {
+		const el = inputRef.current;
+		if (!el) {
+			return;
+		}
+		const text = el.value;
+		inputValueRef.current = text;
+		setComposerHasContent(text.trim().length > 0);
+		// Mark that the user is editing; the external-sync useLayoutEffect will
+		// see this and skip syncing the DOM until the user blurs / switches
+		// conversation (which calls the explicit "arm flush" path below).
+		suppressExternalSyncUntilChangeRef.current = true;
 		sendMessage({ type: 'inputDraftChanged', text });
 	}, []);
 
-	const handleInputChange = useCallback(
-		(text: string) => {
-			// 本地立即渲染:这是用户看到的字符"出来"的真正路径。
-			// 不要等后端 echo —— 之前的实现每个按键都走 webview → extension → webview 一圈,
-			// IPC 抖动 1-5ms,快速打字时字符出现明显落后于手速。
-			setInput(text);
-			composerDirtyRef.current = true;
-			// 后端同步去抖:把"最后一次输入值"在 80ms 内合并,只在用户停下来时打一次 IPC。
-			// 80ms 内一定有用户继续打字就重置 timer。
-			if (inputDraftFlushTimerRef.current !== null) {
-				clearTimeout(inputDraftFlushTimerRef.current);
-			}
-			inputDraftFlushTimerRef.current = setTimeout(() => {
-				inputDraftFlushTimerRef.current = null;
-				flushInputDraft(text);
-			}, INPUT_DRAFT_FLUSH_MS);
-		},
-		[flushInputDraft]
-	);
-
 	const flushDraftBeforeNavigation = useCallback(() => {
-		// 切换/新建对话前,把当前 input 同步给后端,避免出现"切走后再切回来,旧草稿丢了"。
-		if (inputDraftFlushTimerRef.current !== null) {
-			clearTimeout(inputDraftFlushTimerRef.current);
-			inputDraftFlushTimerRef.current = null;
+		// Switching conversations: any pending inputDraftChanged from the
+		// ref-suppression window must reach the backend before we ask it to
+		// load a different conversation's draft.
+		const el = inputRef.current;
+		if (el && el.value !== inputValueRef.current) {
+			inputValueRef.current = el.value;
+			sendMessage({ type: 'inputDraftChanged', text: el.value });
 		}
-		if (composerDirtyRef.current) {
-			sendMessage({ type: 'inputDraftChanged', text: input });
-			composerDirtyRef.current = false;
-		}
-	}, [input]);
+		suppressExternalSyncUntilChangeRef.current = false;
+	}, []);
 
 	const handleSend = useCallback(
 		(intent?: MessageIntent) => {
-			if (input.trim() || pendingImages.length > 0 || pendingAttachments.length > 0) {
-				if (inputDraftFlushTimerRef.current !== null) {
-					clearTimeout(inputDraftFlushTimerRef.current);
-					inputDraftFlushTimerRef.current = null;
-				}
-				sendMessage({
-					type: 'sendMessage',
-					text: input || '请分析这些附件。',
-					intent,
-					images: pendingImages,
-					attachments: pendingAttachments,
-				});
-				setInput('');
-				setPendingImages([]);
-				setPendingAttachments([]);
-				composerDirtyRef.current = false;
-				shouldScrollToBottomRef.current = true;
+			const el = inputRef.current;
+			const text = (el?.value ?? '').trim();
+			if (!text && pendingImages.length === 0 && pendingAttachments.length === 0) {
+				return;
 			}
+			if (el) {
+				el.value = '';
+				inputValueRef.current = '';
+			}
+			suppressExternalSyncUntilChangeRef.current = false;
+			setComposerHasContent(false);
+			sendMessage({
+				type: 'sendMessage',
+				text: text || '请分析这些附件。',
+				intent,
+				images: pendingImages,
+				attachments: pendingAttachments,
+			});
+			setPendingImages([]);
+			setPendingAttachments([]);
+			shouldScrollToBottomRef.current = true;
 		},
-		[input, pendingImages, pendingAttachments]
+		[pendingImages, pendingAttachments]
 	);
 
 	const handleFiles = useCallback((files: FileList | null) => {
@@ -294,12 +318,19 @@ export const App: React.FC = () => {
 	}, []);
 
 	const chooseQuickPrompt = useCallback((text: string) => {
-		handleInputChange(text);
+		const el = inputRef.current;
+		if (el) {
+			el.value = text;
+			inputValueRef.current = text;
+		}
+		suppressExternalSyncUntilChangeRef.current = false;
+		setComposerHasContent(text.trim().length > 0);
+		sendMessage({ type: 'inputDraftChanged', text });
 		requestAnimationFrame(() => {
 			inputRef.current?.focus();
 			inputRef.current?.setSelectionRange(text.length, text.length);
 		});
-	}, [handleInputChange]);
+	}, []);
 
 	const jumpToLatest = useCallback(() => {
 		const el = scrollRef.current;
@@ -310,6 +341,8 @@ export const App: React.FC = () => {
 		setShowJumpToLatest(false);
 		el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
 	}, []);
+
+	const canSend = composerHasContent || pendingImages.length > 0 || pendingAttachments.length > 0;
 
 	return (
 		<div className="classmate-app">
@@ -478,29 +511,35 @@ export const App: React.FC = () => {
 							style={{ display: 'none' }}
 						/>
 					</label>
+					{/*
+						关键: textarea 是真正"非受控"的。
+						- React 只在挂载时通过 defaultValue 初始化,绝不写 value,
+						  因此 IME 合成期间 React reconciliation / 父组件重渲染 /
+						  父组件 stateSync / streaming appendToken 都无法改写用户输入。
+						- 外部 inputDraft 变化(切会话/恢复草稿)通过 useLayoutEffect
+						  写入 DOM,但仅当 suppressExternalSyncUntilChangeRef 为 false
+						  (即用户没有正在打字)时才生效。
+						- 拼音片段的更新由浏览器 IME 引擎自己绘制,和 React 完全无关,
+						  因此不会再出现"英文缓存区跟不上手速"的问题。
+					*/}
 					<textarea
 						ref={inputRef}
 						rows={1}
-						// 关键:composition 期间 value=undefined(非受控),让浏览器原生管理 IME;
-						// composition 结束才切回受控,React 不再打断 IME 合成。
-						value={isComposing ? undefined : input}
-						onCompositionStart={() => { setIsComposing(true); }}
-						onCompositionEnd={(event) => {
-							setIsComposing(false);
-							// 合成结束时 DOM value 已稳定,主动写一次,让后端草稿追上 DOM。
-							const text = (event.target as HTMLTextAreaElement).value;
-							handleInputChange(text);
-						}}
+						defaultValue={state.inputDraft}
+						onInput={handleInputChange}
 						onBlur={() => {
-							setIsComposing(false);
-							composerDirtyRef.current = false;
-						}}
-						onChange={(e) => {
-							// onChange 在 compositionend 之后的 input 事件触发,此时 React 已切回受控。
-							handleInputChange(e.target.value);
+							// 让后续 backend 推送的 inputDraft 可以被接受
+							// (之前我们在 input 期间抑制了外部同步)。
+							suppressExternalSyncUntilChangeRef.current = false;
 						}}
 						onKeyDown={(event) => {
-							if (event.key === 'Enter' && !event.shiftKey && !isComposing) {
+							if (event.key === 'Enter' && !event.shiftKey) {
+								// 浏览器在 IME 合成期间 Enter 可能是选词,不要抢。
+								// isComposing 已经被彻底移除,所以用 nativeEvent.isComposing 兜底。
+								const native = (event.nativeEvent as InputEvent | KeyboardEvent);
+								if (native && (native as InputEvent).isComposing) {
+									return;
+								}
 								event.preventDefault();
 								handleSend();
 							}
@@ -520,7 +559,7 @@ export const App: React.FC = () => {
 					) : (
 						<button
 							onClick={() => handleSend()}
-							disabled={!input.trim() && pendingImages.length === 0 && pendingAttachments.length === 0}
+							disabled={!canSend}
 							className="primary-button"
 						>
 							发送
