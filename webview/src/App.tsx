@@ -60,6 +60,16 @@ export const App: React.FC = () => {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLTextAreaElement>(null);
 	const shouldScrollToBottomRef = useRef(true);
+	// Composer race protection (see 0803后要干的事情.md #10):
+	// isComposing — 用 useState,因为 textarea 的 value 依赖它做"非受控 / 受控"切换。
+	// composerDirtyRef — 本地已被用户改动,不要被 stateSync.inputDraft 覆盖(同会话内)。
+	// activeConversationIdRef — 切换会话的 stateSync 允许覆盖(新会话的草稿是权威的)。
+	// inputDraftFlushTimerRef — 防抖:快速打字时合并 inputDraftChanged,只在停下来时才发 IPC。
+	const [isComposing, setIsComposing] = useState(false);
+	const composerDirtyRef = useRef(false);
+	const activeConversationIdRef = useRef<string>(getInitialState().activeConversationId);
+	const inputDraftFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const INPUT_DRAFT_FLUSH_MS = 80;
 
 	useEffect(() => {
 		// Request LLM config on mount.
@@ -69,7 +79,22 @@ export const App: React.FC = () => {
 			switch (message.type) {
 				case 'stateSync':
 					setState(message.state);
-					setInput(message.state.inputDraft);
+					// 切到了别的会话 → 新的 inputDraft 是权威值,允许覆盖。
+					const switchedConversation = message.state.activeConversationId !== activeConversationIdRef.current;
+					if (switchedConversation) {
+						activeConversationIdRef.current = message.state.activeConversationId;
+						composerDirtyRef.current = false;
+						setInput(message.state.inputDraft ?? '');
+						break;
+					}
+					// 同会话内:本地 dirty 时不动 input(等用户 blur 或切换会话再对齐)。
+					// 流期间"瘦身 stateSync"不带 inputDraft,这里也会自然跳过 setInput。
+					if (composerDirtyRef.current) {
+						break;
+					}
+					if (typeof message.state.inputDraft === 'string') {
+						setInput(message.state.inputDraft);
+					}
 					break;
 				case 'streamStart':
 					setState((prev) => ({
@@ -104,6 +129,16 @@ export const App: React.FC = () => {
 		});
 	}, []);
 
+	// 组件卸载时清掉待发的 inputDraft timer,避免 unmount 后还在 setState。
+	useEffect(() => {
+		return () => {
+			if (inputDraftFlushTimerRef.current !== null) {
+				clearTimeout(inputDraftFlushTimerRef.current);
+				inputDraftFlushTimerRef.current = null;
+			}
+		};
+	}, []);
+
 	// Auto-scroll to bottom when new messages arrive or streaming continues,
 	// but only if the user is already near the bottom.
 	useEffect(() => {
@@ -136,17 +171,49 @@ export const App: React.FC = () => {
 		setShowJumpToLatest(distanceFromBottom > 160);
 	}, []);
 
+	const flushInputDraft = useCallback((text: string) => {
+		sendMessage({ type: 'inputDraftChanged', text });
+	}, []);
+
 	const handleInputChange = useCallback(
 		(text: string) => {
+			// 本地立即渲染:这是用户看到的字符"出来"的真正路径。
+			// 不要等后端 echo —— 之前的实现每个按键都走 webview → extension → webview 一圈,
+			// IPC 抖动 1-5ms,快速打字时字符出现明显落后于手速。
 			setInput(text);
-			sendMessage({ type: 'inputDraftChanged', text });
+			composerDirtyRef.current = true;
+			// 后端同步去抖:把"最后一次输入值"在 80ms 内合并,只在用户停下来时打一次 IPC。
+			// 80ms 内一定有用户继续打字就重置 timer。
+			if (inputDraftFlushTimerRef.current !== null) {
+				clearTimeout(inputDraftFlushTimerRef.current);
+			}
+			inputDraftFlushTimerRef.current = setTimeout(() => {
+				inputDraftFlushTimerRef.current = null;
+				flushInputDraft(text);
+			}, INPUT_DRAFT_FLUSH_MS);
 		},
-		[]
+		[flushInputDraft]
 	);
+
+	const flushDraftBeforeNavigation = useCallback(() => {
+		// 切换/新建对话前,把当前 input 同步给后端,避免出现"切走后再切回来,旧草稿丢了"。
+		if (inputDraftFlushTimerRef.current !== null) {
+			clearTimeout(inputDraftFlushTimerRef.current);
+			inputDraftFlushTimerRef.current = null;
+		}
+		if (composerDirtyRef.current) {
+			sendMessage({ type: 'inputDraftChanged', text: input });
+			composerDirtyRef.current = false;
+		}
+	}, [input]);
 
 	const handleSend = useCallback(
 		(intent?: MessageIntent) => {
 			if (input.trim() || pendingImages.length > 0 || pendingAttachments.length > 0) {
+				if (inputDraftFlushTimerRef.current !== null) {
+					clearTimeout(inputDraftFlushTimerRef.current);
+					inputDraftFlushTimerRef.current = null;
+				}
 				sendMessage({
 					type: 'sendMessage',
 					text: input || '请分析这些附件。',
@@ -157,6 +224,7 @@ export const App: React.FC = () => {
 				setInput('');
 				setPendingImages([]);
 				setPendingAttachments([]);
+				composerDirtyRef.current = false;
 				shouldScrollToBottomRef.current = true;
 			}
 		},
@@ -264,7 +332,10 @@ export const App: React.FC = () => {
 						历史 {showHistory ? '⌃' : '⌄'}
 					</button>
 					<button
-						onClick={() => sendMessage({ type: 'newConversation' })}
+						onClick={() => {
+							flushDraftBeforeNavigation();
+							sendMessage({ type: 'newConversation' });
+						}}
 						title="新建对话"
 						className="icon-button"
 						disabled={state.isStreaming}
@@ -277,7 +348,13 @@ export const App: React.FC = () => {
 						{state.conversations.map((conversation) => (
 							<button
 								key={conversation.id}
-								onClick={() => sendMessage({ type: 'switchConversation', conversationId: conversation.id })}
+								onClick={() => {
+									if (conversation.id === state.activeConversationId) {
+										return;
+									}
+									flushDraftBeforeNavigation();
+									sendMessage({ type: 'switchConversation', conversationId: conversation.id });
+								}}
 								className={`history-item ${
 									conversation.id === state.activeConversationId ? 'active' : ''
 								}`}
@@ -404,10 +481,26 @@ export const App: React.FC = () => {
 					<textarea
 						ref={inputRef}
 						rows={1}
-						value={input}
-						onChange={(e) => handleInputChange(e.target.value)}
+						// 关键:composition 期间 value=undefined(非受控),让浏览器原生管理 IME;
+						// composition 结束才切回受控,React 不再打断 IME 合成。
+						value={isComposing ? undefined : input}
+						onCompositionStart={() => { setIsComposing(true); }}
+						onCompositionEnd={(event) => {
+							setIsComposing(false);
+							// 合成结束时 DOM value 已稳定,主动写一次,让后端草稿追上 DOM。
+							const text = (event.target as HTMLTextAreaElement).value;
+							handleInputChange(text);
+						}}
+						onBlur={() => {
+							setIsComposing(false);
+							composerDirtyRef.current = false;
+						}}
+						onChange={(e) => {
+							// onChange 在 compositionend 之后的 input 事件触发,此时 React 已切回受控。
+							handleInputChange(e.target.value);
+						}}
 						onKeyDown={(event) => {
-							if (event.key === 'Enter' && !event.shiftKey) {
+							if (event.key === 'Enter' && !event.shiftKey && !isComposing) {
 								event.preventDefault();
 								handleSend();
 							}

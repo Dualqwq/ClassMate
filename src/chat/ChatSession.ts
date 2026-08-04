@@ -379,6 +379,7 @@ export class ChatSession {
 
 	public attach(presenter: WebviewPresenter): void {
 		this._presenters.add(presenter);
+		// attach 时前端刚挂载,需要把当前对话的 inputDraft 投影过去。
 		presenter.postMessage({ type: 'stateSync', state: this._state });
 		presenter.postMessage({ type: 'containerInfo', container: this._getPresenterContainer(presenter) });
 	}
@@ -399,8 +400,30 @@ export class ChatSession {
 	}
 
 	public setInputDraft(text: string): void {
+		// 接收前端 inputDraftChanged 时:只更新当前 _state.inputDraft 和落盘,不广播。
+		// 原因:每个按键都触发一次 inputDraftChanged,如果后端 echo stateSync,
+		// 前端 React 会陷入"setInput → render → 下一个 keydown"的串行瓶颈,
+		// 体感上输入框字符跟不上打字速度。前端会用 composerDirtyRef 阻挡后端 echo,
+		// 但 IPC 来回本身就有 1–5ms 抖动,合起来就是肉眼可见的落后。
+		// 真正需要把 inputDraft 推回前端的时机是:
+		//   - newConversation / switchConversation / clear (前端的 dirty 已被清掉,
+		//     此时后端的 inputDraft 是目标对话的权威草稿,前端必须采用)
+		//   - 持久化重启后首次 attach (前端 init state 用)
+		// 这些路径显式走 _broadcast(stateSync, {includeDraft: true}),不依赖本方法。
 		this._state = { ...this._state, inputDraft: text };
-		this._broadcast({ type: 'stateSync', state: this._state });
+		// 同步把当前对话记录的 inputDraft 写进 _conversationRecords,但跳过
+		// 重新计算 conversations 列表(那是为了渲染历史侧栏,频繁打字时不需要)。
+		const activeId = this._state.activeConversationId;
+		const existing = this._conversationRecords.get(activeId);
+		if (existing) {
+			this._conversationRecords.set(activeId, { ...existing, inputDraft: text });
+		}
+		// 轻量持久化:让 _onPersist 知道当前草稿变了,但不在 _state.conversations 上
+		// 反复排序重建。
+		void this._onPersist?.({
+			activeConversationId: activeId,
+			conversations: [...this._conversationRecords.values()],
+		});
 	}
 
 	public addUserMessage(text: string, options?: { intent?: MessageIntent; isCommandGenerated?: boolean; images?: ChatImage[]; attachments?: ChatAttachment[] }): ChatMessage {
@@ -420,7 +443,7 @@ export class ChatSession {
 			messages: [...this._state.messages, message],
 			inputDraft: '',
 		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
 		return message;
 	}
 
@@ -524,7 +547,7 @@ export class ChatSession {
 			activeConversationId: createConversationId(),
 			conversations: this._state.conversations,
 		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
 	}
 
 	public switchConversation(conversationId: string): void {
@@ -545,7 +568,7 @@ export class ChatSession {
 			activeConversationId: target.id,
 			conversations: this._state.conversations,
 		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
 	}
 
 	private _setMessageUsage(messageId: string, usage: import('../llm/types').LLMTokenUsage): void {
@@ -594,7 +617,7 @@ export class ChatSession {
 			activeConversationId: this._state.activeConversationId,
 			conversations: this._state.conversations,
 		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
 	}
 
 	public handleWebviewMessage(message: WebviewToExtensionMessage): void {
@@ -1059,11 +1082,21 @@ export class ChatSession {
 		});
 	}
 
-	private _broadcast(message: ExtensionToWebviewMessage): void {
-		let outgoing = message;
+	private _broadcast(message: ExtensionToWebviewMessage, options?: { includeDraft?: boolean }): void {
+		let outgoing: ExtensionToWebviewMessage = message;
 		if (message.type === 'stateSync') {
 			this._syncConversationState();
-			outgoing = { type: 'stateSync', state: this._state };
+			// 流期间(appendToken/endStream/_setMessageUsage/_setProcessingStage/_insert*Debug)
+			// 默认不再携带 inputDraft,让前端用本地 input 即可,避免 input 被回滚覆盖。
+			// 真正"草稿语义变化"的少数路径(setInputDraft/addUserMessage/newConversation/
+			// switchConversation/clear)需要显式 includeDraft=true。
+			if (options?.includeDraft) {
+				outgoing = { type: 'stateSync', state: this._state };
+			} else {
+				const { inputDraft: _ignored, ...rest } = this._state;
+				// 剥离 inputDraft 后,严格意义上不再是完整 ChatState;前端会防御 inputDraft 字段缺失。
+				outgoing = { type: 'stateSync', state: rest as unknown as typeof this._state };
+			}
 		}
 		for (const presenter of this._presenters) {
 			presenter.postMessage(outgoing);
