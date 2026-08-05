@@ -476,6 +476,7 @@ export const App: React.FC = () => {
 								? state.processingStage
 								: null
 						}
+						referenceExtractionPending={msg.id === state.referenceExtractionPendingFor}
 					/>
 				))}
 				{showJumpToLatest && (

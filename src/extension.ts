@@ -3,7 +3,7 @@ import { DebugJourneyTreeProvider } from './ui/DebugJourneyTreeProvider';
 import { registerDebugSnapshotProvider, getSnapshotUri, registerSnapshot } from './debug/debugSnapshotProvider';
 import * as vscode from 'vscode';
 import { spawnSync } from 'child_process';
-import { ChatPanel } from './ui/ChatPanel';
+import { ChatPanel, resolveRelocationTarget } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
@@ -95,6 +95,17 @@ function createChatViewProvider(session: ChatSession, extensionUri: vscode.Uri):
 
 function getContainerPreference(): 'auto' | 'view' | 'panel' {
 	return vscode.workspace.getConfiguration('classmate').get('defaultContainer') ?? 'auto';
+}
+
+function findSymbolLine(document: vscode.TextDocument, symbol: string): number | undefined {
+	const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	const re = new RegExp(`\\b${escaped}\\b`);
+	for (let i = 0; i < document.lineCount; i++) {
+		if (re.test(document.lineAt(i).text)) {
+			return i;
+		}
+	}
+	return undefined;
 }
 
 // Chat 容器当前状态(模块级单例;activate 在扩展生命周期内只调用一次)。
@@ -791,15 +802,39 @@ export function activate(
 				endLine: editor.selectionEndLine,
 			}];
 		},
-		(reference: ChatReference) => {
-			void vscode.workspace.openTextDocument(vscode.Uri.parse(reference.uri)).then(async (document) => {
+		async (reference: ChatReference) => {
+			try {
+				const document = await vscode.workspace.openTextDocument(
+					vscode.Uri.parse(reference.uri)
+				);
 				const lastLine = Math.max(0, document.lineCount - 1);
-				const startLine = Math.min(lastLine, Math.max(0, (reference.startLine ?? 1) - 1));
-				const endLine = Math.min(lastLine, Math.max(startLine, (reference.endLine ?? reference.startLine ?? 1) - 1));
-				await vscode.window.showTextDocument(document, {
-					selection: new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length),
-				});
-			});
+				let startLine = Math.min(lastLine, Math.max(0, (reference.startLine ?? 1) - 1));
+				// 只有符号没有行号时,按符号名词边界定位首次出现位置。
+				if (reference.symbol && reference.startLine === undefined) {
+					startLine = findSymbolLine(document, reference.symbol) ?? startLine;
+				}
+				const endLine = Math.min(
+					lastLine,
+					Math.max(startLine, (reference.endLine ?? reference.startLine ?? 1) - 1)
+				);
+				const selection = new vscode.Range(
+					startLine,
+					0,
+					endLine,
+					document.lineAt(endLine).text.length
+				);
+				// 面板 active 时直开对侧列:避免文件先落进面板组触发 relocation
+				// (闪一下 + 重开时丢失 selection)。
+				const panelColumn = ChatPanel.getActivePanelColumn();
+				await vscode.window.showTextDocument(
+					document,
+					panelColumn !== undefined
+						? { viewColumn: resolveRelocationTarget(panelColumn), selection }
+						: { selection }
+				);
+			} catch {
+				void vscode.window.showWarningMessage('引用的文件已不存在。');
+			}
 		}
 	);
 

@@ -9,6 +9,7 @@ interface MessageBubbleProps {
 	isStreaming: boolean;
 	isCurrentStream: boolean;
 	processingStage?: string | null;
+	referenceExtractionPending?: boolean;
 }
 
 function getDisplayContent(message: ChatMessage): string {
@@ -26,6 +27,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 	message,
 	isCurrentStream,
 	processingStage,
+	referenceExtractionPending,
 }) => {
 	const [copied, setCopied] = React.useState(false);
 	const isUser = message.role === 'user';
@@ -207,7 +209,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 						))}
 					</div>
 				)}
-				{message.references && message.references.length > 0 && (
+				{isUser && message.references && message.references.length > 0 && (
 					<div style={{ marginBottom: '8px' }}>
 						<div className="message-meta-label">相关位置</div>
 						<div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
@@ -252,7 +254,23 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 								<span>{processingStage}</span>
 							</div>
 						)
-						: <MarkdownRenderer content={message.content} />}
+						: (
+							<>
+								<MarkdownRenderer
+									content={message.content}
+									references={message.references}
+								/>
+								{!isUser && referenceExtractionPending && (
+									<div
+										className="reference-extraction-pending"
+										role="status"
+										aria-live="polite"
+									>
+										正在定位回答中的代码位置…
+									</div>
+								)}
+							</>
+						)}
 				{message.role === 'assistant' && isCurrentStream && (
 					<span style={{ opacity: 0.6, marginLeft: '2px' }}>▋</span>
 				)}

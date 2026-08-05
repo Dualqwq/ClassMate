@@ -104,6 +104,18 @@ export class ChatPanel implements WebviewPresenter {
 		return ChatPanel._currentPanel !== undefined;
 	}
 
+	/**
+	 * 面板是 active 标签时返回它所在的列;否则 undefined。
+	 * 用于"面板 active 时打开文件应直开对侧列"的路由判断。
+	 */
+	public static getActivePanelColumn(): vscode.ViewColumn | undefined {
+		const panel = ChatPanel._currentPanel;
+		if (!panel || !panel._panel.active) {
+			return undefined;
+		}
+		return panel._panel.viewColumn;
+	}
+
 	public static revealCurrent(preserveFocus?: boolean): void {
 		ChatPanel._currentPanel?._panel.reveal(undefined, preserveFocus ?? false);
 	}

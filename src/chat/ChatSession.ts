@@ -21,8 +21,11 @@ import {
 } from '../graph/ClassMateGraphRunner';
 import type { ConversationWorkspaceContext } from '../graph/types';
 import { AdapterGraphModelClient } from '../graph/modelClient';
+import type { GraphModelClient } from '../graph/modelClient';
 import { addTokenUsage } from '../llm/tokenUsage';
 import { looksLikeCodeEditRequest } from './codeEditIntent';
+import type { LoadedWorkspaceItem } from '../workspace/types';
+import { extractAnswerReferences } from './answerReferenceExtractor';
 
 const HINT_INTENTS: MessageIntent[] = [
 	'hint',
@@ -648,6 +651,67 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
+	private _setReferenceExtractionPending(messageId: string): void {
+		this._state = { ...this._state, referenceExtractionPendingFor: messageId };
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	private _clearReferenceExtractionPending(messageId: string): void {
+		if (this._state.referenceExtractionPendingFor !== messageId) {
+			return;
+		}
+		this._state = { ...this._state, referenceExtractionPendingFor: null };
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	private _setMessageReferences(messageId: string, references: ChatReference[]): void {
+		if (references.length === 0) {
+			this._clearReferenceExtractionPending(messageId);
+			return;
+		}
+		const message = this._state.messages.find((item) => item.id === messageId);
+		if (!message || message.role !== 'assistant') {
+			this._clearReferenceExtractionPending(messageId);
+			return;
+		}
+		this._state = {
+			...this._state,
+			referenceExtractionPendingFor: null,
+			messages: this._state.messages.map((item) =>
+				item.id === messageId ? { ...item, references } : item
+			),
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	/**
+	 * 流结束后的引用提取:先让 endStream 收尾,再异步跑提取并挂载,
+	 * 不拖慢流式时序;期间显示"正在定位回答中的代码位置…"。
+	 */
+	private async _extractAndAttachReferences(
+		messageId: string,
+		answer: string,
+		loadedItems: LoadedWorkspaceItem[],
+		model: GraphModelClient,
+		signal?: AbortSignal
+	): Promise<void> {
+		if (!answer.trim() || loadedItems.length === 0) {
+			return;
+		}
+		this._setReferenceExtractionPending(messageId);
+		try {
+			const references = await extractAnswerReferences(answer, loadedItems, {
+				model,
+				workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri,
+				signal,
+			});
+			this._setMessageReferences(messageId, references);
+		} catch (error) {
+			console.warn('ClassMate answer reference extraction failed:', error);
+			this._clearReferenceExtractionPending(messageId);
+		}
+	}
+
 	public cancelCurrentResponse(): void {
 		if (!this._state.isStreaming) {
 			return;
@@ -932,6 +996,14 @@ export class ChatSession {
 				if (editTarget) {
 					this._attachProposedEdit(assistantMessage.id, editTarget);
 				}
+				// 流已结束(finally 里 endStream),后台异步提取代码引用,不阻塞收尾。
+				void this._extractAndAttachReferences(
+					assistantMessage.id,
+					result.answer,
+					result.state.loadedWorkspaceItems,
+					model,
+					controller.signal
+				);
 			} catch (error) {
 				if (!controller.signal.aborted) {
 					const message = error instanceof Error ? error.message : String(error);

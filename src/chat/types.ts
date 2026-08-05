@@ -70,6 +70,8 @@ export interface ChatReference {
 	uri: string;
 	startLine?: number;
 	endLine?: number;
+	/** 符号/函数名;无行号时用于打开后定位。 */
+	symbol?: string;
 }
 
 export interface ChatConversationSummary {
@@ -95,6 +97,8 @@ export interface ChatState {
 	isStreaming: boolean;
 	currentStreamMessageId: string | null;
 	processingStage: string | null;
+	/** 正在为哪个 assistant 消息提取代码引用(用于显示进度小字)。 */
+	referenceExtractionPendingFor?: string | null;
 	activeConversationId: string;
 	conversations: ChatConversationSummary[];
 }

@@ -3,9 +3,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import type { ChatReference } from '../../../src/chat/types';
+import { linkifyAnswer, transformReferenceUrl } from '../../../src/chat/linkifyAnswer';
+import { sendMessage } from '../vscodeApi';
 
 interface MarkdownRendererProps {
 	content: string;
+	references?: ChatReference[];
 }
 
 const CodeBlock: React.FC<{ className?: string; children: string } > = ({
@@ -37,10 +41,14 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 	);
 };
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, references }) => {
+	// 只在引用就绪后(流结束后)叠加内联链接,流式期间保持纯文本渲染。
+	const displayContent =
+		references && references.length > 0 ? linkifyAnswer(content, references) : content;
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm]}
+			urlTransform={transformReferenceUrl}
 			components={{
 				code(props) {
 					const { children, className, node, ref, ...rest } = props;
@@ -70,6 +78,44 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
 					return <>{children}</>;
 				},
 				a({ children, href }) {
+					if (href?.startsWith('classmate-ref://')) {
+						const index = Number(href.slice('classmate-ref://'.length));
+						const reference = references?.[index];
+						const openReference = () => {
+							if (reference) {
+								sendMessage({ type: 'openReference', reference });
+							}
+						};
+						return (
+							// 不用带 href 的 <a>:VS Code 会拦截锚点点击并向宿主发 did-click-link,
+							// 未知 scheme 没有 opener,导致链接"点不进去"。无 href + role=link
+							// 可完全绕开拦截,样式与键盘交互保持不变。
+							<a
+								role="link"
+								tabIndex={0}
+								style={{
+									color: 'var(--vscode-textLink-foreground)',
+									textDecoration: 'none',
+									cursor: 'pointer',
+								}}
+								onClick={openReference}
+								onKeyDown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										openReference();
+									}
+								}}
+								onMouseEnter={(e) => {
+									e.currentTarget.style.textDecoration = 'underline';
+								}}
+								onMouseLeave={(e) => {
+									e.currentTarget.style.textDecoration = 'none';
+								}}
+							>
+								{children}
+							</a>
+						);
+					}
 					return (
 						<a
 							href={href}
@@ -190,7 +236,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
 				},
 			}}
 		>
-			{content}
+			{displayContent}
 		</ReactMarkdown>
 	);
 };

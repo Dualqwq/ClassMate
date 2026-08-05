@@ -203,6 +203,12 @@ label:focus-within {
 	cursor: default;
 }
 
+.reference-extraction-pending {
+	margin-top: 6px;
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+}
+
 .history-title {
 	overflow: hidden;
 	text-overflow: ellipsis;
