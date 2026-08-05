@@ -7,6 +7,7 @@ ClassMate 的重要变更记录在这里。
 - 容器状态机:ChatView 与 ChatPanel 不再同时出现,关闭 Debug Journey 不再影响 ChatView。
 - 聊天被隐藏后,Debug Journey 工具栏出现"打开聊天"按钮,避免聊天失去可见入口。
 - 侧边栏初始布局改为 ChatView 占 2/3、Debug Journey 占 1/3,避免挤压聊天框。
+- 修复初始高度设置未生效:重命名侧边栏容器,使 2:1 权重在已有环境中首次打开即生效。
 - Debug Journey 树不再显示当前工作区已不存在的文件,原始隐式日志保持不变。
 
 ## [0.0.5]

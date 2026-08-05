@@ -170,14 +170,14 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "classmate-sidebar",
+          "id": "classmate-sidebar-v2",
           "title": "ClassMate",
           "icon": "$(comment-discussion)"
         }
       ]
     },
     "views": {
-      "classmate-sidebar": [
+      "classmate-sidebar-v2": [
         {
           "id": "classmate.chatView",
           "name": "Chat",
