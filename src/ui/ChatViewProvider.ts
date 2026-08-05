@@ -10,16 +10,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, WebviewPres
 	private readonly _extensionUri: vscode.Uri;
 	private readonly _onMessage: (message: WebviewToExtensionMessage) => void;
 	private readonly _onDisposed: () => void;
+	private readonly _onResolved?: () => void;
 	private _disposables: vscode.Disposable[] = [];
 
 	constructor(
 		extensionUri: vscode.Uri,
 		onMessage: (message: WebviewToExtensionMessage) => void,
-		onDisposed: () => void
+		onDisposed: () => void,
+		onResolved?: () => void
 	) {
 		this._extensionUri = extensionUri;
 		this._onMessage = onMessage;
 		this._onDisposed = onDisposed;
+		this._onResolved = onResolved;
 	}
 
 	public resolveWebviewView(
@@ -55,9 +58,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, WebviewPres
 			undefined,
 			this._disposables
 		);
+
+		// WebviewView 被隐藏(容器收起或 when 子句失效)时可能被销毁,再次显示时
+		// 会重新 resolve。attach 是幂等的,这里重挂一次以恢复广播(streaming/stateSync)。
+		this._onResolved?.();
 	}
 
 	public reveal(preserveFocus?: boolean): void {
+		if (!this._view) {
+			// 视图尚未实例化(从未打开过 sidebar,或隐藏后被销毁)。
+			// 调用方必须先保证 when 子句为 true,这里用原生命令实例化并显示。
+			void vscode.commands.executeCommand('classmate.chatView.focus');
+			return;
+		}
 		this._view?.show(preserveFocus ?? false);
 		// Re-sync state when the view is revealed after being hidden, so that
 		// draft text and messages updated in the panel are reflected here.

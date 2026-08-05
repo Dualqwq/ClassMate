@@ -2,6 +2,12 @@
 
 ClassMate 的重要变更记录在这里。
 
+## [Unreleased]
+
+- 容器状态机:ChatView 与 ChatPanel 不再同时出现,关闭 Debug Journey 不再影响 ChatView。
+- 聊天被隐藏后,Debug Journey 工具栏出现"打开聊天"按钮,避免聊天失去可见入口。
+- 侧边栏初始布局改为 ChatView 占 2/3、Debug Journey 占 1/3,避免挤压聊天框。
+
 ## [0.0.5]
 
 - 优化作业目录识别与工作区上下文加载，支持按题目范围读取多个相关文件；

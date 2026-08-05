@@ -181,12 +181,16 @@
         {
           "id": "classmate.chatView",
           "name": "Chat",
-          "type": "webview"
+          "type": "webview",
+          "when": "classmate.chatContainer == 'view'",
+          "initialSize": 2
         },
         {
           "id": "classmate.debugJourneyTree",
           "name": "Debug Journey",
-          "type": "tree"
+          "type": "tree",
+          "when": "classmate.debugJourneyTree.enabled",
+          "initialSize": 1
         }
       ]
     },
@@ -231,6 +235,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "classmate.openChat",
+          "group": "navigation@0",
+          "when": "view == classmate.debugJourneyTree && classmate.chatContainer == 'hidden'"
+        },
         {
           "command": "classmate.openChatPanel",
           "group": "navigation@1",

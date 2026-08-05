@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { spawnSync } from 'child_process';
 import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
+import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
 import type { ChatReference, LLMConfig, MessageIntent, PersistedChatData } from './chat/types';
@@ -48,8 +49,6 @@ function createSessionId(): string {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-type ChatContainer = 'view' | 'panel';
-
 /**
  * Development-only API used by the paid live-evaluation harness.
  * It deliberately returns a configured model client instead of exposing the
@@ -86,7 +85,9 @@ function createChatViewProvider(session: ChatSession, extensionUri: vscode.Uri):
 	const provider = new ChatViewProvider(
 		extensionUri,
 		(message) => session.handleWebviewMessage(message),
-		() => session.detach(provider)
+		() => session.detach(provider),
+		// WebviewView 隐藏后可能被销毁,再次 resolve 时重挂,恢复 streaming/stateSync 广播。
+		() => session.attach(provider)
 	);
 	session.attach(provider);
 	return provider;
@@ -96,6 +97,14 @@ function getContainerPreference(): 'auto' | 'view' | 'panel' {
 	return vscode.workspace.getConfiguration('classmate').get('defaultContainer') ?? 'auto';
 }
 
+// Chat 容器当前状态(模块级单例;activate 在扩展生命周期内只调用一次)。
+let currentContainer: ChatContainer = 'view';
+
+function setChatContainer(container: ChatContainer): void {
+	currentContainer = container;
+	void vscode.commands.executeCommand('setContext', CHAT_CONTAINER_CONTEXT_KEY, container);
+}
+
 function showChatInContainer(
 	session: ChatSession,
 	extensionUri: vscode.Uri,
@@ -103,22 +112,20 @@ function showChatInContainer(
 	container: ChatContainer,
 	options?: { preserveFocus?: boolean }
 ): void {
+	setChatContainer(container);
 	if (container === 'panel') {
 		if (ChatPanel.hasCurrent()) {
 			// Panel already exists; just reveal it without pulling the view back.
 			ChatPanel.revealCurrent(options?.preserveFocus ?? false);
 		} else {
-			chatViewProvider.reveal(true);
-			createChatPanel(session, extensionUri, () => {
-				// When the panel is closed by the user, fall back to sidebar view.
-				void vscode.commands.executeCommand('classmate.focusChatView');
-			}, options);
-			// Defer closing sidebar so the panel has a moment to render and receive state.
-			setTimeout(() => void vscode.commands.executeCommand('workbench.action.closeSidebar'), 50);
+			// 不 reveal chatView:panel 态下 package.json 的 when 子句会自动隐藏
+			// ChatView,不需要"先弹 View 再延时关 sidebar"的 hack。
+			createChatPanel(session, extensionUri, () => setChatContainer('view'), options);
 		}
-	} else {
+	} else if (container === 'view') {
 		chatViewProvider.reveal(options?.preserveFocus ?? false);
 	}
+	// 'hidden':只更新 context,由 when 子句隐藏 ChatView;不创建/不聚焦任何容器。
 }
 
 function routeIntent(
@@ -835,13 +842,13 @@ export function activate(
 	void vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', true);
 
 	// Track which container a message is currently targeting.
-	let currentContainer: ChatContainer = 'view';
+	// 同步初始 context,让 package.json 的 when 子句在启动时即生效。
+	setChatContainer('view');
 
 	// Route assistant message intents to the appropriate container.
 	chatSession.setOnIntent((intent) => {
-		const target = chooseContainer(intent, getContainerPreference(), currentContainer);
+		const target = chooseContainer(intent, getContainerPreference(), toVisibleContainer(currentContainer));
 		if (target !== currentContainer) {
-			currentContainer = target;
 			showChatInContainer(chatSession, context.extensionUri, chatViewProvider, target, { preserveFocus: true });
 		}
 	});
@@ -868,36 +875,29 @@ export function activate(
 	const commands: { id: string; handler: (...args: unknown[]) => void }[] = [
 		{
 			id: 'classmate.openChat',
-			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, currentContainer),
+			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, toVisibleContainer(currentContainer)),
 		},
 		{
 			id: 'classmate.openChatPanel',
-			handler: () => {
-				currentContainer = 'panel';
-				showChatInContainer(chatSession, context.extensionUri, chatViewProvider, 'panel');
-			},
+			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, 'panel'),
 		},
 		{
 			id: 'classmate.focusChatView',
 			handler: () => {
-				currentContainer = 'view';
 				ChatPanel.closeCurrent();
-				chatViewProvider.reveal(false);
+				showChatInContainer(chatSession, context.extensionUri, chatViewProvider, 'view');
 			},
 		},
 		{
 			id: 'classmate.hideChatView',
 			handler: () => {
 				ChatPanel.closeCurrent(true);
-				void vscode.commands.executeCommand('workbench.action.closeSidebar');
+				setChatContainer('hidden');
 			},
 		},
 		{
 			id: 'classmate.toggleChatContainer',
-			handler: () => {
-				currentContainer = currentContainer === 'view' ? 'panel' : 'view';
-				showChatInContainer(chatSession, context.extensionUri, chatViewProvider, currentContainer);
-			},
+			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, nextChatContainer(currentContainer)),
 		},
 		{ id: 'classmate.compile', handler: compileHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
 		{ id: 'classmate.runCode', handler: runCodeHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
@@ -935,6 +935,8 @@ export function activate(
 			id: 'classmate.debugJourney',
 			handler: async () => {
 				await debugJourneyProvider.load();
+				// 重新显示 Debug Journey 视图(closeDebugJourneyTree 会关掉 enabled context)。
+				await vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', true);
 				await vscode.commands.executeCommand(`${DebugJourneyTreeProvider.viewType}.focus`);
 			},
 		},
@@ -945,10 +947,8 @@ export function activate(
 		{
 			id: 'classmate.closeDebugJourneyTree',
 			handler: async () => {
-				// Collapse the view by hiding it from the sidebar. The user can reopen
-				// it from the command palette or by clicking the sidebar border.
+				// 只隐藏 Debug Journey 视图,不影响 ChatView,也不动 sidebar 物理开关。
 				await vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', false);
-				await vscode.commands.executeCommand('workbench.action.closeSidebar');
 			},
 		},
 		{
