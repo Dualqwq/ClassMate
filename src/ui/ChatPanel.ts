@@ -22,6 +22,14 @@ export function resolveChatPanelColumn(
     return vscode.ViewColumn.Two;
 }
 
+/**
+ * 面板被新文件挤占时,把新文件挪到的对侧分屏列。
+ * 面板在 One → 目标 Two;其余情况 → One。
+ */
+export function resolveRelocationTarget(panelColumn: vscode.ViewColumn): vscode.ViewColumn {
+    return panelColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
+}
+
 export class ChatPanel implements WebviewPresenter {
 	public static readonly viewType = 'classmate.chatPanel';
 	private static _currentPanel: ChatPanel | undefined;
@@ -32,6 +40,10 @@ export class ChatPanel implements WebviewPresenter {
 	private readonly _onDisposed: () => void;
 	private readonly _onMessage: (message: WebviewToExtensionMessage) => void;
 	private _disposables: vscode.Disposable[] = [];
+	/** 面板是否为 active 标签(打开新文件前),由 viewState 与 tab 事件共同维护。 */
+	private _panelWasActive = false;
+	private _relocating = false;
+	private _inactiveTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	public static createOrShow(
 		extensionUri: vscode.Uri,
@@ -108,10 +120,19 @@ export class ChatPanel implements WebviewPresenter {
 		this._extensionUri = extensionUri;
 		this._onMessage = onMessage;
 		this._onDisposed = onDisposed;
+		this._panelWasActive = panel.active;
 
 		this._update();
 
 		this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+		this._panel.onDidChangeViewState(
+			(event) => this._updatePanelActive(event.webviewPanel.active),
+			null,
+			this._disposables
+		);
+		this._disposables.push(
+			vscode.window.tabGroups.onDidChangeTabs((event) => this._handleTabChange(event))
+		);
 		this._panel.webview.onDidReceiveMessage(
 			(message) => this._handleMessage(message),
 			null,
@@ -143,6 +164,98 @@ export class ChatPanel implements WebviewPresenter {
 		}
 		ChatPanel._onDidClose?.();
 		ChatPanel._onDidClose = undefined;
+	}
+
+	/**
+	 * 新文本文件开进面板所在组时的处理:仅在面板是打开前的 active 标签时,
+	 * 把新文件挪到对侧分屏,避免面板被盖住。
+	 *
+	 * 不用 TabInputWebview 匹配面板 tab:Tab API 里 webview 面板的 viewType
+	 * 带 `mainThreadWebview-` 内部前缀,不可靠。改为用 WebviewPanel.viewColumn
+	 * 定位面板所在组,用 _panelWasActive(viewState 维护 + 冷却期)判断
+	 * "打开新文件前面板是否 active"。
+	 */
+	private _handleTabChange(event: vscode.TabChangeEvent): void {
+		if (this._relocating) {
+			return;
+		}
+		const panelColumn = this._panel.viewColumn;
+		if (panelColumn === undefined || !this._panelWasActive) {
+			return;
+		}
+		const openedTextTab = event.opened.find(
+			(tab) => tab.input instanceof vscode.TabInputText && tab.group.viewColumn === panelColumn
+		);
+		if (!openedTextTab || !(openedTextTab.input instanceof vscode.TabInputText)) {
+			return;
+		}
+		this._relocating = true;
+		void this._relocate(openedTextTab, panelColumn).finally(() => {
+			this._relocating = false;
+		});
+	}
+
+	private async _relocate(
+		openedTextTab: vscode.Tab,
+		panelColumn: vscode.ViewColumn
+	): Promise<void> {
+		const uri = openedTextTab.input instanceof vscode.TabInputText
+			? openedTextTab.input.uri
+			: undefined;
+		if (!uri) {
+			return;
+		}
+		const wasPreview = openedTextTab.isPreview;
+		const target = resolveRelocationTarget(panelColumn);
+		console.log(
+			'[ClassMate] relocating newly opened file away from chat panel',
+			uri.toString(),
+			'-> column',
+			target as number
+		);
+		try {
+			// 并行:关掉面板组里的原 tab + 在对侧列打开。close 的 IPC 延迟(~80ms)
+			// 追不上 VS Code 的激活,串行会多出一段"文件哪都不在"的空窗,
+			// 并行能让文件一出现就在对侧列,面板组被占用的窗口最短。
+			const results = await Promise.allSettled([
+				vscode.window.tabGroups.close(openedTextTab, true),
+				vscode.window.showTextDocument(uri, {
+					viewColumn: target,
+					preview: wasPreview,
+				}),
+			]);
+			for (const result of results) {
+				if (result.status === 'rejected') {
+					console.warn(
+						'[ClassMate] failed to relocate opened file away from chat panel',
+						result.reason
+					);
+				}
+			}
+		} catch (error) {
+			console.warn('[ClassMate] failed to relocate opened file away from chat panel', error);
+		}
+	}
+
+	/**
+	 * viewState 维护面板 active 状态。失活时带 250ms 冷却期:同一用户操作里
+	 * tab 事件可能稍后才到达,冷却期内仍视为"此前 active"。
+	 */
+	private _updatePanelActive(active: boolean): void {
+		if (active) {
+			if (this._inactiveTimeout) {
+				clearTimeout(this._inactiveTimeout);
+				this._inactiveTimeout = undefined;
+			}
+			this._panelWasActive = true;
+			return;
+		}
+		if (!this._inactiveTimeout) {
+			this._inactiveTimeout = setTimeout(() => {
+				this._inactiveTimeout = undefined;
+				this._panelWasActive = this._panel.active;
+			}, 250);
+		}
 	}
 
 	private _update(): void {

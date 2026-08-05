@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { resolveChatPanelColumn } from '../ui/ChatPanel';
+import { resolveChatPanelColumn, resolveRelocationTarget } from '../ui/ChatPanel';
 import * as vscode from 'vscode';
 
 // These tests mirror the decision logic in ChatPanel.createOrShow without
@@ -26,5 +26,13 @@ describe('ChatPanel target column resolution', () => {
 
     it('falls back to column Two when active column is unknown', () => {
         assert.strictEqual(resolveChatPanelColumn(2, undefined), vscode.ViewColumn.Two);
+    });
+});
+
+describe('ChatPanel relocation target', () => {
+    it('moves new files to the opposite column of the panel', () => {
+        assert.strictEqual(resolveRelocationTarget(vscode.ViewColumn.One), vscode.ViewColumn.Two);
+        assert.strictEqual(resolveRelocationTarget(vscode.ViewColumn.Two), vscode.ViewColumn.One);
+        assert.strictEqual(resolveRelocationTarget(vscode.ViewColumn.Three), vscode.ViewColumn.One);
     });
 });
