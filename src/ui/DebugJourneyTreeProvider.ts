@@ -1,7 +1,26 @@
 import * as vscode from 'vscode';
 import type { DebugJourneyNode } from '../debug/debugJourneyTreeNodes';
 import { buildDebugJourneyNodes } from '../debug/debugJourneyTreeNodes';
+import { filterEventsToExistingFiles } from '../debug/debugJourneyFileFilter';
 import type { DebugJourneyStore } from '../debug/debugJourneyStore';
+
+/**
+ * 默认存在性判断:只对 `file:` 方案的 URI 做磁盘检查。
+ * 非 `file:` 方案(untitled/output 等)或解析失败的 URI 一律视为存在,
+ * 避免把无法判断的记录从树里误删。
+ */
+async function fileExistsOnDisk(fileUri: string): Promise<boolean> {
+	try {
+		const uri = vscode.Uri.parse(fileUri);
+		if (uri.scheme !== 'file') {
+			return true;
+		}
+		await vscode.workspace.fs.stat(uri);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 export class DebugJourneyTreeProvider implements vscode.TreeDataProvider<DebugJourneyNode> {
     public static readonly viewType = 'classmate.debugJourneyTree';
@@ -21,7 +40,8 @@ export class DebugJourneyTreeProvider implements vscode.TreeDataProvider<DebugJo
 
     public async load(): Promise<void> {
         const events = await this._store.getEvents();
-        this._rootNodes = buildDebugJourneyNodes(events);
+        // 只过滤树的显示,store 里的原始隐式日志保持不变。
+        this._rootNodes = buildDebugJourneyNodes(await filterEventsToExistingFiles(events, fileExistsOnDisk));
         this._onDidChangeTreeData.fire(undefined);
     }
 
