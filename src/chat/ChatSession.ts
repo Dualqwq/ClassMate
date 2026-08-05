@@ -571,6 +571,55 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
 	}
 
+	/**
+	 * 删除一个会话记录。删除当前会话时自动切到 updatedAt 最新的剩余会话;
+	 * 一个都不剩时新建一个空会话,保证聊天界面不黑屏。
+	 * 只影响记录与摘要,不动原始隐式日志。
+	 */
+	public deleteConversation(conversationId: string): void {
+		if (this._state.isStreaming) {
+			return;
+		}
+		if (!this._conversationRecords.has(conversationId)) {
+			return;
+		}
+		this._conversationRecords.delete(conversationId);
+
+		if (conversationId !== this._state.activeConversationId) {
+			this._syncConversationState();
+			this._broadcast({ type: 'stateSync', state: this._state });
+			return;
+		}
+
+		const remaining = [...this._conversationRecords.values()].sort(
+			(a, b) => b.updatedAt - a.updatedAt
+		);
+		if (remaining.length > 0) {
+			const next = remaining[0];
+			this._state = {
+				messages: next.messages,
+				inputDraft: next.inputDraft,
+				isStreaming: false,
+				currentStreamMessageId: null,
+				processingStage: null,
+				activeConversationId: next.id,
+				conversations: this._state.conversations,
+			};
+		} else {
+			this._state = {
+				messages: [],
+				inputDraft: '',
+				isStreaming: false,
+				currentStreamMessageId: null,
+				processingStage: null,
+				activeConversationId: createConversationId(),
+				conversations: this._state.conversations,
+			};
+		}
+		this._syncConversationState();
+		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
+	}
+
 	private _setMessageUsage(messageId: string, usage: import('../llm/types').LLMTokenUsage): void {
 		this._state = {
 			...this._state,
@@ -645,6 +694,9 @@ export class ChatSession {
 				break;
 			case 'switchConversation':
 				this.switchConversation(message.conversationId);
+				break;
+			case 'deleteConversation':
+				this.deleteConversation(message.conversationId);
 				break;
 			case 'openReference':
 				this._onOpenReference?.(message.reference);

@@ -113,6 +113,7 @@ export type WebviewToExtensionMessage =
 	| { type: 'saveLLMConfig'; provider: LLMProvider; model: string; apiKey?: string; apiUrl?: string }
 	| { type: 'newConversation' }
 	| { type: 'switchConversation'; conversationId: string }
+	| { type: 'deleteConversation'; conversationId: string }
 	| { type: 'openReference'; reference: ChatReference }
 	| { type: 'applyProposedEdit'; messageId: string }
 	| { type: 'cancelResponse' };

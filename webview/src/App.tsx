@@ -365,11 +365,20 @@ export const App: React.FC = () => {
 					<span className="classmate-spacer" />
 					<button
 						onClick={() => setShowHistory((value) => !value)}
-						className="icon-button"
+						className={`history-toggle icon-button ${showHistory ? 'expanded' : ''}`}
 						title="查看历史会话"
 						aria-expanded={showHistory}
 					>
-						历史 {showHistory ? '⌃' : '⌄'}
+						历史
+						<svg
+							className="history-chevron"
+							viewBox="0 0 16 16"
+							width="12"
+							height="12"
+							aria-hidden="true"
+						>
+							<path fill="currentColor" d="M4 6l4 4 4-4l0.7 0.7L8 11.4 3.3 6.7z" />
+						</svg>
 					</button>
 					<button
 						onClick={() => {
@@ -386,27 +395,46 @@ export const App: React.FC = () => {
 				{showHistory && (
 					<div className="history-panel">
 						{state.conversations.map((conversation) => (
-							<button
+							<div
 								key={conversation.id}
-								onClick={() => {
-									if (conversation.id === state.activeConversationId) {
-										// 当前活跃会话被重复点击:仍然 flush 一次,确保
-										// 用户最近一次输入(可能在 suppress 窗口中没到达后端)被同步。
-										flushDraftBeforeNavigation();
-										return;
-									}
-									flushDraftBeforeNavigation();
-									sendMessage({ type: 'switchConversation', conversationId: conversation.id });
-								}}
 								className={`history-item ${
 									conversation.id === state.activeConversationId ? 'active' : ''
 								}`}
 							>
-								<div className="history-title">{conversation.title}</div>
-								<div className="history-date">
-									{formatConversationDate(conversation.updatedAt)}
-								</div>
-							</button>
+								<button
+									onClick={() => {
+										if (conversation.id === state.activeConversationId) {
+											// 当前活跃会话被重复点击:仍然 flush 一次,确保
+											// 用户最近一次输入(可能在 suppress 窗口中没到达后端)被同步。
+											flushDraftBeforeNavigation();
+											return;
+										}
+										flushDraftBeforeNavigation();
+										sendMessage({ type: 'switchConversation', conversationId: conversation.id });
+									}}
+									className="history-item-main"
+									title="切换到该会话"
+								>
+									<div className="history-title">{conversation.title}</div>
+									<div className="history-date">
+										{formatConversationDate(conversation.updatedAt)}
+									</div>
+								</button>
+								<button
+									onClick={() =>
+										sendMessage({
+											type: 'deleteConversation',
+											conversationId: conversation.id,
+										})
+									}
+									className="history-item-delete"
+									title="删除该会话"
+									aria-label="删除该会话"
+									disabled={state.isStreaming}
+								>
+									×
+								</button>
+							</div>
 						))}
 					</div>
 				)}

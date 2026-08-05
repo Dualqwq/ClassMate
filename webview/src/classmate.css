@@ -112,6 +112,25 @@ label:focus-within {
 	background: var(--vscode-toolbar-hoverBackground);
 }
 
+/* 历史切换按钮:文字 + 旋转箭头,展开时翻转并高亮 */
+.history-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.history-toggle .history-chevron {
+	transition: transform 120ms ease;
+}
+
+.history-toggle.expanded .history-chevron {
+	transform: rotate(180deg);
+}
+
+.history-toggle.expanded {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
 .history-panel {
 	max-height: 220px;
 	margin-top: 8px;
@@ -121,8 +140,20 @@ label:focus-within {
 }
 
 .history-item {
-	display: block;
+	display: flex;
+	align-items: center;
+	gap: 2px;
 	width: 100%;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: inherit;
+	text-align: left;
+}
+
+.history-item-main {
+	flex: 1;
+	min-width: 0;
 	padding: 7px 8px;
 	border: 0;
 	border-radius: 6px;
@@ -139,6 +170,37 @@ label:focus-within {
 .history-item.active {
 	background: var(--vscode-list-activeSelectionBackground);
 	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.history-item-delete {
+	display: grid;
+	place-items: center;
+	flex-shrink: 0;
+	width: 22px;
+	height: 22px;
+	margin-right: 4px;
+	padding: 0;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 120ms ease;
+}
+
+.history-item:hover .history-item-delete,
+.history-item-delete:focus-visible {
+	opacity: 1;
+}
+
+.history-item-delete:hover {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.history-item-delete:disabled {
+	opacity: 0;
+	cursor: default;
 }
 
 .history-title {
