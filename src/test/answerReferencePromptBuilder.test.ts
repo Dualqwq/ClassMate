@@ -25,7 +25,10 @@ describe('AnswerReferencePromptBuilder', () => {
 		assert.ok(system.includes('"f" must be one of the given file paths'));
 		assert.ok(system.includes('"l" must be exactly one of the lines listed'));
 		assert.ok(system.includes('Never invent a line number'));
-		assert.ok(system.includes('Do NOT extract conceptual'));
+		assert.ok(system.includes('Extract EVERY concrete code symbol'));
+		assert.ok(system.includes('base classes'));
+		assert.ok(system.includes('constructor'));
+		assert.ok(system.includes('qualified name like X::Y'));
 		assert.ok(system.includes('Reply with JSON only'));
 
 		const user = messages[1].content;

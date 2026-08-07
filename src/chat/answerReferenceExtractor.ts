@@ -5,8 +5,7 @@ import type { GraphModelClient } from '../graph/modelClient';
 import { AnswerReferencePromptBuilder } from '../prompts/answerReferencePromptBuilder';
 import { answerReferencesWireSchema, parseJsonObject } from './answerReferenceSchema';
 import {
-	escapeRegExp,
-	scanSymbols,
+	buildReferenceExtractionInput,
 	sanitizeAnswerReferences,
 	type ExtractedReference,
 } from './answerReferenceSanitizer';
@@ -16,68 +15,6 @@ const CODE_MENTION_HINT =
 
 function hasCodeMentionHint(answer: string): boolean {
 	return CODE_MENTION_HINT.test(answer);
-}
-
-export interface ReferenceExtractionFile {
-	path: string;
-	symbols: ReferenceSymbolInfo[];
-}
-
-export interface ReferenceSymbolInfo {
-	name: string;
-	lines: Array<{ line: number; text: string }>;
-}
-
-const MAX_SYMBOLS_PER_FILE = 20;
-const MAX_LINES_PER_SYMBOL = 8;
-const MAX_LINE_ENTRIES_PER_FILE = 60;
-const MAX_LINE_TEXT_LENGTH = 160;
-
-/** 扫描一个符号在文件里的出现行(1-based)+ 该行文本,供 LLM 精确选行。 */
-export function scanSymbolLines(
-	content: string,
-	symbol: string,
-	limit = MAX_LINES_PER_SYMBOL
-): Array<{ line: number; text: string }> {
-	const lines = content.split('\n');
-	const re = new RegExp(`\\b${escapeRegExp(symbol)}\\b`);
-	const result: Array<{ line: number; text: string }> = [];
-	for (let i = 0; i < lines.length && result.length < limit; i++) {
-		if (re.test(lines[i])) {
-			const text = lines[i].trim();
-			result.push({
-				line: i + 1,
-				text: text.length > MAX_LINE_TEXT_LENGTH
-					? `${text.slice(0, MAX_LINE_TEXT_LENGTH)}…`
-					: text,
-			});
-		}
-	}
-	return result;
-}
-
-/** 构造消歧用的极简清单:每个冻结文件 + 符号 → 出现行号+行文本。 */
-export function buildReferenceExtractionInput(
-	loadedItems: LoadedWorkspaceItem[]
-): ReferenceExtractionFile[] {
-	const files: ReferenceExtractionFile[] = [];
-	for (const item of loadedItems) {
-		const symbols: ReferenceSymbolInfo[] = [];
-		let lineEntries = 0;
-		for (const name of scanSymbols(item.content, MAX_SYMBOLS_PER_FILE)) {
-			const lines = scanSymbolLines(item.content, name);
-			if (lines.length === 0) {
-				continue;
-			}
-			symbols.push({ name, lines });
-			lineEntries += lines.length;
-			if (lineEntries >= MAX_LINE_ENTRIES_PER_FILE) {
-				break;
-			}
-		}
-		files.push({ path: item.path, symbols });
-	}
-	return files;
 }
 
 export function buildAnswerReference(
@@ -128,10 +65,11 @@ export async function extractAnswerReferences(
 	loadedItems: LoadedWorkspaceItem[],
 	options: ExtractAnswerReferencesOptions
 ): Promise<ChatReference[]> {
-	if (loadedItems.length === 0 || !hasCodeMentionHint(answer)) {
+	const codeItems = loadedItems.filter((item) => item.kind === 'code');
+	if (codeItems.length === 0 || !hasCodeMentionHint(answer)) {
 		return [];
 	}
-	const files = buildReferenceExtractionInput(loadedItems);
+	const files = buildReferenceExtractionInput(codeItems);
 	const messages = new AnswerReferencePromptBuilder().build({ answer, files });
 	let candidates: ExtractedReference[] = [];
 	try {
@@ -147,10 +85,10 @@ export async function extractAnswerReferences(
 	} catch {
 		return [];
 	}
-	const sanitized = sanitizeAnswerReferences(candidates, loadedItems);
+	const sanitized = sanitizeAnswerReferences(candidates, codeItems);
 	const references: ChatReference[] = [];
 	for (const ref of sanitized) {
-		const built = buildAnswerReference(ref, options.workspaceRoot, loadedItems);
+		const built = buildAnswerReference(ref, options.workspaceRoot, codeItems);
 		if (built) {
 			references.push(built);
 		}

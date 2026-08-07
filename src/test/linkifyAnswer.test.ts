@@ -82,6 +82,38 @@ describe('linkifyAnswer', () => {
 		);
 	});
 
+	it('links qualified names inside inline code', () => {
+		const refs = [makeRef({ uri: 'file:///monster.h', label: 'monster.h', symbol: 'takeTurn' })];
+		assert.strictEqual(
+			linkifyAnswer('这段代码是 `Monster::takeTurn` 函数', refs),
+			'这段代码是 [Monster::takeTurn](classmate-ref://0) 函数'
+		);
+	});
+
+	it('links multi-level qualified names by their last segment', () => {
+		const refs = [makeRef({ uri: 'file:///a.h', label: 'a.h', symbol: 'run' })];
+		assert.strictEqual(
+			linkifyAnswer('调用 `ns::Module::run`', refs),
+			'调用 [ns::Module::run](classmate-ref://0)'
+		);
+	});
+
+	it('does not link std:: qualified names inside inline code', () => {
+		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
+		assert.strictEqual(linkifyAnswer('用 `std::sort` 排序', refs), '用 `std::sort` 排序');
+	});
+
+	it('does not link qualified names whose last segment is ambiguous', () => {
+		const refs = [
+			makeRef({ uri: 'file:///player.h', label: 'player.h', symbol: 'printStatus' }),
+			makeRef({ uri: 'file:///monster.h', label: 'monster.h', symbol: 'printStatus' }),
+		];
+		assert.strictEqual(
+			linkifyAnswer('`Player::printStatus` 方法', refs),
+			'`Player::printStatus` 方法'
+		);
+	});
+
 	it('file:line mention wins over an overlapping bare symbol', () => {
 		const refs = [
 			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', startLine: 12, symbol: 'main' }),

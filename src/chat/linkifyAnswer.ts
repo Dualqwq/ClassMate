@@ -164,10 +164,19 @@ function linkifyInlineCode(
 	uniqueSymbols: Set<string>
 ): string {
 	const inner = segment.slice(1, -1).trim();
-	if (!/^[A-Za-z_]\w*$/.test(inner) || !uniqueSymbols.has(inner)) {
+	const single = /^[A-Za-z_]\w*$/.exec(inner);
+	const qualified = /^[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+$/.exec(inner);
+	if (!single && !qualified) {
 		return segment;
 	}
-	const refIndex = references.findIndex((reference) => reference.symbol === inner);
+	const symbol = single ? single[0] : inner.split('::').pop()!;
+	if (inner.split('::')[0] === 'std') {
+		return segment; // std:: 标准库符号不链用户代码
+	}
+	if (!uniqueSymbols.has(symbol)) {
+		return segment;
+	}
+	const refIndex = references.findIndex((reference) => reference.symbol === symbol);
 	if (refIndex === -1) {
 		return segment;
 	}

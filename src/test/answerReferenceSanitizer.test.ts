@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import {
+	buildReferenceExtractionInput,
 	hasCallLike,
 	hasDefinitionLike,
 	hasSymbolNearLine,
@@ -108,6 +109,24 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(symbols.includes('sort'));
 		assert.ok(!symbols.includes('for'));
 		assert.ok(!symbols.includes('return'));
+	});
+
+	it('scanSymbols excludes single-character symbols', () => {
+		const symbols = scanSymbols('void foo(int a, int n) { a(n); }');
+		assert.ok(!symbols.includes('a'));
+		assert.ok(!symbols.includes('n'));
+		assert.ok(symbols.includes('foo'));
+	});
+
+	it('buildReferenceExtractionInput only includes code files', () => {
+		const input = buildReferenceExtractionInput([
+			makeItem('main.cpp', 'void foo() {}'),
+			{ ...makeItem('README.md', 'Strike (1 energy)'), kind: 'text' },
+		]);
+		assert.deepStrictEqual(
+			input.map((file) => file.path),
+			['main.cpp']
+		);
 	});
 
 	it('scanSymbols collects class/struct/enum type names but not template params', () => {

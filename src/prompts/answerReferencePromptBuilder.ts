@@ -18,14 +18,15 @@ export class AnswerReferencePromptBuilder {
 		const system = [
 			'=== ClassMate Answer Reference Extractor ===',
 			'You are given the final teaching answer and the workspace files it may refer to.',
-			'Extract the concrete code locations the answer points to. Rules:',
-			'- "f" must be one of the given file paths. The answer rarely spells the path out; infer which file the mentioned symbol or line belongs to using the symbol list.',
-			'- "s" is the symbol name — a function, class/struct/type, or other identifier — when the answer mentions one.',
-			'- "l" must be exactly one of the lines listed for that symbol in that file. Prefer the definition line when the answer discusses the function itself; use the call/reference line when it points at a call site.',
+			'Extract EVERY concrete code symbol the answer mentions explicitly: functions, member variables, class/struct/type names, base classes, and qualified names like X::Y.',
+			'Rules:',
+			'- "f" must be one of the given file paths. When a symbol exists in multiple files, use the answer context to pick the file (e.g., "从基类 Creature 继承的名字" points at creature.h; base-class members and base types resolve to the base class file).',
+			'- "s" is the symbol name — a function, class/struct/type, member variable, or other identifier.',
+			'- "l" must be exactly one of the lines listed for that symbol in that file. Prefer the definition line when the answer discusses the function/class itself; use the call/reference line when it points at a call site; when the answer mentions a constructor like Monster(...), return the constructor line rather than the class declaration line.',
+			'- For a qualified name like X::Y, return Y in the file where X is defined, on its definition/declaration line (k="def").',
 			'- Never invent a line number that is not in the listed lines. Omit "l" when unsure.',
 			'- "k" is "def" when the answer talks about a function definition or behavior, "call" when it points at a call site, "ref" otherwise. Omit when unsure.',
-			'- Do NOT extract conceptual or algorithm mentions that are not tied to a concrete workspace file.',
-			'- When in doubt, omit the entry. Prefer fewer, correct references.',
+			'- Omit only mentions that are purely conceptual with no concrete symbol (e.g., "sorting algorithm" without naming any function). Do not be conservative: extract all explicit mentions, even member variables and base classes.',
 			'Reply with JSON only: {"r":[{"f":"...","s":"...","l":1,"k":"def"}]}',
 		].join('\n');
 		const user = JSON.stringify(

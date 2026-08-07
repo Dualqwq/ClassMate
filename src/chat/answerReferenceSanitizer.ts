@@ -8,6 +8,21 @@ export interface ExtractedReference {
 	k?: 'def' | 'call' | 'ref';
 }
 
+export interface ReferenceSymbolInfo {
+	name: string;
+	lines: Array<{ line: number; text: string }>;
+}
+
+export interface ReferenceExtractionFile {
+	path: string;
+	symbols: ReferenceSymbolInfo[];
+}
+
+const MAX_SYMBOLS_PER_FILE = 20;
+const MAX_LINES_PER_SYMBOL = 8;
+const MAX_LINE_ENTRIES_PER_FILE = 60;
+const MAX_LINE_TEXT_LENGTH = 160;
+
 export const LINE_CONSISTENCY_WINDOW = 5;
 
 const CONTROL_KEYWORDS = new Set([
@@ -122,7 +137,7 @@ export function scanSymbols(content: string, limit = 30): string[] {
 		/\b(?:struct|union|class|enum(?:\s+class)?)\s+([A-Za-z_]\w*)\s*(?:\{|:|\n)/g;
 	let m: RegExpExecArray | null;
 	const collect = (name: string): void => {
-		if (CONTROL_KEYWORDS.has(name) || seen.has(name)) {
+		if (name.length < 2 || CONTROL_KEYWORDS.has(name) || seen.has(name)) {
 			return;
 		}
 		seen.add(name);
@@ -141,6 +156,59 @@ export function scanSymbols(content: string, limit = 30): string[] {
 		}
 	}
 	return symbols;
+}
+
+/** 扫描一个符号在文件里的出现行(1-based)+ 该行文本,供 LLM 精确选行。 */
+export function scanSymbolLines(
+	content: string,
+	symbol: string,
+	limit = MAX_LINES_PER_SYMBOL
+): Array<{ line: number; text: string }> {
+	const lines = content.split('\n');
+	const re = new RegExp(`\\b${escapeRegExp(symbol)}\\b`);
+	const result: Array<{ line: number; text: string }> = [];
+	for (let i = 0; i < lines.length && result.length < limit; i++) {
+		if (re.test(lines[i])) {
+			const text = lines[i].trim();
+			result.push({
+				line: i + 1,
+				text: text.length > MAX_LINE_TEXT_LENGTH
+					? `${text.slice(0, MAX_LINE_TEXT_LENGTH)}…`
+					: text,
+			});
+		}
+	}
+	return result;
+}
+
+/**
+ * 构造消歧用的极简清单:每个代码文件 + 符号 → 出现行号+行文本。
+ * 只包含 kind === 'code' 的文件,避免把 README/题面里的词误当代码符号。
+ */
+export function buildReferenceExtractionInput(
+	loadedItems: LoadedWorkspaceItem[]
+): ReferenceExtractionFile[] {
+	const files: ReferenceExtractionFile[] = [];
+	for (const item of loadedItems) {
+		if (item.kind !== 'code') {
+			continue;
+		}
+		const symbols: ReferenceSymbolInfo[] = [];
+		let lineEntries = 0;
+		for (const name of scanSymbols(item.content, MAX_SYMBOLS_PER_FILE)) {
+			const lines = scanSymbolLines(item.content, name);
+			if (lines.length === 0) {
+				continue;
+			}
+			symbols.push({ name, lines });
+			lineEntries += lines.length;
+			if (lineEntries >= MAX_LINE_ENTRIES_PER_FILE) {
+				break;
+			}
+		}
+		files.push({ path: item.path, symbols });
+	}
+	return files;
 }
 
 /**

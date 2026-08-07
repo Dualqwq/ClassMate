@@ -27,9 +27,9 @@ import { looksLikeCodeEditRequest } from './codeEditIntent';
 import type { LoadedWorkspaceItem } from '../workspace/types';
 import {
 	buildReferenceExtractionInput,
-	extractAnswerReferences,
 	type ReferenceExtractionFile,
-} from './answerReferenceExtractor';
+} from './answerReferenceSanitizer';
+import { extractAnswerReferences } from './answerReferenceExtractor';
 
 const HINT_INTENTS: MessageIntent[] = [
 	'hint',

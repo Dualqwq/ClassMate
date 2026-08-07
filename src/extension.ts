@@ -3,7 +3,7 @@ import { DebugJourneyTreeProvider } from './ui/DebugJourneyTreeProvider';
 import { registerDebugSnapshotProvider, getSnapshotUri, registerSnapshot } from './debug/debugSnapshotProvider';
 import * as vscode from 'vscode';
 import { spawnSync } from 'child_process';
-import { ChatPanel, resolveRelocationTarget } from './ui/ChatPanel';
+import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
@@ -834,15 +834,34 @@ export function activate(
 					endLine,
 					document.lineAt(endLine).text.length
 				);
-				// 面板 active 时直开对侧列:避免文件先落进面板组触发 relocation
-				// (闪一下 + 重开时丢失 selection)。
+				// 目标文件在原文件所在的同一个分屏组打开并成为 active,
+				// 原文件留在同组、保持打开(不会被关闭)。
+				// 仅当 ChatPanel 是 active 标签时,改到另一个有文件的分屏组
+				// (没有则创建),避免文件落进面板组触发 relocation。
 				const panelColumn = ChatPanel.getActivePanelColumn();
-				await vscode.window.showTextDocument(
-					document,
-					panelColumn !== undefined
-						? { viewColumn: resolveRelocationTarget(panelColumn), selection }
-						: { selection }
-				);
+				if (panelColumn === undefined) {
+					// 目标以常驻(preview:false)方式在同组打开:原文件若是预览 tab,
+					// 会保留为后台预览而不被 VS Code 替换;目标文件成为 active。
+					await vscode.window.showTextDocument(document, {
+						selection,
+						preview: false,
+					});
+				} else {
+					const fileGroup = vscode.window.tabGroups.all.find(
+						(group) =>
+							group.viewColumn !== panelColumn
+							&& group.tabs.some((tab) => tab.input instanceof vscode.TabInputText)
+					);
+					const targetColumn = fileGroup?.viewColumn
+						?? (panelColumn === vscode.ViewColumn.One
+							? vscode.ViewColumn.Two
+							: vscode.ViewColumn.One);
+					await vscode.window.showTextDocument(document, {
+						viewColumn: targetColumn,
+						selection,
+						preview: false,
+					});
+				}
 			} catch {
 				void vscode.window.showWarningMessage('引用的文件已不存在。');
 			}
