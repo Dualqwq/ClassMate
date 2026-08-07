@@ -6,7 +6,15 @@ describe('AnswerReferencePromptBuilder', () => {
 	it('includes the answer, file paths, symbols and extraction rules', () => {
 		const messages = new AnswerReferencePromptBuilder().build({
 			answer: 'sort 函数的时间复杂度是 O(n log n)',
-			files: [{ path: 'main.cpp', symbols: ['sort', 'quickSort'] }],
+			files: [
+				{
+					path: 'main.cpp',
+					symbols: [
+						{ name: 'sort', lines: [{ line: 2, text: 'void sort(int* a, int n) {' }] },
+						{ name: 'quickSort', lines: [] },
+					],
+				},
+			],
 		});
 
 		assert.strictEqual(messages.length, 2);
@@ -15,6 +23,8 @@ describe('AnswerReferencePromptBuilder', () => {
 
 		const system = messages[0].content;
 		assert.ok(system.includes('"f" must be one of the given file paths'));
+		assert.ok(system.includes('"l" must be exactly one of the lines listed'));
+		assert.ok(system.includes('Never invent a line number'));
 		assert.ok(system.includes('Do NOT extract conceptual'));
 		assert.ok(system.includes('Reply with JSON only'));
 

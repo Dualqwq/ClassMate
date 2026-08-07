@@ -41,19 +41,29 @@ describe('linkifyAnswer', () => {
 		);
 	});
 
-	it('skips code blocks, inline code and existing links', () => {
+	it('links single-symbol inline code, skips code blocks and existing links', () => {
 		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
 		const content = [
 			'```cpp',
 			'sort(a, n);',
 			'```',
 			'用 `sort` 排序',
+			'代码段 `sort(a, n);` 不链',
 			'详见 [sort 文档](https://example.com)',
 		].join('\n');
 		const out = linkifyAnswer(content, refs);
 		assert.ok(out.includes('```cpp\nsort(a, n);\n```'), '代码块内不链接');
-		assert.ok(out.includes('`sort`'), '行内代码不链接');
+		assert.ok(out.includes('用 [sort](classmate-ref://0) 排序'), '单个符号的行内代码应链接');
+		assert.ok(out.includes('`sort(a, n);`'), '非单一标识符的行内代码保持代码样式');
 		assert.ok(out.includes('[sort 文档](https://example.com)'), '已有链接不修改');
+	});
+
+	it('does not link ambiguous symbols inside inline code', () => {
+		const refs = [
+			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' }),
+			makeRef({ uri: 'file:///helper.cpp', label: 'helper.cpp', symbol: 'sort' }),
+		];
+		assert.strictEqual(linkifyAnswer('用 `sort` 排序', refs), '用 `sort` 排序');
 	});
 
 	it('file:line mention wins over an overlapping bare symbol', () => {

@@ -5,6 +5,7 @@ import type { GraphModelClient } from '../graph/modelClient';
 import { AnswerReferencePromptBuilder } from '../prompts/answerReferencePromptBuilder';
 import { answerReferencesWireSchema, parseJsonObject } from './answerReferenceSchema';
 import {
+	escapeRegExp,
 	scanSymbols,
 	sanitizeAnswerReferences,
 	type ExtractedReference,
@@ -19,17 +20,64 @@ function hasCodeMentionHint(answer: string): boolean {
 
 export interface ReferenceExtractionFile {
 	path: string;
-	symbols: string[];
+	symbols: ReferenceSymbolInfo[];
 }
 
-/** 构造消歧用的极简清单:每个冻结文件 + 轻量扫描出的符号名。 */
+export interface ReferenceSymbolInfo {
+	name: string;
+	lines: Array<{ line: number; text: string }>;
+}
+
+const MAX_SYMBOLS_PER_FILE = 20;
+const MAX_LINES_PER_SYMBOL = 8;
+const MAX_LINE_ENTRIES_PER_FILE = 60;
+const MAX_LINE_TEXT_LENGTH = 160;
+
+/** 扫描一个符号在文件里的出现行(1-based)+ 该行文本,供 LLM 精确选行。 */
+export function scanSymbolLines(
+	content: string,
+	symbol: string,
+	limit = MAX_LINES_PER_SYMBOL
+): Array<{ line: number; text: string }> {
+	const lines = content.split('\n');
+	const re = new RegExp(`\\b${escapeRegExp(symbol)}\\b`);
+	const result: Array<{ line: number; text: string }> = [];
+	for (let i = 0; i < lines.length && result.length < limit; i++) {
+		if (re.test(lines[i])) {
+			const text = lines[i].trim();
+			result.push({
+				line: i + 1,
+				text: text.length > MAX_LINE_TEXT_LENGTH
+					? `${text.slice(0, MAX_LINE_TEXT_LENGTH)}…`
+					: text,
+			});
+		}
+	}
+	return result;
+}
+
+/** 构造消歧用的极简清单:每个冻结文件 + 符号 → 出现行号+行文本。 */
 export function buildReferenceExtractionInput(
 	loadedItems: LoadedWorkspaceItem[]
 ): ReferenceExtractionFile[] {
-	return loadedItems.map((item) => ({
-		path: item.path,
-		symbols: scanSymbols(item.content),
-	}));
+	const files: ReferenceExtractionFile[] = [];
+	for (const item of loadedItems) {
+		const symbols: ReferenceSymbolInfo[] = [];
+		let lineEntries = 0;
+		for (const name of scanSymbols(item.content, MAX_SYMBOLS_PER_FILE)) {
+			const lines = scanSymbolLines(item.content, name);
+			if (lines.length === 0) {
+				continue;
+			}
+			symbols.push({ name, lines });
+			lineEntries += lines.length;
+			if (lineEntries >= MAX_LINE_ENTRIES_PER_FILE) {
+				break;
+			}
+		}
+		files.push({ path: item.path, symbols });
+	}
+	return files;
 }
 
 export function buildAnswerReference(

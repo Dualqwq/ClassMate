@@ -98,6 +98,15 @@ export function hasSymbolNearLine(
 	return false;
 }
 
+/** 符号是否精确出现在指定 1-based 行。 */
+export function hasSymbolOnLine(content: string, symbol: string, line: number): boolean {
+	const text = content.split('\n')[line - 1];
+	if (text === undefined) {
+		return false;
+	}
+	return new RegExp(`\\b${escapeRegExp(symbol)}\\b`).test(text);
+}
+
 /** 轻量符号扫描:收集"标识符(" 形态的名字,去重并排除控制关键字。 */
 export function scanSymbols(content: string, limit = 30): string[] {
 	const seen = new Set<string>();
@@ -143,7 +152,8 @@ export function sanitizeAnswerReferences(
 			const lineCount = content.length === 0 ? 1 : content.split('\n').length;
 			l = Math.min(Math.max(1, Math.round(l)), lineCount);
 			if (s) {
-				if (!hasSymbolNearLine(content, s, l)) {
+				// 清单已精确给出符号的出现行:l 必须命中该符号所在的行,否则回退符号定位。
+				if (!hasSymbolOnLine(content, s, l)) {
 					l = undefined; // 行号与符号不一致,回退符号定位
 				}
 			} else {

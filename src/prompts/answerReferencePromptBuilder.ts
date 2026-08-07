@@ -2,7 +2,10 @@ import type { LLMMessage } from '../llm/types';
 
 export interface AnswerReferencePromptInput {
 	answer: string;
-	files: Array<{ path: string; symbols: string[] }>;
+	files: Array<{
+		path: string;
+		symbols: Array<{ name: string; lines: Array<{ line: number; text: string }> }>;
+	}>;
 }
 
 /**
@@ -18,7 +21,8 @@ export class AnswerReferencePromptBuilder {
 			'Extract the concrete code locations the answer points to. Rules:',
 			'- "f" must be one of the given file paths. The answer rarely spells the path out; infer which file the mentioned symbol or line belongs to using the symbol list.',
 			'- "s" is the symbol or function name when the answer mentions one.',
-			'- "l" is the 1-based line number when the answer gives one or it is clearly identifiable; otherwise omit it.',
+			'- "l" must be exactly one of the lines listed for that symbol in that file. Prefer the definition line when the answer discusses the function itself; use the call/reference line when it points at a call site.',
+			'- Never invent a line number that is not in the listed lines. Omit "l" when unsure.',
 			'- "k" is "def" when the answer talks about a function definition or behavior, "call" when it points at a call site, "ref" otherwise. Omit when unsure.',
 			'- Do NOT extract conceptual or algorithm mentions that are not tied to a concrete workspace file.',
 			'- When in doubt, omit the entry. Prefer fewer, correct references.',

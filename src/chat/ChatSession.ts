@@ -28,6 +28,7 @@ import type { LoadedWorkspaceItem } from '../workspace/types';
 import {
 	buildReferenceExtractionInput,
 	extractAnswerReferences,
+	type ReferenceExtractionFile,
 } from './answerReferenceExtractor';
 
 const HINT_INTENTS: MessageIntent[] = [
@@ -709,7 +710,7 @@ export class ChatSession {
 
 	private _setMessageReferenceDebug(
 		messageId: string,
-		files: Array<{ path: string; symbols: string[] }>
+		files: ReferenceExtractionFile[]
 	): void {
 		this._state = {
 			...this._state,

@@ -99,13 +99,24 @@ function getContainerPreference(): 'auto' | 'view' | 'panel' {
 
 function findSymbolLine(document: vscode.TextDocument, symbol: string): number | undefined {
 	const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	const re = new RegExp(`\\b${escaped}\\b`);
+	const definition = new RegExp(
+		`^\\s*(?:template\\s*<[^>]*>\\s*)?[A-Za-z_][\\w:<>*&\\[\\],\\s]*\\b${escaped}\\s*\\([^;{}]*\\)\\s*(?:\\{|;|$)`,
+		'm'
+	);
+	const any = new RegExp(`\\b${escaped}\\b`);
+	let firstOccurrence: number | undefined;
 	for (let i = 0; i < document.lineCount; i++) {
-		if (re.test(document.lineAt(i).text)) {
-			return i;
+		const text = document.lineAt(i).text;
+		if (any.test(text)) {
+			if (definition.test(text)) {
+				return i; // 优先定义行
+			}
+			if (firstOccurrence === undefined) {
+				firstOccurrence = i;
+			}
 		}
 	}
-	return undefined;
+	return firstOccurrence;
 }
 
 // Chat 容器当前状态(模块级单例;activate 在扩展生命周期内只调用一次)。

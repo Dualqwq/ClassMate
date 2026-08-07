@@ -153,9 +153,27 @@ function linkifyPlain(
 	return out;
 }
 
+/** 行内代码段:内容恰好是单个可链符号时,去掉反引号渲染成链接;否则保持代码样式。 */
+function linkifyInlineCode(
+	segment: string,
+	references: ChatReference[],
+	uniqueSymbols: Set<string>
+): string {
+	const inner = segment.slice(1, -1).trim();
+	if (!/^[A-Za-z_]\w*$/.test(inner) || !uniqueSymbols.has(inner)) {
+		return segment;
+	}
+	const refIndex = references.findIndex((reference) => reference.symbol === inner);
+	if (refIndex === -1) {
+		return segment;
+	}
+	return `[${inner}](classmate-ref://${refIndex})`;
+}
+
 /**
  * 把回答正文里的代码提及变成内联链接(仅渲染层使用,不改动原始内容)。
- * 跳过代码块、行内代码与已有链接;裸符号只在目标唯一时链接(宁缺毋滥)。
+ * 跳过代码块与已有链接;行内代码里"恰好是单个符号"的提及也会链接;
+ * 裸符号只在目标唯一时链接(宁缺毋滥)。
  */
 export function linkifyAnswer(content: string, references: ChatReference[]): string {
 	if (references.length === 0) {
@@ -175,10 +193,14 @@ export function linkifyAnswer(content: string, references: ChatReference[]): str
 		}
 	}
 	return tokenizeMarkdown(content)
-		.map((segment) =>
-			segment.kind === 'plain'
-				? linkifyPlain(segment.text, references, uniqueSymbols)
-				: segment.text
-		)
+		.map((segment) => {
+			if (segment.kind === 'plain') {
+				return linkifyPlain(segment.text, references, uniqueSymbols);
+			}
+			if (segment.kind === 'inline-code') {
+				return linkifyInlineCode(segment.text, references, uniqueSymbols);
+			}
+			return segment.text;
+		})
 		.join('');
 }

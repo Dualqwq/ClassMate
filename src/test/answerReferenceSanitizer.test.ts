@@ -4,6 +4,7 @@ import {
 	hasCallLike,
 	hasDefinitionLike,
 	hasSymbolNearLine,
+	hasSymbolOnLine,
 	sanitizeAnswerReferences,
 	scanSymbols,
 	type ExtractedReference,
@@ -59,11 +60,16 @@ describe('answerReferenceSanitizer', () => {
 		assert.strictEqual(result[0].s, 'foo');
 	});
 
-	it('keeps the line when the symbol is within the consistency window', () => {
-		const candidates: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', l: 3 }];
+	it('keeps the line only when the symbol is exactly on it', () => {
+		const candidates: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', l: 2 }];
 		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.strictEqual(result.length, 1);
-		assert.strictEqual(result[0].l, 3);
+		assert.strictEqual(result[0].l, 2);
+
+		// 第 3 行没有 sort,精确校验不过 → 行号回退。
+		const nearby: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', l: 3 }];
+		const nearbyResult = sanitizeAnswerReferences(nearby, [MAIN_CPP]);
+		assert.strictEqual(nearbyResult[0].l, undefined);
 	});
 
 	it('validates kind: def requires a definition-like occurrence, call requires a call site', () => {
@@ -110,5 +116,7 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(hasSymbolNearLine(MAIN_CPP.content, 'sort', 4));
 		assert.ok(hasSymbolNearLine(LONG_FILE.content, 'foo', 3));
 		assert.ok(!hasSymbolNearLine(LONG_FILE.content, 'foo', 10));
+		assert.ok(hasSymbolOnLine(MAIN_CPP.content, 'sort', 2));
+		assert.ok(!hasSymbolOnLine(MAIN_CPP.content, 'sort', 3));
 	});
 });
