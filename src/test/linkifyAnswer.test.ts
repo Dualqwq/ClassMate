@@ -66,6 +66,22 @@ describe('linkifyAnswer', () => {
 		assert.strictEqual(linkifyAnswer('用 `sort` 排序', refs), '用 `sort` 排序');
 	});
 
+	it('does not link symbols preceded by std:: but links the bare symbol', () => {
+		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
+		assert.strictEqual(
+			linkifyAnswer('用 std::sort 排序,而 sort 是我们自己写的', refs),
+			'用 std::sort 排序,而 [sort](classmate-ref://0) 是我们自己写的'
+		);
+	});
+
+	it('links class type names like functions', () => {
+		const refs = [makeRef({ uri: 'file:///player.h', label: 'player.h', symbol: 'Player' })];
+		assert.strictEqual(
+			linkifyAnswer('`Player` 类定义在 player.h', refs),
+			'[Player](classmate-ref://0) 类定义在 player.h'
+		);
+	});
+
 	it('file:line mention wins over an overlapping bare symbol', () => {
 		const refs = [
 			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', startLine: 12, symbol: 'main' }),

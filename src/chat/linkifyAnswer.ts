@@ -118,7 +118,11 @@ function linkifyPlain(
 			}
 		}
 		if (reference.symbol && uniqueSymbols.has(reference.symbol)) {
-			const pattern = new RegExp(`\\b${escapeRegExp(reference.symbol)}\\b`, 'g');
+			// std:: 限定的标准库符号(如 std::sort)不链用户代码,避免误链。
+			const pattern = new RegExp(
+				`(?<!std::)\\b${escapeRegExp(reference.symbol)}\\b`,
+				'g'
+			);
 			let m: RegExpExecArray | null;
 			while ((m = pattern.exec(text)) !== null) {
 				ranges.push({

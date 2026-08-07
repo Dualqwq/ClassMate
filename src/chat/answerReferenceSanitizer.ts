@@ -51,7 +51,13 @@ function definitionPattern(symbol: string, flags = 'm'): RegExp {
 }
 
 export function hasDefinitionLike(content: string, symbol: string): boolean {
-	return definitionPattern(symbol).test(content);
+	if (definitionPattern(symbol).test(content)) {
+		return true;
+	}
+	// 类/结构体/枚举定义形态:class Player {、struct Node : ...、enum class Color {。
+	return new RegExp(
+		`\\b(?:struct|union|class|enum(?:\\s+class)?)\\s+${escapeRegExp(symbol)}\\b`
+	).test(content);
 }
 
 function lineAt(content: string, index: number): number {
@@ -107,19 +113,29 @@ export function hasSymbolOnLine(content: string, symbol: string, line: number): 
 	return new RegExp(`\\b${escapeRegExp(symbol)}\\b`).test(text);
 }
 
-/** 轻量符号扫描:收集"标识符(" 形态的名字,去重并排除控制关键字。 */
+/** 轻量符号扫描:收集"标识符(" 与"class/struct/enum 类型名"形态的名字,去重并排除控制关键字。 */
 export function scanSymbols(content: string, limit = 30): string[] {
 	const seen = new Set<string>();
 	const symbols: string[] = [];
-	const pattern = /\b([A-Za-z_]\w*)\s*\(/g;
+	const functionPattern = /\b([A-Za-z_]\w*)\s*\(/g;
+	const typePattern =
+		/\b(?:struct|union|class|enum(?:\s+class)?)\s+([A-Za-z_]\w*)\s*(?:\{|:|\n)/g;
 	let m: RegExpExecArray | null;
-	while ((m = pattern.exec(content)) !== null) {
-		const name = m[1];
+	const collect = (name: string): void => {
 		if (CONTROL_KEYWORDS.has(name) || seen.has(name)) {
-			continue;
+			return;
 		}
 		seen.add(name);
 		symbols.push(name);
+	};
+	while ((m = functionPattern.exec(content)) !== null) {
+		collect(m[1]);
+		if (symbols.length >= limit) {
+			return symbols;
+		}
+	}
+	while ((m = typePattern.exec(content)) !== null) {
+		collect(m[1]);
 		if (symbols.length >= limit) {
 			break;
 		}

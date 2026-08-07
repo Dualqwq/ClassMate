@@ -100,7 +100,7 @@ function getContainerPreference(): 'auto' | 'view' | 'panel' {
 function findSymbolLine(document: vscode.TextDocument, symbol: string): number | undefined {
 	const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 	const definition = new RegExp(
-		`^\\s*(?:template\\s*<[^>]*>\\s*)?[A-Za-z_][\\w:<>*&\\[\\],\\s]*\\b${escaped}\\s*\\([^;{}]*\\)\\s*(?:\\{|;|$)`,
+		`(?:^\\s*(?:struct|union|class|enum(?:\\s+class)?)\\s+${escaped}\\b)|(?:^\\s*(?:template\\s*<[^>]*>\\s*)?[A-Za-z_][\\w:<>*&\\[\\],\\s]*\\b${escaped}\\s*\\([^;{}]*\\)\\s*(?:\\{|;|$))`,
 		'm'
 	);
 	const any = new RegExp(`\\b${escaped}\\b`);

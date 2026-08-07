@@ -20,7 +20,7 @@ export class AnswerReferencePromptBuilder {
 			'You are given the final teaching answer and the workspace files it may refer to.',
 			'Extract the concrete code locations the answer points to. Rules:',
 			'- "f" must be one of the given file paths. The answer rarely spells the path out; infer which file the mentioned symbol or line belongs to using the symbol list.',
-			'- "s" is the symbol or function name when the answer mentions one.',
+			'- "s" is the symbol name — a function, class/struct/type, or other identifier — when the answer mentions one.',
 			'- "l" must be exactly one of the lines listed for that symbol in that file. Prefer the definition line when the answer discusses the function itself; use the call/reference line when it points at a call site.',
 			'- Never invent a line number that is not in the listed lines. Omit "l" when unsure.',
 			'- "k" is "def" when the answer talks about a function definition or behavior, "call" when it points at a call site, "ref" otherwise. Omit when unsure.',

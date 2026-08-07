@@ -110,6 +110,29 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(!symbols.includes('return'));
 	});
 
+	it('scanSymbols collects class/struct/enum type names but not template params', () => {
+		const content = [
+			'class Player : public Creature {',
+			'struct Node {',
+			'enum Color { RED };',
+			'enum class Kind { A };',
+			'template<class T> void foo(T x) {}',
+		].join('\n');
+		const symbols = scanSymbols(content);
+		assert.ok(symbols.includes('Player'));
+		assert.ok(symbols.includes('Node'));
+		assert.ok(symbols.includes('Color'));
+		assert.ok(symbols.includes('Kind'));
+		assert.ok(!symbols.includes('T'), 'template<class T> 里的 T 不应被当成类型名');
+	});
+
+	it('hasDefinitionLike recognizes class definitions', () => {
+		assert.ok(hasDefinitionLike('class Player {', 'Player'));
+		assert.ok(hasDefinitionLike('struct Node : Base {', 'Node'));
+		assert.ok(hasDefinitionLike('enum class Kind {', 'Kind'));
+		assert.ok(!hasDefinitionLike('int x = 0;', 'Player'));
+	});
+
 	it('helpers detect definition/call/near-line occurrences', () => {
 		assert.ok(hasDefinitionLike(MAIN_CPP.content, 'sort'));
 		assert.ok(hasCallLike(MAIN_CPP.content, 'sort'));
