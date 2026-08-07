@@ -38,6 +38,8 @@ export interface ChatMessage {
 	proposedEdit?: ProposedCodeEdit;
 	/** 只展示本轮实际使用的工作区文件，不暴露内部 Skill 或知识卡片。 */
 	contextSummary?: ChatContextSummary;
+	/** 调试用:引用提取时的工作区极简清单(文件 → 符号),随消息持久化。 */
+	referenceDebug?: { files: Array<{ path: string; symbols: string[] }> };
 }
 
 export interface ChatContextSummary {

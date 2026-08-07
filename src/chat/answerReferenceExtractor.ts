@@ -17,6 +17,21 @@ function hasCodeMentionHint(answer: string): boolean {
 	return CODE_MENTION_HINT.test(answer);
 }
 
+export interface ReferenceExtractionFile {
+	path: string;
+	symbols: string[];
+}
+
+/** 构造消歧用的极简清单:每个冻结文件 + 轻量扫描出的符号名。 */
+export function buildReferenceExtractionInput(
+	loadedItems: LoadedWorkspaceItem[]
+): ReferenceExtractionFile[] {
+	return loadedItems.map((item) => ({
+		path: item.path,
+		symbols: scanSymbols(item.content),
+	}));
+}
+
 export function buildAnswerReference(
 	ref: ExtractedReference,
 	workspaceRoot: vscode.Uri | undefined,
@@ -68,10 +83,7 @@ export async function extractAnswerReferences(
 	if (loadedItems.length === 0 || !hasCodeMentionHint(answer)) {
 		return [];
 	}
-	const files = loadedItems.map((item) => ({
-		path: item.path,
-		symbols: scanSymbols(item.content),
-	}));
+	const files = buildReferenceExtractionInput(loadedItems);
 	const messages = new AnswerReferencePromptBuilder().build({ answer, files });
 	let candidates: ExtractedReference[] = [];
 	try {

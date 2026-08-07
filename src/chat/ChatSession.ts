@@ -25,7 +25,10 @@ import type { GraphModelClient } from '../graph/modelClient';
 import { addTokenUsage } from '../llm/tokenUsage';
 import { looksLikeCodeEditRequest } from './codeEditIntent';
 import type { LoadedWorkspaceItem } from '../workspace/types';
-import { extractAnswerReferences } from './answerReferenceExtractor';
+import {
+	buildReferenceExtractionInput,
+	extractAnswerReferences,
+} from './answerReferenceExtractor';
 
 const HINT_INTENTS: MessageIntent[] = [
 	'hint',
@@ -300,6 +303,46 @@ export class ChatSession {
 		this._state = {
 			...this._state,
 			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	/** //show-ref:输出最近一次 assistant 回答的原始内容 + 消歧清单 + 提取结果,便于排查链接问题。 */
+	private async _insertReferenceDebug(userText: string): Promise<void> {
+		const assistants = this._state.messages.filter((m) => m.role === 'assistant');
+		const message = [...assistants].reverse().find((m) => m.referenceDebug)
+			?? [...assistants].reverse()[0];
+		const sections: string[] = [];
+		if (!message) {
+			sections.push('当前对话还没有 assistant 回答。');
+		} else {
+			sections.push(
+				'【原始回答(未转超链接)】',
+				message.content || '(空)',
+				'',
+				message.referenceDebug
+					? [
+						'【消歧用工作区极简内容清单(文件 → 符号)】',
+						JSON.stringify(message.referenceDebug.files, null, 2),
+					].join('\n')
+					: '【消歧用工作区极简内容清单】\n(该消息没有提取调试信息:可能回答不含代码提及、或提取未运行)',
+				'',
+				'【提取结果 references】',
+				JSON.stringify(message.references ?? [], null, 2)
+			);
+		}
+		const content = ['=== DEBUG: 回答引用调试 ===', '', ...sections].join('\n');
+		const debugMessage: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugLog: true,
+			timestamp: Date.now(),
+		};
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, debugMessage],
 		};
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
@@ -664,6 +707,19 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
+	private _setMessageReferenceDebug(
+		messageId: string,
+		files: Array<{ path: string; symbols: string[] }>
+	): void {
+		this._state = {
+			...this._state,
+			messages: this._state.messages.map((item) =>
+				item.id === messageId ? { ...item, referenceDebug: { files } } : item
+			),
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
 	private _setMessageReferences(messageId: string, references: ChatReference[]): void {
 		if (references.length === 0) {
 			this._clearReferenceExtractionPending(messageId);
@@ -698,7 +754,9 @@ export class ChatSession {
 		if (!answer.trim() || loadedItems.length === 0) {
 			return;
 		}
+		const files = buildReferenceExtractionInput(loadedItems);
 		this._setReferenceExtractionPending(messageId);
+		this._setMessageReferenceDebug(messageId, files);
 		try {
 			const references = await extractAnswerReferences(answer, loadedItems, {
 				model,
@@ -809,6 +867,10 @@ export class ChatSession {
 	}
 
 	private async _callLLM(userText: string, frontendIntent?: MessageIntent): Promise<void> {
+		if (userText.trim() === '//show-ref') {
+			await this._insertReferenceDebug(userText);
+			return;
+		}
 		if (userText.trim() === '//show-log') {
 			await this._insertDebugLog(userText);
 			return;
