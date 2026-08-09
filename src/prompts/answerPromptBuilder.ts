@@ -45,13 +45,17 @@ function formatWorkspaceSnapshot(snapshot: WorkspaceContextSnapshot): string {
 	const minimal = snapshot.minimal;
 	const data = {
 		// 稳定内容在前:文件内容/题目/课程上下文不变时保持 DeepSeek 前缀可缓存
-		loadedItems: snapshot.loadedItems.map((item) => ({
-			path: item.path,
-			kind: item.kind,
-			content: item.content,
-			contentHash: item.contentHash,
-			reason: item.reason,
-		})),
+		// loadedItems 按路径稳定排序:路由每轮选择文件的顺序会变,排序后文件集合不变时逐字节稳定
+		loadedItems: [...snapshot.loadedItems]
+			.sort((a, b) => a.path.localeCompare(b.path))
+			.map((item) => ({
+				path: item.path,
+				kind: item.kind,
+				content: item.content,
+				contentHash: item.contentHash,
+				// reason 来自路由请求,每轮可能变化,放到条目末尾不截断稳定前缀
+				reason: item.reason,
+			})),
 		questionFile: minimal.questionFile,
 		courseContext: minimal.courseContext,
 		// 易变字段放末尾:snapshotId 含 createdAt、activeEditor、诊断与输出状态每轮都可能变化,
@@ -97,17 +101,17 @@ export class AnswerPromptBuilder {
 				].join('\n\n'),
 			},
 			{
-				// 会话级稳定的技能上下文:紧随教学块,扩大公共前缀
+				// 冻结工作区:体量最大;未改文件时内容稳定(易变字段已后置),尽量留在前缀缓存里
+				role: 'system',
+				content: formatWorkspaceSnapshot(input.workspaceSnapshot),
+			},
+			{
+				// 技能上下文:每轮随路由选中的章节变化,放在快照之后,分叉只影响尾部
 				role: 'system',
 				content: [
 					'=== Selected Skill Context ===',
 					input.assembledSkillContext || '[No matching Skill section was selected.]',
 				].join('\n\n'),
-			},
-			{
-				// 冻结工作区:体量最大;未改文件时内容稳定(易变字段已后置),尽量留在前缀缓存里
-				role: 'system',
-				content: formatWorkspaceSnapshot(input.workspaceSnapshot),
 			},
 			{
 				// 每轮动态内容:答案计划/约束放在稳定块之后,前缀分叉只影响后面的尾巴
