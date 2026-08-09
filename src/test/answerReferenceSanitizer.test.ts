@@ -210,4 +210,39 @@ describe('answerReferenceSanitizer', () => {
 		const result = sanitizeAnswerReferences([{ f: 'monster.h', s: 'attack_' }], [item]);
 		assert.strictEqual(result[0].t, 'var');
 	});
+
+	it('buildReferenceExtractionInput filters symbols not mentioned in the answer', () => {
+		const input = buildReferenceExtractionInput([MAIN_CPP], 'sort 函数的时间复杂度是多少');
+		assert.strictEqual(input.length, 1);
+		const names = input[0].symbols.map((symbol) => symbol.name);
+		assert.ok(names.includes('sort'));
+		assert.ok(!names.includes('main'), '回答没提 main,不应出现在清单里');
+	});
+
+	it('caps probed lines per symbol at MAX_LINES_PER_SYMBOL', () => {
+		const content = Array.from(
+			{ length: 10 },
+			(_, index) => `int r${index} = helper(${index});`
+		).join('\n');
+		const input = buildReferenceExtractionInput(
+			[makeItem('a.cpp', content)],
+			'helper 被调用了'
+		);
+		const helper = input[0].symbols.find((symbol) => symbol.name === 'helper');
+		assert.ok(helper);
+		assert.ok(helper!.lines.length <= 6, `probed too many lines: ${helper!.lines.length}`);
+	});
+
+	it('truncates long line text to MAX_LINE_TEXT_LENGTH', () => {
+		const longLine = `int helper(int a) { return a + ${'x'.repeat(160)}; }`;
+		const input = buildReferenceExtractionInput(
+			[makeItem('a.cpp', `${longLine}\nint main() { return helper(1); }`)],
+			'helper 函数'
+		);
+		const helper = input[0].symbols.find((symbol) => symbol.name === 'helper');
+		assert.ok(helper);
+		const line = helper!.lines[0];
+		assert.ok(line.text.length <= 101, `line text too long: ${line.text.length}`);
+		assert.ok(line.text.endsWith('…'));
+	});
 });

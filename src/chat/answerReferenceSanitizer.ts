@@ -21,9 +21,9 @@ export interface ReferenceExtractionFile {
 }
 
 const MAX_SYMBOLS_PER_FILE = 20;
-const MAX_LINES_PER_SYMBOL = 8;
+const MAX_LINES_PER_SYMBOL = 6;
 const MAX_LINE_ENTRIES_PER_FILE = 60;
-const MAX_LINE_TEXT_LENGTH = 160;
+const MAX_LINE_TEXT_LENGTH = 100;
 
 export const LINE_CONSISTENCY_WINDOW = 5;
 
@@ -233,8 +233,17 @@ export function scanSymbolLines(
  * 构造消歧用的极简清单:每个代码文件 + 符号 → 出现行号+行文本。
  * 只包含 kind === 'code' 的文件,避免把 README/题面里的词误当代码符号。
  */
+/**
+ * 回答里是否显式提到了该符号(词边界匹配)。提取器只允许返回回答中提到过的符号,
+ * 所以清单预过滤到这些符号可以大幅压缩提取调用的输入,不影响召回。
+ */
+function isMentionedInAnswer(answer: string, symbol: string): boolean {
+	return new RegExp(`\\b${escapeRegExp(symbol)}\\b`).test(answer);
+}
+
 export function buildReferenceExtractionInput(
-	loadedItems: LoadedWorkspaceItem[]
+	loadedItems: LoadedWorkspaceItem[],
+	answer?: string
 ): ReferenceExtractionFile[] {
 	const files: ReferenceExtractionFile[] = [];
 	for (const item of loadedItems) {
@@ -244,6 +253,9 @@ export function buildReferenceExtractionInput(
 		const symbols: ReferenceSymbolInfo[] = [];
 		let lineEntries = 0;
 		for (const name of scanSymbols(item.content, MAX_SYMBOLS_PER_FILE)) {
+			if (answer && !isMentionedInAnswer(answer, name)) {
+				continue; // 回答没提过的符号不进清单
+			}
 			const lines = scanSymbolLines(item.content, name);
 			if (lines.length === 0) {
 				continue;
