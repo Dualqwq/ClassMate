@@ -26,8 +26,9 @@ export class AnswerReferencePromptBuilder {
 			'- For a qualified name like X::Y, return Y in the file where X is defined, on its definition/declaration line (k="def").',
 			'- Never invent a line number that is not in the listed lines. Omit "l" when unsure.',
 			'- "k" is "def" when the answer talks about a function definition or behavior, "call" when it points at a call site, "ref" otherwise. Omit when unsure.',
+			'- "t" is what the symbol IS: "func" (function/method), "type" (class/struct/enum/union), "var" (variable/member/parameter), "macro" (macro/constant), "std" (standard-library symbol), "other" (anything else). Base it on the definition line in the file; omit when unsure.',
 			'- Omit only mentions that are purely conceptual with no concrete symbol (e.g., "sorting algorithm" without naming any function). Do not be conservative: extract all explicit mentions, even member variables and base classes.',
-			'Reply with JSON only: {"r":[{"f":"...","s":"...","l":1,"k":"def"}]}',
+			'Reply with JSON only: {"r":[{"f":"...","s":"...","l":1,"k":"def","t":"func"}]}',
 		].join('\n');
 		const user = JSON.stringify(
 			{

@@ -11,11 +11,17 @@ textarea {
 	font: inherit;
 }
 
-button:focus-visible,
-textarea:focus-visible,
-label:focus-within {
+button:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
+}
+
+/* 表单控件不绘制蓝色 focus 边线:蓝色边线只保留在回答气泡的代码链接交互上(.ref-code-link)。 */
+input:focus,
+select:focus,
+textarea:focus,
+label:focus-within {
+	outline: none;
 }
 
 .classmate-app {
@@ -498,6 +504,87 @@ label:focus-within {
 .reference-chip:hover {
 	border-color: var(--vscode-focusBorder);
 	color: var(--vscode-textLink-foreground);
+}
+
+/* ---- 任务 7:行内代码语义着色 ---- */
+.code-chip {
+	background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.2));
+	padding: 2px 4px;
+	border-radius: 4px;
+	border: 1px solid transparent;
+	font-family: var(--vscode-editor-font-family), monospace;
+	font-size: 0.95em;
+}
+
+.ref-code-link {
+	color: var(--vscode-textLink-foreground);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.ref-code-link:hover {
+	text-decoration: underline;
+}
+
+.ref-code-link:hover .code-chip {
+	text-decoration: underline;
+	border-color: var(--vscode-focusBorder);
+}
+
+.ref-code-link:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+/* 深色/默认色板(对齐 VS Code Dark+ 语义色) */
+.kind-func {
+	color: #dcdcaa;
+}
+
+.kind-type {
+	color: #4ec9b0;
+}
+
+.kind-var {
+	color: #9cdcfe;
+}
+
+.kind-macro {
+	color: #c586c0;
+}
+
+.kind-std {
+	color: #6a9955;
+}
+
+/* 浅色主题覆盖(Light+ 语义色) */
+.vscode-light .kind-func {
+	color: #795e26;
+}
+
+.vscode-light .kind-type {
+	color: #267f99;
+}
+
+.vscode-light .kind-var {
+	color: #001080;
+}
+
+.vscode-light .kind-macro {
+	color: #af00db;
+}
+
+.vscode-light .kind-std {
+	color: #008000;
+}
+
+/* 高对比度:不依赖颜色,始终可分辨 */
+.vscode-high-contrast .ref-code-link {
+	text-decoration: underline;
+}
+
+.vscode-high-contrast .ref-code-link .code-chip {
+	border-color: currentColor;
 }
 
 .message-details {

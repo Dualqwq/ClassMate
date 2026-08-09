@@ -29,6 +29,8 @@ describe('AnswerReferencePromptBuilder', () => {
 		assert.ok(system.includes('base classes'));
 		assert.ok(system.includes('constructor'));
 		assert.ok(system.includes('qualified name like X::Y'));
+		assert.ok(system.includes('"t" is what the symbol IS'));
+		assert.ok(system.includes('"func" (function/method)'));
 		assert.ok(system.includes('Reply with JSON only'));
 
 		const user = messages[1].content;
