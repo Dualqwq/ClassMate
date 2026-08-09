@@ -1,4 +1,5 @@
 import type { LoadedWorkspaceItem } from '../workspace/types';
+import type { ReferenceKind } from './types';
 
 /** 提取节点返回的单个候选,经 sanitize 校验后保留。 */
 export interface ExtractedReference {
@@ -6,6 +7,7 @@ export interface ExtractedReference {
 	s?: string;
 	l?: number;
 	k?: 'def' | 'call' | 'ref';
+	t?: ReferenceKind;
 }
 
 export interface ReferenceSymbolInfo {
@@ -94,11 +96,57 @@ export function hasCallLike(content: string, symbol: string): boolean {
 	}
 	const callPattern = new RegExp(`\\b${escapeRegExp(symbol)}\\s*\\(`, 'g');
 	while ((m = callPattern.exec(content)) !== null) {
+		if (isMemberInitListOccurrence(content, m.index)) {
+			continue; // 构造函数初始化列表里的 attack_(a) 不是函数调用
+		}
 		if (!defLines.has(lineAt(content, m.index))) {
 			return true;
 		}
 	}
 	return false;
+}
+
+/**
+ * 判断匹配位置是否位于构造函数初始化列表内(如 `: name_(std::move(name))` 或
+ * `,attack_(a)`)。初始化列表里 `member(...)` 是成员初始化,不是函数调用。
+ * 判定依据:匹配位置之前最近一条语句边界({ } ; 或文件头)之后存在"构造签名 ): "。
+ */
+function isMemberInitListOccurrence(content: string, index: number): boolean {
+	const start =
+		Math.max(
+			content.lastIndexOf('{', index - 1),
+			content.lastIndexOf('}', index - 1),
+			content.lastIndexOf(';', index - 1)
+		) + 1;
+	const before = content.slice(start, index);
+	return /\)\s*:\s*[^;{}]*$/.test(before) || /\n\s*:\s*[^;{}]*$/.test(before);
+}
+
+/**
+ * 语义类型判定:本地高置信证据优先(类/结构体/枚举 → type,定义/调用形 → func,
+ * 尾下划线成员变量命名约定 → var,全大写 → macro),LLM 提议兜底。
+ */
+export function inferSymbolKind(
+	content: string,
+	symbol: string,
+	proposed?: ReferenceKind
+): ReferenceKind {
+	const typePattern = new RegExp(
+		`\\b(?:struct|union|class|enum(?:\\s+class)?)\\s+${escapeRegExp(symbol)}\\b`
+	);
+	if (typePattern.test(content)) {
+		return 'type';
+	}
+	if (hasDefinitionLike(content, symbol) || hasCallLike(content, symbol)) {
+		return 'func';
+	}
+	if (/^[a-z_][a-zA-Z0-9_]*_$/.test(symbol)) {
+		return 'var'; // name_/attack_ 这类尾下划线是常见成员变量命名约定
+	}
+	if (/^[A-Z][A-Z0-9_]*$/.test(symbol)) {
+		return 'macro';
+	}
+	return proposed ?? 'other';
 }
 
 export function hasSymbolNearLine(
@@ -231,6 +279,7 @@ export function sanitizeAnswerReferences(
 		let s = candidate.s;
 		let l = candidate.l;
 		let k = candidate.k;
+		let t = candidate.t;
 
 		if (l !== undefined) {
 			const lineCount = content.length === 0 ? 1 : content.split('\n').length;
@@ -257,6 +306,10 @@ export function sanitizeAnswerReferences(
 			if (k === 'call' && !hasCallLike(content, s)) {
 				k = undefined;
 			}
+			if (t === 'std' && !s.startsWith('std::')) {
+				t = undefined; // 无 std:: 前缀的裸符号不算标准库
+			}
+			t = inferSymbolKind(content, s, t);
 		}
 		if (s === undefined && l === undefined) {
 			continue; // 什么都没指
@@ -266,7 +319,7 @@ export function sanitizeAnswerReferences(
 			continue;
 		}
 		seen.add(key);
-		result.push({ f: candidate.f, s, l, k });
+		result.push({ f: candidate.f, s, l, k, t });
 	}
 	return result;
 }

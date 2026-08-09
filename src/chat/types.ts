@@ -72,6 +72,9 @@ export interface ProposedCodeEdit {
 	expectedText: string;
 }
 
+/** 行内代码的语义类型(任务 7):决定着色;本地正则证据优先于 LLM 提议。 */
+export type ReferenceKind = 'func' | 'type' | 'var' | 'macro' | 'std' | 'other';
+
 export interface ChatReference {
 	label: string;
 	uri: string;
@@ -79,6 +82,8 @@ export interface ChatReference {
 	endLine?: number;
 	/** 符号/函数名;无行号时用于打开后定位。 */
 	symbol?: string;
+	/** 语义类型,无 kind 时渲染层用本地规则兜底(中性色)。 */
+	kind?: ReferenceKind;
 }
 
 export interface ChatConversationSummary {

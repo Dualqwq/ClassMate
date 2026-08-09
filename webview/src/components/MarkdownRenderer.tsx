@@ -56,17 +56,26 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, ref
 					void ref;
 					const isInline = !className;
 					if (isInline) {
+						// 语义着色:std:: 前缀 → std;限定名取末段查 references;全大写 → 宏;其余中性。
+						const text = String(children ?? '').trim();
+						let kindClass = '';
+						if (text.startsWith('std::')) {
+							kindClass = 'kind-std';
+						} else {
+							const tail = (text.split('::').pop() ?? text).trim();
+							if (/^[A-Za-z_]\w*$/.test(tail)) {
+								const matched = references?.find((r) => r.symbol === tail && r.kind);
+								if (matched?.kind) {
+									kindClass = `kind-${matched.kind}`;
+								} else if (/^[A-Z][A-Z0-9_]*$/.test(tail)) {
+									kindClass = 'kind-macro';
+								}
+							}
+						}
 						return (
 							<code
 								{...rest}
-								className={className}
-								style={{
-									background: 'var(--vscode-textCodeBlock-background, rgba(127,127,127,0.2))',
-									padding: '2px 4px',
-									borderRadius: '4px',
-									fontFamily: 'var(--vscode-editor-font-family), monospace',
-									fontSize: '0.95em',
-								}}
+								className={[className, 'code-chip', kindClass].filter(Boolean).join(' ')}
 							>
 								{children}
 							</code>
@@ -89,27 +98,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, ref
 						return (
 							// 不用带 href 的 <a>:VS Code 会拦截锚点点击并向宿主发 did-click-link,
 							// 未知 scheme 没有 opener,导致链接"点不进去"。无 href + role=link
-							// 可完全绕开拦截,样式与键盘交互保持不变。
+							// 可完全绕开拦截;样式与键盘交互由 .ref-code-link 提供。
 							<a
 								role="link"
 								tabIndex={0}
-								style={{
-									color: 'var(--vscode-textLink-foreground)',
-									textDecoration: 'none',
-									cursor: 'pointer',
-								}}
+								className="ref-code-link"
 								onClick={openReference}
 								onKeyDown={(e) => {
 									if (e.key === 'Enter' || e.key === ' ') {
 										e.preventDefault();
 										openReference();
 									}
-								}}
-								onMouseEnter={(e) => {
-									e.currentTarget.style.textDecoration = 'underline';
-								}}
-								onMouseLeave={(e) => {
-									e.currentTarget.style.textDecoration = 'none';
 								}}
 							>
 								{children}

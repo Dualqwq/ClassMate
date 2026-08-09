@@ -157,7 +157,7 @@ function linkifyPlain(
 	return out;
 }
 
-/** 行内代码段:内容恰好是单个可链符号时,去掉反引号渲染成链接;否则保持代码样式。 */
+/** 行内代码段:内容恰好是单个可链符号时,保留反引号成链(渲染层借此保持代码 chip 观感);否则保持代码样式。 */
 function linkifyInlineCode(
 	segment: string,
 	references: ChatReference[],
@@ -180,7 +180,7 @@ function linkifyInlineCode(
 	if (refIndex === -1) {
 		return segment;
 	}
-	return `[${inner}](classmate-ref://${refIndex})`;
+	return `[\`${inner}\`](classmate-ref://${refIndex})`;
 }
 
 /**

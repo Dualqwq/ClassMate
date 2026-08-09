@@ -53,7 +53,7 @@ describe('linkifyAnswer', () => {
 		].join('\n');
 		const out = linkifyAnswer(content, refs);
 		assert.ok(out.includes('```cpp\nsort(a, n);\n```'), '代码块内不链接');
-		assert.ok(out.includes('用 [sort](classmate-ref://0) 排序'), '单个符号的行内代码应链接');
+		assert.ok(out.includes('用 [`sort`](classmate-ref://0) 排序'), '单个符号的行内代码应链接并保留反引号');
 		assert.ok(out.includes('`sort(a, n);`'), '非单一标识符的行内代码保持代码样式');
 		assert.ok(out.includes('[sort 文档](https://example.com)'), '已有链接不修改');
 	});
@@ -78,7 +78,7 @@ describe('linkifyAnswer', () => {
 		const refs = [makeRef({ uri: 'file:///player.h', label: 'player.h', symbol: 'Player' })];
 		assert.strictEqual(
 			linkifyAnswer('`Player` 类定义在 player.h', refs),
-			'[Player](classmate-ref://0) 类定义在 player.h'
+			'[`Player`](classmate-ref://0) 类定义在 player.h'
 		);
 	});
 
@@ -86,7 +86,7 @@ describe('linkifyAnswer', () => {
 		const refs = [makeRef({ uri: 'file:///monster.h', label: 'monster.h', symbol: 'takeTurn' })];
 		assert.strictEqual(
 			linkifyAnswer('这段代码是 `Monster::takeTurn` 函数', refs),
-			'这段代码是 [Monster::takeTurn](classmate-ref://0) 函数'
+			'这段代码是 [`Monster::takeTurn`](classmate-ref://0) 函数'
 		);
 	});
 
@@ -94,7 +94,7 @@ describe('linkifyAnswer', () => {
 		const refs = [makeRef({ uri: 'file:///a.h', label: 'a.h', symbol: 'run' })];
 		assert.strictEqual(
 			linkifyAnswer('调用 `ns::Module::run`', refs),
-			'调用 [ns::Module::run](classmate-ref://0)'
+			'调用 [`ns::Module::run`](classmate-ref://0)'
 		);
 	});
 

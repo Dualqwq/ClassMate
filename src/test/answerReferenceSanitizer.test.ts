@@ -6,6 +6,7 @@ import {
 	hasDefinitionLike,
 	hasSymbolNearLine,
 	hasSymbolOnLine,
+	inferSymbolKind,
 	sanitizeAnswerReferences,
 	scanSymbols,
 	type ExtractedReference,
@@ -160,5 +161,53 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(!hasSymbolNearLine(LONG_FILE.content, 'foo', 10));
 		assert.ok(hasSymbolOnLine(MAIN_CPP.content, 'sort', 2));
 		assert.ok(!hasSymbolOnLine(MAIN_CPP.content, 'sort', 3));
+	});
+
+	it('inferSymbolKind: 本地高置信证据优先于 LLM 提议', () => {
+		assert.strictEqual(inferSymbolKind(MAIN_CPP.content, 'sort', 'var'), 'func');
+		assert.strictEqual(inferSymbolKind(MAIN_CPP.content, 'main', 'other'), 'func');
+		assert.strictEqual(inferSymbolKind('class Player {', 'Player', 'var'), 'type');
+		assert.strictEqual(inferSymbolKind('struct Node : Base {', 'Node', 'var'), 'type');
+		assert.strictEqual(inferSymbolKind('enum class Kind {', 'Kind', 'func'), 'type');
+		assert.strictEqual(inferSymbolKind('#define MAX_SIZE 100', 'MAX_SIZE', 'var'), 'macro');
+		assert.strictEqual(inferSymbolKind('int count = 0;', 'count', 'var'), 'var');
+		assert.strictEqual(inferSymbolKind('int count = 0;', 'count'), 'other');
+	});
+
+	it('inferSymbolKind: 构造函数初始化列表里的成员初始化不算函数调用', () => {
+		const content = [
+			'class Player {',
+			'  int energy_;',
+			'  Player(int e) : energy_(e) {}',
+			'  void play() { std::cout << energy_; }',
+			'};',
+		].join('\n');
+		assert.ok(!hasCallLike(content, 'energy_'));
+		assert.strictEqual(inferSymbolKind(content, 'energy_'), 'var');
+		assert.strictEqual(inferSymbolKind('int attack_;', 'attack_', 'other'), 'var');
+	});
+
+	it('sanitizeAnswerReferences 输出语义类型 t', () => {
+		const candidates: ExtractedReference[] = [
+			{ f: 'main.cpp', s: 'sort', t: 'var' }, // 本地定义证据覆盖 LLM 提议
+			{ f: 'main.cpp', s: 'data', t: 'var' }, // 无本地证据,保留 LLM 提议
+			{ f: 'main.cpp', s: 'main' }, // 无提议,本地推出 func
+		];
+		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		assert.strictEqual(result[0].t, 'func');
+		assert.strictEqual(result[1].t, 'var');
+		assert.strictEqual(result[2].t, 'func');
+	});
+
+	it('sanitize 将未提议的成员变量判为 var', () => {
+		const item = makeItem('monster.h', [
+			'class Monster {',
+			'  int attack_;',
+			'  Monster(int a) : attack_(a) {}',
+			'  void takeTurn() { std::cout << attack_; }',
+			'};',
+		].join('\n'));
+		const result = sanitizeAnswerReferences([{ f: 'monster.h', s: 'attack_' }], [item]);
+		assert.strictEqual(result[0].t, 'var');
 	});
 });

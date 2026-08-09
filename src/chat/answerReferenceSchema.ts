@@ -7,6 +7,7 @@ export const answerReferenceWireSchema = z.object({
 	s: z.string().trim().min(1).max(200).optional(), // 符号/函数名
 	l: z.number().int().positive().max(10_000_000).optional(), // 1-based 行
 	k: z.enum(['def', 'call', 'ref']).optional(), // 定义/调用/一般引用
+	t: z.enum(['func', 'type', 'var', 'macro', 'std', 'other']).optional(), // 语义类型:函数/类型/变量/宏常量/标准库/其他
 }).strict();
 
 /** 引用提取节点返回的整体结构。 */

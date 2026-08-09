@@ -33,6 +33,7 @@ export function buildAnswerReference(
 		uri,
 		startLine: ref.l,
 		symbol: ref.s,
+		kind: ref.t,
 	};
 }
 
