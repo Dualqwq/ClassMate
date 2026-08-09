@@ -4,6 +4,7 @@ import type { ChatAttachment, ChatImage, ChatState, ExtensionToWebviewMessage, L
 import { getInitialState, getContainer, sendMessage, subscribeToExtension } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
 import { SettingsPanel } from './components/SettingsPanel';
+import { hasAuthoritativeInputDraft } from '../../src/chat/composerDraftContract';
 import './classmate.css';
 
 const QUICK_PROMPTS: Array<{
@@ -79,6 +80,11 @@ export const App: React.FC = () => {
 	//   "user is editing" flag that blocks the next external inputDraft sync.
 	const inputDraftFromBackendRef = useRef<string>(getInitialState().inputDraft);
 	const suppressExternalSyncUntilChangeRef = useRef(false);
+	// 后端契约:stateSync 默认剥离 inputDraft,只有显式携带的广播才是权威草稿。
+	// 字段缺失时不能把它当成"草稿为空"去清空输入框。
+	const hasAuthoritativeDraftRef = useRef<boolean>(
+		hasAuthoritativeInputDraft(getInitialState())
+	);
 	// 程序设置 `el.value` 不会触发 input / change 事件,也不会让 ResizeObserver
 	// 立即触发,所以手动设置 textarea 高度的地方(chooseQuickPrompt / handleSend)
 	// 都必须显式调一次 autosize,否则高度会卡在旧值,直到下一次任意 state 变化。
@@ -99,7 +105,11 @@ export const App: React.FC = () => {
 			switch (message.type) {
 				case 'stateSync':
 					setState(message.state);
-					inputDraftFromBackendRef.current = message.state.inputDraft ?? '';
+					hasAuthoritativeDraftRef.current =
+						hasAuthoritativeInputDraft(message.state);
+					if (hasAuthoritativeDraftRef.current) {
+						inputDraftFromBackendRef.current = message.state.inputDraft ?? '';
+					}
 					break;
 				case 'streamStart':
 					setState((prev) => ({
@@ -139,6 +149,10 @@ export const App: React.FC = () => {
 	useLayoutEffect(() => {
 		const el = inputRef.current;
 		if (!el) {
+			return;
+		}
+		if (!hasAuthoritativeDraftRef.current) {
+			// 本次广播没有携带权威草稿(普通状态同步),不要用空串覆盖用户输入。
 			return;
 		}
 		const backendDraft = state.inputDraft ?? '';
