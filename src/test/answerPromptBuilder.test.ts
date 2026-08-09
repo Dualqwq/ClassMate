@@ -91,4 +91,102 @@ describe('Answer prompt source-grounding safeguards', () => {
 		assert.doesNotMatch(prompt, /UNPLANNED_ACTIVE_PREVIEW/);
 		assert.doesNotMatch(prompt, /UNPLANNED_QUESTION_BODY/);
 	});
+
+	it('orders messages stable-first so the DeepSeek prefix cache stays long', () => {
+		const messages = new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'concept_explanation',
+				depthLevel: 2,
+				responsePattern: ['definition', 'example'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'concept_explanation',
+					concepts: ['pointer'],
+					purposes: ['debug'],
+					learnerLevel: 'beginner',
+					hintLevel: 2,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'pointer guidance',
+			workspaceSnapshot: {
+				snapshotId: 'snap-1',
+				createdAt: 1,
+				minimal: {
+					catalog: { files: [], questionFiles: [] },
+					activeFilePreview: 'UNPLANNED_ACTIVE_PREVIEW',
+					questionText: 'UNPLANNED_QUESTION_BODY',
+				},
+				loadedItems: [{
+					path: 'main.cpp',
+					kind: 'code',
+					content: 'int main() { return 0; }',
+					contentHash: 'hash',
+					reason: 'active',
+				}],
+			},
+			userText: 'What is a pointer?',
+			conversationHistory: [],
+		});
+
+		assert.match(messages[0].content, /=== ClassMate Answer Mode ===/);
+		assert.match(messages[1].content, /=== Selected Skill Context ===/);
+		assert.match(messages[2].content, /=== Frozen workspace data ===/);
+		assert.match(messages[3].content, /=== Answer plan ===/);
+		assert.strictEqual(messages[messages.length - 1].content, 'What is a pointer?');
+		assert.ok(messages.length >= 5, 'expected a stable prefix, snapshot, plan and user message');
+	});
+
+	it('puts volatile snapshot fields after the stable file-content part', () => {
+		const messages = new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'concept_explanation',
+				depthLevel: 2,
+				responsePattern: ['definition', 'example'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'concept_explanation',
+					concepts: ['pointer'],
+					purposes: ['debug'],
+					learnerLevel: 'beginner',
+					hintLevel: 2,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'pointer guidance',
+			workspaceSnapshot: {
+				snapshotId: 'snap-1',
+				createdAt: 1,
+				minimal: {
+					catalog: { files: [], questionFiles: [] },
+					activeFilePreview: 'UNPLANNED_ACTIVE_PREVIEW',
+					questionText: 'UNPLANNED_QUESTION_BODY',
+				},
+				loadedItems: [{
+					path: 'main.cpp',
+					kind: 'code',
+					content: 'int main() { return 0; }',
+					contentHash: 'hash',
+					reason: 'active',
+				}],
+			},
+			userText: 'What is a pointer?',
+			conversationHistory: [],
+		});
+
+		const snapshot = messages[2].content;
+		const loadedIndex = snapshot.indexOf('"loadedItems"');
+		const snapshotIdIndex = snapshot.indexOf('"snapshotId"');
+		assert.ok(loadedIndex >= 0 && loadedIndex < snapshotIdIndex, 'loadedItems must precede snapshotId');
+	});
 });

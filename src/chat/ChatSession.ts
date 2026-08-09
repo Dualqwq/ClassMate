@@ -78,6 +78,11 @@ export class ChatSession {
 	private _debugStore?: DebugJourneyStore;
 	private _sessionId?: string;
 	private _workspaceId?: string;
+	/** //show-usage:最近一次图流程里各节点的模型用量(保留 undefined 以便判断 provider 是否上报缓存字段)。 */
+	private _lastUsageDebug?: {
+		total: LLMTokenUsage | undefined;
+		byNode: Record<string, LLMTokenUsage>;
+	};
 
 	private async _buildKnowledgeCardsContent(): Promise<string> {
 		if (!this._debugStore) {
@@ -344,6 +349,60 @@ export class ChatSession {
 		this._state = {
 			...this._state,
 			messages: [...this._state.messages, debugMessage],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	/** //show-usage:输出最近一次图流程里各节点与总计的 token 用量,便于确认缓存字段是否被 provider 上报。 */
+	private async _insertUsageDebug(userText: string): Promise<void> {
+		const sections: string[] = [];
+		const debug = this._lastUsageDebug;
+		if (!debug || !debug.total) {
+			sections.push('当前对话还没有一次完整的模型调用,暂无 usage 可展示。');
+		} else {
+			const describe = (usage: LLMTokenUsage | undefined): string => {
+				if (!usage) {
+					return '(无)';
+				}
+				const parts = [
+					`input=${usage.inputTokens}`,
+					`output=${usage.outputTokens}`,
+					`total=${usage.totalTokens ?? usage.inputTokens + usage.outputTokens}`,
+				];
+				parts.push(
+					usage.cacheHitTokens !== undefined
+						? `cacheHit=${usage.cacheHitTokens}`
+						: 'cacheHit=未报告(undefined)'
+				);
+				parts.push(
+					usage.cacheMissTokens !== undefined
+						? `cacheMiss=${usage.cacheMissTokens}`
+						: 'cacheMiss=未报告(undefined)'
+				);
+				return parts.join(' · ');
+			};
+			sections.push(
+				'【按节点】',
+				...Object.entries(debug.byNode).map(
+					([label, usage]) => `${label}: ${describe(usage)}`
+				),
+				'',
+				'【总计】',
+				describe(debug.total)
+			);
+		}
+		const content = ['=== DEBUG: 模型用量 (usage) ===', '', ...sections].join('\n');
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugLog: true,
+			timestamp: Date.now(),
+		};
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
 		};
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
@@ -888,6 +947,10 @@ export class ChatSession {
 			await this._insertDebugJourney(userText);
 			return;
 		}
+		if (userText.trim() === '//show-usage') {
+			await this._insertUsageDebug(userText);
+			return;
+		}
 
 		let messages: LLMRequest['messages'] = [];
 		try {
@@ -1090,6 +1153,7 @@ export class ChatSession {
 				if (this._graphAbortController === controller) {
 					this._graphAbortController = undefined;
 				}
+				this._lastUsageDebug = { total: graphUsage, byNode: graphUsageByNode };
 				this.endStream();
 			}
 			return;

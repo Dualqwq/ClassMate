@@ -44,13 +44,7 @@ function compactConversationHistory(
 function formatWorkspaceSnapshot(snapshot: WorkspaceContextSnapshot): string {
 	const minimal = snapshot.minimal;
 	const data = {
-		snapshotId: snapshot.snapshotId,
-		activeEditor: minimal.catalog.activeEditor,
-		questionFile: minimal.questionFile,
-		latestDiagnostic: minimal.latestDiagnostic,
-		expectedOutput: minimal.expectedOutput,
-		actualOutput: minimal.actualOutput,
-		courseContext: minimal.courseContext,
+		// 稳定内容在前:文件内容/题目/课程上下文不变时保持 DeepSeek 前缀可缓存
 		loadedItems: snapshot.loadedItems.map((item) => ({
 			path: item.path,
 			kind: item.kind,
@@ -58,6 +52,15 @@ function formatWorkspaceSnapshot(snapshot: WorkspaceContextSnapshot): string {
 			contentHash: item.contentHash,
 			reason: item.reason,
 		})),
+		questionFile: minimal.questionFile,
+		courseContext: minimal.courseContext,
+		// 易变字段放末尾:snapshotId 含 createdAt、activeEditor、诊断与输出状态每轮都可能变化,
+		// 后置后文件内容部分仍留在公共前缀里
+		snapshotId: snapshot.snapshotId,
+		activeEditor: minimal.catalog.activeEditor,
+		latestDiagnostic: minimal.latestDiagnostic,
+		expectedOutput: minimal.expectedOutput,
+		actualOutput: minimal.actualOutput,
 	};
 	return [
 		'=== Frozen workspace data ===',
@@ -79,6 +82,7 @@ export class AnswerPromptBuilder {
 			&& selectedProblemFacts.verifiedTests.length === 0;
 		const messages: LLMMessage[] = [
 			{
+				// 稳定教学块:每轮几乎不变,作为前缀缓存的起点
 				role: 'system',
 				content: [
 					'=== ClassMate Answer Mode ===',
@@ -93,6 +97,20 @@ export class AnswerPromptBuilder {
 				].join('\n\n'),
 			},
 			{
+				// 会话级稳定的技能上下文:紧随教学块,扩大公共前缀
+				role: 'system',
+				content: [
+					'=== Selected Skill Context ===',
+					input.assembledSkillContext || '[No matching Skill section was selected.]',
+				].join('\n\n'),
+			},
+			{
+				// 冻结工作区:体量最大;未改文件时内容稳定(易变字段已后置),尽量留在前缀缓存里
+				role: 'system',
+				content: formatWorkspaceSnapshot(input.workspaceSnapshot),
+			},
+			{
+				// 每轮动态内容:答案计划/约束放在稳定块之后,前缀分叉只影响后面的尾巴
 				role: 'system',
 				content: [
 					'=== Answer plan ===',
@@ -102,8 +120,12 @@ export class AnswerPromptBuilder {
 						? JSON.stringify(input.problemConstraints)
 						: '[No separate constraint extraction was required.]',
 					'Every factual conclusion, algorithm suggestion, example, and code interface must be consistent with these constraints. Treat uncertainItems as unknown instead of guessing.',
-					'=== Selected Skill Context ===',
-					input.assembledSkillContext || '[No matching Skill section was selected.]',
+				].join('\n\n'),
+			},
+			{
+				// 知识卡片:匹配结果每轮可能变化,继续往后放
+				role: 'system',
+				content: [
 					exactProblemSnapshotMatched
 						? '=== Exact-Snapshot Problem Knowledge Card ==='
 						: '=== Optional Problem Knowledge Card ===',
@@ -136,10 +158,6 @@ export class AnswerPromptBuilder {
 						: 'When verifiedTests are present, use only those exact test values unless the loaded workspace independently proves another test.',
 					'Use only the relevant part of the card, respect the frozen hint depth, and do not mention card matching to the student.',
 				].join('\n\n'),
-			},
-			{
-				role: 'system',
-				content: formatWorkspaceSnapshot(input.workspaceSnapshot),
 			},
 			...(exactProblemSnapshotMatched && input.problemCardFacts
 				? [{
