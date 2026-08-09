@@ -1,6 +1,7 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import { describe, it } from 'mocha';
-import { parseDebugCommand } from '../chat/debugCommand';
+import { parseDebugCommand, resolveDebugOutputPath } from '../chat/debugCommand';
 
 describe('parseDebugCommand', () => {
 	it('parses bare debug commands', () => {
@@ -38,5 +39,61 @@ describe('parseDebugCommand', () => {
 		assert.strictEqual(parseDebugCommand('how does this work?'), undefined);
 		assert.strictEqual(parseDebugCommand(''), undefined);
 		assert.strictEqual(parseDebugCommand('//'), undefined);
+	});
+
+	it('resolves relative debug paths under the workspace log directory', () => {
+		assert.strictEqual(
+			resolveDebugOutputPath('p2.txt', {
+				workspaceRoot: 'C:/ws',
+				activeFileDir: 'C:/ws/src',
+				cwd: 'C:/',
+			}),
+			path.join('C:/ws', 'log', 'p2.txt')
+		);
+		assert.strictEqual(
+			resolveDebugOutputPath('sub/p1.txt', {
+				workspaceRoot: 'C:/ws',
+				activeFileDir: 'C:/ws/src',
+				cwd: 'C:/',
+			}),
+			path.join('C:/ws', 'log', 'sub', 'p1.txt')
+		);
+	});
+
+	it('prefers the fixed debug output directory over the workspace root', () => {
+		assert.strictEqual(
+			resolveDebugOutputPath('p2.txt', {
+				debugOutputDir: 'C:/proj/log',
+				workspaceRoot: 'C:/ws',
+				activeFileDir: 'C:/ws/src',
+				cwd: 'C:/',
+			}),
+			path.join('C:/proj/log', 'p2.txt')
+		);
+	});
+
+	it('falls back to the active file directory and then cwd for relative paths', () => {
+		assert.strictEqual(
+			resolveDebugOutputPath('p1.txt', {
+				activeFileDir: 'C:/src',
+				cwd: 'C:/',
+			}),
+			path.join('C:/src', 'log', 'p1.txt')
+		);
+		assert.strictEqual(
+			resolveDebugOutputPath('p1.txt', { cwd: 'C:/fallback' }),
+			path.join('C:/fallback', 'log', 'p1.txt')
+		);
+	});
+
+	it('keeps absolute paths unchanged', () => {
+		assert.strictEqual(
+			resolveDebugOutputPath('C:/tmp/out.txt', {
+				workspaceRoot: 'C:/ws',
+				activeFileDir: 'C:/ws/src',
+				cwd: 'C:/',
+			}),
+			'C:/tmp/out.txt'
+		);
 	});
 });

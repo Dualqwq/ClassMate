@@ -3,6 +3,7 @@ import { DebugJourneyTreeProvider } from './ui/DebugJourneyTreeProvider';
 import { registerDebugSnapshotProvider, getSnapshotUri, registerSnapshot } from './debug/debugSnapshotProvider';
 import * as vscode from 'vscode';
 import { spawnSync } from 'child_process';
+import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
@@ -772,6 +773,9 @@ export function activate(
 	void promptToEnableCodeLens(context);
 
 	const chatSession = ChatSession.getInstance();
+	// 开发态 extensionUri 指向 code/classmate,上一级是 code,上两级才是项目根(智理杯);
+	// 调试输出固定落到 <项目根>/log,不随当前打开的工作区变化。
+	chatSession.setDebugOutputDir(path.resolve(context.extensionUri.fsPath, '..', '..', 'log'));
 	const performanceOutput = vscode.window.createOutputChannel('ClassMate Performance');
 	context.subscriptions.push(performanceOutput);
 	chatSession.setPerformanceTraceSink((event, data) => {

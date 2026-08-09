@@ -1,5 +1,5 @@
 import { formatDebugLog, formatRawDebugLog } from './debugLogFormatter';
-import { parseDebugCommand } from './debugCommand';
+import { parseDebugCommand, resolveDebugOutputPath } from './debugCommand';
 import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -88,6 +88,8 @@ export class ChatSession {
 	};
 	/** //show-prompts:最近一次图流程里各节点真实发送给模型的完整提示词(按 label 覆盖保存)。 */
 	private _lastPromptsDebug: Record<string, LLMRequest['messages']> = {};
+	/** 调试输出文件的固定落点(开发态为项目根下的 log,由 extension.ts 注入),不随工作区变化。 */
+	private _debugOutputDir?: string;
 
 	private async _buildKnowledgeCardsContent(): Promise<string> {
 		if (!this._debugStore) {
@@ -301,26 +303,25 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
-	/** 相对路径优先解析到工作区根目录;无工作区时落到当前活动文件所在目录。 */
+	/** 相对路径解析到固定调试目录(智理杯/log);绝对路径原样;log 目录已从工作区上下文排除。 */
 	private _resolveDebugOutputUri(filePath: string): vscode.Uri {
-		const trimmed = filePath.trim();
-		const isAbsolute =
-			/^[a-zA-Z]:[\\/]/.test(trimmed) ||
-			trimmed.startsWith('/') ||
-			trimmed.startsWith('\\');
-		if (isAbsolute) {
-			return vscode.Uri.file(trimmed);
-		}
-		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-		if (workspaceFolder) {
-			return vscode.Uri.joinPath(workspaceFolder.uri, trimmed);
-		}
-		const activeDir = vscode.window.activeTextEditor
+		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		const activeFileDir = vscode.window.activeTextEditor
 			? path.dirname(vscode.window.activeTextEditor.document.uri.fsPath)
 			: undefined;
-		return activeDir
-			? vscode.Uri.file(path.resolve(activeDir, trimmed))
-			: vscode.Uri.file(path.resolve(trimmed));
+		return vscode.Uri.file(
+			resolveDebugOutputPath(filePath, {
+				debugOutputDir: this._debugOutputDir,
+				workspaceRoot,
+				activeFileDir,
+				cwd: process.cwd(),
+			})
+		);
+	}
+
+	/** 注入调试输出目录(扩展激活时设为 `<扩展项目根>/log`,开发态即 智理杯/log)。 */
+	public setDebugOutputDir(fsPath: string): void {
+		this._debugOutputDir = fsPath;
 	}
 
 	private async _insertDebugLog(userText: string, filePath?: string): Promise<void> {

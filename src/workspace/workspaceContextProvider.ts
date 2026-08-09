@@ -29,7 +29,9 @@ const ACTIVE_FILE_PREVIEW_LIMIT = 24_000;
 const WORKSPACE_FILE_LIMIT = 2_000;
 const STANDARD_WORKSPACE_GLOB = '**/*.{c,cc,cpp,cxx,h,hh,hpp,hxx,md,markdown,txt,in,out,ans,pdf}';
 const BUILD_WORKSPACE_GLOB = '**/{Makefile,makefile,GNUmakefile,*.mk}';
-const WORKSPACE_EXCLUDE_GLOB = '**/{node_modules,.git,.vscode-test,dist,out}/**';
+// log/ 是调试输出文件的默认落点(见 debugCommand.ts),必须从工作区上下文中排除,
+// 否则调试 dump 会被当成作业文件回灌,导致后续提示词自举膨胀。
+const WORKSPACE_EXCLUDE_GLOB = '**/{node_modules,.git,.vscode-test,dist,out,log}/**';
 
 function isCodeFile(uri: vscode.Uri): boolean {
     return CODE_EXTENSIONS.has(path.extname(uri.fsPath).toLowerCase());
