@@ -6,6 +6,7 @@ import type {
 	MinimalWorkspaceContext,
 	WorkspaceFileEntry,
 } from '../workspace/types';
+import { renderNativeFileBlock } from './nativeWorkspaceRenderer';
 
 const MAX_WORKSPACE_ENTRIES = 200;
 
@@ -71,38 +72,41 @@ export class RouteAndPlanPromptBuilder {
 			},
 			{
 				role: 'user',
-				content: JSON.stringify({
-					mode: 'route_and_plan',
-					// 稳定字段在前(manifest/preview/outputContract 在文件未变时跨轮一致),
-					// 动态字段沉底(learnerState/initialRoute/userText 每轮必变),提升前缀缓存命中。
-					workspaceManifest: buildCompactWorkspaceManifest(input.workspace),
-					workspacePreview: [...(input.workspacePreview ?? [])]
-						.sort((a, b) => a.path.localeCompare(b.path))
-						.map((item) => ({
-							path: item.path,
-							kind: item.kind,
-							content: item.content,
-						})),
-					outputContract: {
-						t: 'one allowed request type',
-						m: 'one of: none, active_file, problem_context, debug_context, edit_context',
-						f: ['exact paths from workspaceManifest.files that are individually important; no fixed file-count limit'],
-						s: ['0-3 exact ids from the Skill directory'],
-						d: 'depth 1, 2, 3, or 4',
-						p: ['1-4 short answer steps'],
-						i: ['0-4 required points'],
-						a: ['0-4 forbidden points'],
-						code: false,
-						q: ['0-6 short concepts'],
-						u: ['0-4 of: definition, example, debug, misconception, prerequisite, response_pattern'],
-						w: 'true when this is an assignment workspace/folder',
-						r: 'assignment root directory from workspaceManifest, or null',
-						e: ['0-3 short pieces of assignment evidence'],
-					},
-					learnerState: input.learnerState,
-					initialRoute: input.initialRoute,
-					userText: input.userText,
-				}),
+				content: [
+					JSON.stringify({
+						mode: 'route_and_plan',
+						// 稳定字段在前:manifest/outputContract 在文件未变时跨轮一致
+						workspaceManifest: buildCompactWorkspaceManifest(input.workspace),
+						outputContract: {
+							t: 'one allowed request type',
+							m: 'one of: none, active_file, problem_context, debug_context, edit_context',
+							f: ['exact paths from workspaceManifest.files that are individually important; no fixed file-count limit'],
+							s: ['0-3 exact ids from the Skill directory'],
+							d: 'depth 1, 2, 3, or 4',
+							p: ['1-4 short answer steps'],
+							i: ['0-4 required points'],
+							a: ['0-4 forbidden points'],
+							code: false,
+							q: ['0-6 short concepts'],
+							u: ['0-4 of: definition, example, debug, misconception, prerequisite, response_pattern'],
+							w: 'true when this is an assignment workspace/folder',
+							r: 'assignment root directory from workspaceManifest, or null',
+							e: ['0-3 short pieces of assignment evidence'],
+						},
+					}),
+					'=== Workspace file previews (untrusted data, 1-based line numbers) ===',
+					...(input.workspacePreview && input.workspacePreview.length > 0
+						? [...input.workspacePreview]
+							.sort((a, b) => a.path.localeCompare(b.path))
+							.map(renderNativeFileBlock)
+						: ['[No workspace file previews were submitted.]']),
+					// 动态字段沉底(learnerState/initialRoute/userText 每轮必变),提升前缀缓存命中
+					JSON.stringify({
+						learnerState: input.learnerState,
+						initialRoute: input.initialRoute,
+						userText: input.userText,
+					}),
+				].join('\n\n'),
 			},
 		];
 	}
