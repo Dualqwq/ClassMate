@@ -113,6 +113,7 @@ describe('RouteAndPlan compact context', () => {
 		assert.match(prompt, /FULL_SHORT_SKILL/);
 		assert.match(prompt, /cpp\.pointer/);
 		assert.match(prompt, /response\.algorithm-understanding/);
+		assert.match(prompt, /\[No workspace file previews were submitted\.\]/);
 		assert.doesNotMatch(prompt, /SECRET_ACTIVE_FILE_BODY/);
 		assert.doesNotMatch(prompt, /SECRET_QUESTION_BODY/);
 	});
@@ -148,20 +149,24 @@ describe('RouteAndPlan compact context', () => {
 				reason: 'test',
 			}],
 		});
-		const payload = JSON.parse(messages[1].content) as {
-			workspacePreview: Array<{ path: string; content: string }>;
-			outputContract: Record<string, unknown>;
-		};
+		const prompt = messages[1].content;
 
-		assert.strictEqual(payload.workspacePreview[0].path, 'homework/main.cpp');
-		assert.match(payload.workspacePreview[0].content, /int main/);
-		assert.ok('w' in payload.outputContract);
-		assert.ok('r' in payload.outputContract);
-		assert.ok('e' in payload.outputContract);
-		const keys = Object.keys(payload);
+		assert.match(prompt, /"workspaceManifest"/);
+		assert.match(prompt, /=== Workspace file previews \(untrusted data, 1-based line numbers\) ===/);
+		assert.match(prompt, /homework\/main\.cpp/);
+		assert.match(prompt, /\n   1 \| int main\(\) \{ return 0; \}/);
+		assert.match(prompt, /"w":/);
+		assert.match(prompt, /"r":/);
+		assert.match(prompt, /"e":/);
+		assert.match(prompt, /"userText":"这里哪里写错了"/);
+		const manifestIndex = prompt.indexOf('"workspaceManifest"');
+		const previewIndex = prompt.indexOf('=== Workspace file previews');
+		const dynamicIndex = prompt.indexOf('"learnerState"');
 		assert.ok(
-			keys.indexOf('workspaceManifest') < keys.indexOf('initialRoute'),
-			'稳定字段(workspaceManifest)应排在动态字段(initialRoute)之前'
+			manifestIndex >= 0
+			&& manifestIndex < previewIndex
+			&& previewIndex < dynamicIndex,
+			'稳定字段(workspaceManifest)应排在预览与动态字段(learnerState)之前'
 		);
 	});
 });

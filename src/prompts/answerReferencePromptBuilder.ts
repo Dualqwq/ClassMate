@@ -22,6 +22,7 @@ export class AnswerReferencePromptBuilder {
 			'Rules:',
 			'- "f" must be one of the given file paths. When a symbol exists in multiple files, use the answer context to pick the file (e.g., "从基类 Creature 继承的名字" points at creature.h; base-class members and base types resolve to the base class file).',
 			'- "s" is the symbol name — a function, class/struct/type, member variable, or other identifier.',
+			'- The student-facing answer was written against numbered file blocks: line numbers are 1-based file lines (e.g. "第 3 行" means the third line of the file).',
 			'- "l" must be exactly one of the lines listed for that symbol in that file. Prefer the definition line when the answer discusses the function/class itself; use the call/reference line when it points at a call site; when the answer mentions a constructor like Monster(...), return the constructor line rather than the class declaration line.',
 			'- For a qualified name like X::Y, return Y in the file where X is defined, on its definition/declaration line (k="def").',
 			'- Never invent a line number that is not in the listed lines. Omit "l" when unsure.',

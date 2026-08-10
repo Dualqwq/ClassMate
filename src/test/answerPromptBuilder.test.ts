@@ -78,6 +78,8 @@ describe('Answer prompt source-grounding safeguards', () => {
 		const prompt = messages.map((message) => message.content).join('\n');
 		assert.match(prompt, /analyze that exact source code/);
 		assert.match(prompt, /Do not replace it with a generic example/);
+		assert.match(messages[0].content, /name the exact file you need to see/);
+		assert.match(messages[0].content, /never invent its contents/);
 		assert.match(prompt, /Exact snapshot diagnostic requirement/);
 		assert.match(prompt, /make that variant the primary diagnosis/);
 		assert.match(prompt, /Structured verified facts/);
@@ -140,6 +142,10 @@ describe('Answer prompt source-grounding safeguards', () => {
 		assert.match(messages[3].content, /=== Answer plan ===/);
 		assert.strictEqual(messages[messages.length - 1].content, 'What is a pointer?');
 		assert.ok(messages.length >= 5, 'expected a stable prefix, snapshot, plan and user message');
+		const snapshot = messages[1].content;
+		assert.match(snapshot, /=== Loaded files \(1-based line numbers\) ===/);
+		assert.match(snapshot, /=== Files present in the workspace but not loaded ===/);
+		assert.match(snapshot, /\n   1 \| int main\(\) \{ return 0; \}/);
 	});
 
 	it('puts volatile snapshot fields after the stable file-content part', () => {
@@ -185,9 +191,9 @@ describe('Answer prompt source-grounding safeguards', () => {
 		});
 
 		const snapshot = messages[1].content;
-		const loadedIndex = snapshot.indexOf('"loadedItems"');
+		const loadedIndex = snapshot.indexOf('=== Loaded files (1-based line numbers) ===');
 		const snapshotIdIndex = snapshot.indexOf('"snapshotId"');
-		assert.ok(loadedIndex >= 0 && loadedIndex < snapshotIdIndex, 'loadedItems must precede snapshotId');
+		assert.ok(loadedIndex >= 0 && loadedIndex < snapshotIdIndex, 'loaded files must precede snapshotId');
 	});
 
 	it('sorts snapshot loadedItems by path and keeps reason after contentHash', () => {
@@ -249,5 +255,6 @@ describe('Answer prompt source-grounding safeguards', () => {
 		const hashIndex = snapshot.indexOf('"contentHash"', itemStart);
 		const reasonIndex = snapshot.indexOf('"reason"', itemStart);
 		assert.ok(hashIndex >= 0 && hashIndex < reasonIndex, 'reason must come after contentHash');
+		assert.match(snapshot, /\n   1 \| int a\(\) \{ return 1; \}/);
 	});
 });
