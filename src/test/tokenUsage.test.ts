@@ -32,4 +32,22 @@ describe('LangGraph token usage aggregation', () => {
 			outputTokens: 3,
 		}).totalTokens, 10);
 	});
+
+	it('keeps cache fields undefined when the provider does not report them', () => {
+		const total = addTokenUsage(
+			{ inputTokens: 1, outputTokens: 1 },
+			{ inputTokens: 2, outputTokens: 2 }
+		);
+		assert.strictEqual(total.cacheHitTokens, undefined);
+		assert.strictEqual(total.cacheMissTokens, undefined);
+	});
+
+	it('keeps a reported cache value even when another call omits it', () => {
+		const total = addTokenUsage(
+			{ inputTokens: 1, outputTokens: 1, cacheMissTokens: 40 },
+			{ inputTokens: 2, outputTokens: 2 }
+		);
+		assert.strictEqual(total.cacheMissTokens, 40);
+		assert.strictEqual(total.cacheHitTokens, undefined);
+	});
 });

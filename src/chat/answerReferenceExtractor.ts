@@ -70,7 +70,7 @@ export async function extractAnswerReferences(
 	if (codeItems.length === 0 || !hasCodeMentionHint(answer)) {
 		return [];
 	}
-	const files = buildReferenceExtractionInput(codeItems);
+	const files = buildReferenceExtractionInput(codeItems, answer);
 	const messages = new AnswerReferencePromptBuilder().build({ answer, files });
 	let candidates: ExtractedReference[] = [];
 	try {

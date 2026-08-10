@@ -1,6 +1,9 @@
 import { formatDebugLog, formatRawDebugLog } from './debugLogFormatter';
+import { parseDebugCommand, resolveDebugOutputPath } from './debugCommand';
 import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
+import * as path from 'path';
+import { mkdir } from 'fs/promises';
 import type { ChatAttachment, ChatImage, ChatMessage, ChatReference, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, PersistedChatConversation, PersistedChatData, ProposedCodeEdit, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks, LLMTokenUsage } from '../llm/types';
 import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
@@ -78,6 +81,15 @@ export class ChatSession {
 	private _debugStore?: DebugJourneyStore;
 	private _sessionId?: string;
 	private _workspaceId?: string;
+	/** //show-usage:最近一次图流程里各节点的模型用量(保留 undefined 以便判断 provider 是否上报缓存字段)。 */
+	private _lastUsageDebug?: {
+		total: LLMTokenUsage | undefined;
+		byNode: Record<string, LLMTokenUsage>;
+	};
+	/** //show-prompts:最近一次图流程里各节点真实发送给模型的完整提示词(按 label 覆盖保存)。 */
+	private _lastPromptsDebug: Record<string, LLMRequest['messages']> = {};
+	/** 调试输出文件的固定落点(开发态为项目根下的 log,由 extension.ts 注入),不随工作区变化。 */
+	private _debugOutputDir?: string;
 
 	private async _buildKnowledgeCardsContent(): Promise<string> {
 		if (!this._debugStore) {
@@ -144,7 +156,7 @@ export class ChatSession {
 		return lines.join('\n');
 	}
 
-	private async _insertKnowledgeCards(userText: string): Promise<void> {
+	private async _insertKnowledgeCards(userText: string, filePath?: string): Promise<void> {
 		const content = await this._buildKnowledgeCardsContent();
 		const message: ChatMessage = {
 			id: this._generateId(),
@@ -155,11 +167,7 @@ export class ChatSession {
 			timestamp: Date.now(),
 		};
 
-		this._state = {
-			...this._state,
-			messages: [...this._state.messages, message],
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		await this._emitDebugMessage(message, filePath);
 	}
 
 	private async _buildDebugJourneyContent(): Promise<string> {
@@ -234,7 +242,7 @@ export class ChatSession {
 		return lines.join('\n');
 	}
 
-	private async _insertDebugJourney(userText: string): Promise<void> {
+	private async _insertDebugJourney(userText: string, filePath?: string): Promise<void> {
 		const content = await this._buildDebugJourneyContent();
 		const message: ChatMessage = {
 			id: this._generateId(),
@@ -245,11 +253,7 @@ export class ChatSession {
 			timestamp: Date.now(),
 		};
 
-		this._state = {
-			...this._state,
-			messages: [...this._state.messages, message],
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		await this._emitDebugMessage(message, filePath);
 	}
 
 	private async _buildDebugLogContent(): Promise<string> {
@@ -272,7 +276,55 @@ export class ChatSession {
 		return formatRawDebugLog(events, index, this._debugStore.workspaceId);
 	}
 
-	private async _insertDebugLog(userText: string): Promise<void> {
+	/**
+	 * 调试信息统一出口:带 filePath 时写入文件并打开(供 //show-xxx <路径> 使用),
+	 * 否则作为 system 调试消息插入聊天。
+	 */
+	private async _emitDebugMessage(message: ChatMessage, filePath?: string): Promise<void> {
+		if (filePath) {
+			const uri = this._resolveDebugOutputUri(filePath);
+			try {
+				await mkdir(path.dirname(uri.fsPath), { recursive: true });
+				await vscode.workspace.fs.writeFile(uri, Buffer.from(message.content, 'utf8'));
+				const document = await vscode.workspace.openTextDocument(uri);
+				await vscode.window.showTextDocument(document, { preview: true });
+			} catch (error) {
+				void vscode.window.showErrorMessage(
+					`ClassMate: 调试信息写入失败 ${uri.fsPath}: ` +
+					`${error instanceof Error ? error.message : String(error)}`
+				);
+			}
+			return;
+		}
+		this._state = {
+			...this._state,
+			messages: [...this._state.messages, message],
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	/** 相对路径解析到固定调试目录(智理杯/log);绝对路径原样;log 目录已从工作区上下文排除。 */
+	private _resolveDebugOutputUri(filePath: string): vscode.Uri {
+		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		const activeFileDir = vscode.window.activeTextEditor
+			? path.dirname(vscode.window.activeTextEditor.document.uri.fsPath)
+			: undefined;
+		return vscode.Uri.file(
+			resolveDebugOutputPath(filePath, {
+				debugOutputDir: this._debugOutputDir,
+				workspaceRoot,
+				activeFileDir,
+				cwd: process.cwd(),
+			})
+		);
+	}
+
+	/** 注入调试输出目录(扩展激活时设为 `<扩展项目根>/log`,开发态即 智理杯/log)。 */
+	public setDebugOutputDir(fsPath: string): void {
+		this._debugOutputDir = fsPath;
+	}
+
+	private async _insertDebugLog(userText: string, filePath?: string): Promise<void> {
 		const content = await this._buildDebugLogContent();
 		const message: ChatMessage = {
 			id: this._generateId(),
@@ -283,14 +335,10 @@ export class ChatSession {
 			timestamp: Date.now(),
 		};
 
-		this._state = {
-			...this._state,
-			messages: [...this._state.messages, message],
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		await this._emitDebugMessage(message, filePath);
 	}
 
-	private async _insertRawDebugLog(userText: string): Promise<void> {
+	private async _insertRawDebugLog(userText: string, filePath?: string): Promise<void> {
 		const content = await this._buildRawDebugLogContent();
 		const message: ChatMessage = {
 			id: this._generateId(),
@@ -301,15 +349,11 @@ export class ChatSession {
 			timestamp: Date.now(),
 		};
 
-		this._state = {
-			...this._state,
-			messages: [...this._state.messages, message],
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		await this._emitDebugMessage(message, filePath);
 	}
 
 	/** //show-ref:输出最近一次 assistant 回答的原始内容 + 消歧清单 + 提取结果,便于排查链接问题。 */
-	private async _insertReferenceDebug(userText: string): Promise<void> {
+	private async _insertReferenceDebug(userText: string, filePath?: string): Promise<void> {
 		const assistants = this._state.messages.filter((m) => m.role === 'assistant');
 		const message = [...assistants].reverse().find((m) => m.referenceDebug)
 			?? [...assistants].reverse()[0];
@@ -341,14 +385,95 @@ export class ChatSession {
 			isDebugLog: true,
 			timestamp: Date.now(),
 		};
-		this._state = {
-			...this._state,
-			messages: [...this._state.messages, debugMessage],
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		await this._emitDebugMessage(debugMessage, filePath);
 	}
 
-	private _insertSystemPromptDebug(systemMessages: LLMRequest['messages'], userText: string): void {
+	/** //show-usage:输出最近一次图流程里各节点与总计的 token 用量,便于确认缓存字段是否被 provider 上报。 */
+	private async _insertUsageDebug(userText: string, filePath?: string): Promise<void> {
+		const sections: string[] = [];
+		const debug = this._lastUsageDebug;
+		if (!debug || !debug.total) {
+			sections.push('当前对话还没有一次完整的模型调用,暂无 usage 可展示。');
+		} else {
+			const describe = (usage: LLMTokenUsage | undefined): string => {
+				if (!usage) {
+					return '(无)';
+				}
+				const parts = [
+					`input=${usage.inputTokens}`,
+					`output=${usage.outputTokens}`,
+					`total=${usage.totalTokens ?? usage.inputTokens + usage.outputTokens}`,
+				];
+				parts.push(
+					usage.cacheHitTokens !== undefined
+						? `cacheHit=${usage.cacheHitTokens}`
+						: 'cacheHit=未报告(undefined)'
+				);
+				parts.push(
+					usage.cacheMissTokens !== undefined
+						? `cacheMiss=${usage.cacheMissTokens}`
+						: 'cacheMiss=未报告(undefined)'
+				);
+				return parts.join(' · ');
+			};
+			sections.push(
+				'【按节点】',
+				...Object.entries(debug.byNode).map(
+					([label, usage]) => `${label}: ${describe(usage)}`
+				),
+				'',
+				'【总计】',
+				describe(debug.total)
+			);
+		}
+		const content = ['=== DEBUG: 模型用量 (usage) ===', '', ...sections].join('\n');
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugLog: true,
+			timestamp: Date.now(),
+		};
+		await this._emitDebugMessage(message, filePath);
+	}
+
+	/** //show-prompts:输出最近一次图流程里各节点真实发送给模型的完整提示词(与 //show-prompt 的旧路径 system prompt 不同)。 */
+	private async _insertPromptsDebug(userText: string, filePath?: string): Promise<void> {
+		const entries = Object.entries(this._lastPromptsDebug);
+		const sections: string[] = [];
+		if (entries.length === 0) {
+			sections.push('当前对话还没有一次完整的图流程调用,暂无节点提示词可展示。');
+		} else {
+			for (const [label, messages] of entries) {
+				sections.push(`【${label}】`);
+				sections.push(
+					...messages.map((m) => `--- ${m.role} ---\n${m.content}`)
+				);
+				sections.push('');
+			}
+		}
+		const content = [
+			'=== DEBUG: 各节点真实提示词 (graph prompts) ===',
+			'',
+			...sections,
+		].join('\n');
+		const message: ChatMessage = {
+			id: this._generateId(),
+			role: 'system',
+			content,
+			intent: undefined,
+			isDebugLog: true,
+			timestamp: Date.now(),
+		};
+		await this._emitDebugMessage(message, filePath);
+	}
+
+	private async _insertSystemPromptDebug(
+		systemMessages: LLMRequest['messages'],
+		userText: string,
+		filePath?: string
+	): Promise<void> {
 		const debugContent = [
 			'=== DEBUG: system prompt sent to LLM ===',
 			'',
@@ -367,11 +492,7 @@ export class ChatSession {
 			timestamp: Date.now(),
 		};
 
-		this._state = {
-			...this._state,
-			messages: [...this._state.messages, message],
-		};
-		this._broadcast({ type: 'stateSync', state: this._state });
+		await this._emitDebugMessage(message, filePath);
 	}
 
 	public static getInstance(): ChatSession {
@@ -868,35 +989,44 @@ export class ChatSession {
 	}
 
 	private async _callLLM(userText: string, frontendIntent?: MessageIntent): Promise<void> {
-		if (userText.trim() === '//show-ref') {
-			await this._insertReferenceDebug(userText);
+		const debugCommand = parseDebugCommand(userText);
+		if (debugCommand?.command === 'show-ref') {
+			await this._insertReferenceDebug(userText, debugCommand.filePath);
 			return;
 		}
-		if (userText.trim() === '//show-log') {
-			await this._insertDebugLog(userText);
+		if (debugCommand?.command === 'show-log') {
+			await this._insertDebugLog(userText, debugCommand.filePath);
 			return;
 		}
-		if (userText.trim() === '//show-raw-log') {
-			await this._insertRawDebugLog(userText);
+		if (debugCommand?.command === 'show-raw-log') {
+			await this._insertRawDebugLog(userText, debugCommand.filePath);
 			return;
 		}
-		if (userText.trim() === '//knowledge-cards') {
-			await this._insertKnowledgeCards(userText);
+		if (debugCommand?.command === 'knowledge-cards') {
+			await this._insertKnowledgeCards(userText, debugCommand.filePath);
 			return;
 		}
-		if (userText.trim() === '//show-journey') {
-			await this._insertDebugJourney(userText);
+		if (debugCommand?.command === 'show-journey') {
+			await this._insertDebugJourney(userText, debugCommand.filePath);
+			return;
+		}
+		if (debugCommand?.command === 'show-usage') {
+			await this._insertUsageDebug(userText, debugCommand.filePath);
+			return;
+		}
+		if (debugCommand?.command === 'show-prompts') {
+			await this._insertPromptsDebug(userText, debugCommand.filePath);
 			return;
 		}
 
 		let messages: LLMRequest['messages'] = [];
 		try {
-			const showPrompt = userText.trim() === '//show-prompt';
+			const showPrompt = debugCommand?.command === 'show-prompt';
 			if (this._promptBuilder && (showPrompt || !this._graphServices)) {
 				const systemMessages = await this._promptBuilder.build(frontendIntent, userText);
 				messages = [...systemMessages, ...this._getConversationHistory()];
 				if (showPrompt) {
-					this._insertSystemPromptDebug(systemMessages, userText);
+					await this._insertSystemPromptDebug(systemMessages, userText, debugCommand?.filePath);
 					return;
 				}
 			} else {
@@ -962,6 +1092,8 @@ export class ChatSession {
 					node: usageLabel,
 					usage,
 				});
+			}, (messages, label) => {
+				this._lastPromptsDebug[label ?? 'unknown'] = messages;
 			});
 			const runner = new ClassMateGraphRunner({
 				...this._graphServices,
@@ -1090,6 +1222,7 @@ export class ChatSession {
 				if (this._graphAbortController === controller) {
 					this._graphAbortController = undefined;
 				}
+				this._lastUsageDebug = { total: graphUsage, byNode: graphUsageByNode };
 				this.endStream();
 			}
 			return;

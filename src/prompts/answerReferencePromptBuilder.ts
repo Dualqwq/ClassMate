@@ -32,11 +32,12 @@ export class AnswerReferencePromptBuilder {
 		].join('\n');
 		const user = JSON.stringify(
 			{
-				answer: input.answer,
+				// 文件清单在前、回答在后:文件未变时清单逐轮一致,尽量留在 DeepSeek 前缀缓存里
 				files: input.files.map((file) => ({
 					path: file.path,
 					symbols: file.symbols,
 				})),
+				answer: input.answer,
 			},
 			null,
 			2

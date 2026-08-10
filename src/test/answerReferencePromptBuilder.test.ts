@@ -38,5 +38,9 @@ describe('AnswerReferencePromptBuilder', () => {
 		assert.ok(user.includes('main.cpp'));
 		assert.ok(user.includes('sort'));
 		assert.ok(user.includes('quickSort'));
+		assert.ok(
+			user.indexOf('"files"') < user.indexOf('"answer"'),
+			'文件清单应排在回答之前,尽量保持跨轮前缀可缓存'
+		);
 	});
 });

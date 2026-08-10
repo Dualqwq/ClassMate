@@ -50,7 +50,7 @@ describe('RouteAndPlan compact context', () => {
 		assert.strictEqual('relations' in catalog.sections[0], false);
 	});
 
-	it('prioritizes named and active files and caps a large workspace directory', () => {
+	it('sorts the manifest by path for stable prefixes and caps a large workspace directory', () => {
 		const files = Array.from({ length: 230 }, (_, index) => ({
 			path: index === 229 ? 'task_list.cpp' : `file-${index}.cpp`,
 			uri: `file:///file-${index}.cpp`,
@@ -69,9 +69,15 @@ describe('RouteAndPlan compact context', () => {
 				},
 			},
 		};
-		const manifest = buildCompactWorkspaceManifest(workspace, '检查 task_list.cpp');
+		const manifest = buildCompactWorkspaceManifest(workspace);
 
-		assert.strictEqual(manifest.files[0][0], 'task_list.cpp');
+		assert.strictEqual(manifest.files[0][0], 'file-0.cpp');
+		assert.strictEqual(manifest.activeFile, 'task_list.cpp');
+		assert.ok(
+			manifest.files.some(([filePath]) => filePath === 'task_list.cpp'),
+			'active file must still be listed'
+		);
+		assert.strictEqual(manifest.files[199][0], 'task_list.cpp', 'active file 应保底在最后一个槽位');
 		assert.strictEqual(manifest.files.length, 200);
 		assert.strictEqual(manifest.omittedCount, 30);
 	});
@@ -152,5 +158,10 @@ describe('RouteAndPlan compact context', () => {
 		assert.ok('w' in payload.outputContract);
 		assert.ok('r' in payload.outputContract);
 		assert.ok('e' in payload.outputContract);
+		const keys = Object.keys(payload);
+		assert.ok(
+			keys.indexOf('workspaceManifest') < keys.indexOf('initialRoute'),
+			'稳定字段(workspaceManifest)应排在动态字段(initialRoute)之前'
+		);
 	});
 });

@@ -25,7 +25,8 @@ export class AdapterGraphModelClient implements GraphModelClient {
 	constructor(
 		private readonly _adapter: LLMAdapter,
 		private readonly _model?: string,
-		private readonly _onUsage?: (usage: LLMTokenUsage, label?: string) => void
+		private readonly _onUsage?: (usage: LLMTokenUsage, label?: string) => void,
+		private readonly _onRequest?: (messages: LLMMessage[], label?: string) => void
 	) {}
 
 	public async complete(
@@ -43,6 +44,7 @@ export class AdapterGraphModelClient implements GraphModelClient {
 			jsonMode: options.jsonMode,
 			thinkingMode: options.thinkingMode,
 		};
+		this._onRequest?.(messages, options.label);
 		const result = options.onToken
 			? await this._completeFromStream(request, options.signal, options.onToken)
 			: this._adapter.complete

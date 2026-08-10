@@ -16,7 +16,15 @@ export function addTokenUsage(
 		outputTokens,
 		totalTokens: (total?.totalTokens ?? 0)
 			+ (next.totalTokens ?? next.inputTokens + next.outputTokens),
-		cacheHitTokens: (total?.cacheHitTokens ?? 0) + (next.cacheHitTokens ?? 0),
-		cacheMissTokens: (total?.cacheMissTokens ?? 0) + (next.cacheMissTokens ?? 0),
+		// provider 未返回缓存字段时保持 undefined,而不是累加成 0:
+		// 只有全部调用都报告了对应字段才求和,否则保留已报告的那一个。
+		cacheHitTokens:
+			total?.cacheHitTokens !== undefined && next.cacheHitTokens !== undefined
+				? total.cacheHitTokens + next.cacheHitTokens
+				: (total?.cacheHitTokens ?? next.cacheHitTokens),
+		cacheMissTokens:
+			total?.cacheMissTokens !== undefined && next.cacheMissTokens !== undefined
+				? total.cacheMissTokens + next.cacheMissTokens
+				: (total?.cacheMissTokens ?? next.cacheMissTokens),
 	};
 }
