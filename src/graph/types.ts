@@ -155,6 +155,11 @@ export interface AnswerValidationResult {
 	shouldRegenerate: boolean;
 }
 
+export type AnswerOutcome =
+	| 'answered'
+	| 'grounded_local_hint'
+	| 'generic_fallback';
+
 /**
  * 从已加载题面和代码中提取出的短约束表。
  * 它只保存回答正确性真正需要的事实，不复制整个工作区正文。
@@ -258,6 +263,7 @@ export interface ClassMateGraphState {
 
 	answerMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
 	answer?: string;
+	answerOutcome?: AnswerOutcome;
 	answerValidation?: AnswerValidationResult;
 	answerRetryCount: number;
 	/** 本次请求中已经完成的 LangGraph 节点耗时，按执行顺序排列。 */

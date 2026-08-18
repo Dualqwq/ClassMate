@@ -389,6 +389,33 @@ describe('ClassMate LangGraph runner', () => {
 		assert.deepStrictEqual(streamedAttempts, [true, false]);
 		assert.deepStrictEqual(thinkingModes, ['disabled', 'disabled']);
 		assert.strictEqual(result.answer, '指针可以先理解成“保存地址的变量”。');
+		assert.strictEqual(result.state.answerOutcome, 'answered');
+	});
+
+	it('reports a generic fallback structurally after empty answer retries are exhausted', async () => {
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return { content: mergedPlan('concept_explanation') };
+				}
+				return { content: '' };
+			},
+		};
+		const services = createServices(model, {
+			catalog: { files: [], questionFiles: [] },
+		}, async () => []);
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'empty-answer-fallback',
+			conversationId: 'empty-answer-fallback',
+			userText: '什么是指针？',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(result.state.answerOutcome, 'generic_fallback');
+		assert.ok(result.answer.length > 0);
 	});
 
 	it('does not rerun planning after loading requested context', async () => {

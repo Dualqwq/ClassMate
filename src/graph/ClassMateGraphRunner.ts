@@ -1263,6 +1263,7 @@ export class ClassMateGraphRunner {
 		const answer = completion.content.trim();
 		return nextState(state, {
 			answer,
+			answerOutcome: answer ? 'answered' : current.answerOutcome,
 			answerRetryCount: current.answerRetryCount + 1,
 			answerDelivered: current.answerDelivered
 				|| Boolean(streamImmediately && this._services.onAnswerToken && answer),
@@ -1273,6 +1274,7 @@ export class ClassMateGraphRunner {
 		const current = state.value;
 		let answer = current.answer ?? '';
 		let answerValidation = validateStudentAnswer(answer, current.answerPlan!);
+		let answerOutcome = current.answerOutcome;
 		if (
 			(!this._services.onAnswerToken || !answer.trim())
 			&& !answerValidation.valid
@@ -1283,9 +1285,10 @@ export class ClassMateGraphRunner {
 				? '这次生成的修改没有通过完整性检查，因此我没有把它作为可应用代码提交。请缩小修改范围后再试一次。'
 				: `我先不给出可能超过当前提示层级的完整答案。请先围绕“${concepts}”写出你认为的下一步，我再根据你的尝试继续提示。`;
 			answerValidation = validateStudentAnswer(answer, current.answerPlan!);
+			answerOutcome = 'generic_fallback';
 		}
 		this._services.onDebug?.('answer_validation', answerValidation);
-		return nextState(state, { answer, answerValidation });
+		return nextState(state, { answer, answerValidation, answerOutcome });
 	}
 
 	/** 把已经通过检查的缓冲回答按小块交给原有流式 UI。 */
@@ -1387,6 +1390,9 @@ export class ClassMateGraphRunner {
 			const delivered = current.answerDelivered || this._deliverBufferedAnswer(finalAnswer);
 			return nextState(state, {
 				answer: finalAnswer,
+				answerOutcome: correctedAnswer && correctedValidation?.valid
+					? 'answered'
+					: 'generic_fallback',
 				correctnessVerification: verification,
 				answerValidation: {
 					valid: true,

@@ -25,6 +25,16 @@ import {
 	selectProblemFile,
 } from '../workspace/workspaceContextProvider';
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
+import {
+	buildBug1WorkspaceEvidence,
+	type Bug1DatasetMutation,
+	type Bug1EvalCheckpoint,
+	type Bug1EvalResult,
+} from '../eval/bug1Review';
+import {
+	openBug1WorkspaceScenario,
+	type Bug1AppliedMutation,
+} from '../eval/bug1WorkspaceScenario';
 
 const LIVE_EVAL_ENABLED = process.env.CLASSMATE_LIVE_EVAL === '1';
 const EXCLUDED_DIRECTORIES = new Set([
@@ -43,6 +53,7 @@ interface DatasetTurn {
 	expected_intent: RequestType;
 	must_use: string[];
 	must_avoid: string[];
+	mutations?: Bug1DatasetMutation[];
 }
 
 interface DatasetCase {
@@ -54,32 +65,16 @@ interface DatasetCase {
 	expected_intent?: RequestType;
 	must_use?: string[];
 	must_avoid?: string[];
+	mutations?: Bug1DatasetMutation[];
 	turns?: DatasetTurn[];
 }
 
-interface LiveEvalResult {
-	conversationId: string;
-	turn: number;
-	sourceProblem: string;
-	workspace: string;
-	activeFile: string | null;
-	prompt: string;
+interface LiveEvalResult extends Bug1EvalResult {
 	expectedIntent: RequestType;
-	mustUse: string[];
-	mustAvoid: string[];
-	answer: string;
-	status: 'success' | 'failed';
-	error?: string;
-	startedAt: string;
-	firstTokenMs?: number;
-	totalDurationMs: number;
-	graphDurationMs?: number;
 	usage?: LLMTokenUsage;
 	usageByNode: Record<string, LLMTokenUsage>;
 	nodeTimings?: unknown[];
 	actualRequestType?: RequestType;
-	contextMode?: string;
-	loadedWorkspaceFiles?: string[];
 	retrievedSkillIds?: string[];
 	conversationWorkspaceContext?: ConversationWorkspaceContext;
 	problemIdentification?: unknown;
@@ -95,14 +90,7 @@ interface LiveEvalResult {
 	}>;
 }
 
-interface LiveEvalCheckpoint {
-	schemaVersion: 1;
-	version: string;
-	startedAt: string;
-	updatedAt: string;
-	provider: string;
-	model: string;
-	plannedTurns: number;
+interface LiveEvalCheckpoint extends Omit<Bug1EvalCheckpoint, 'results'> {
 	results: LiveEvalResult[];
 }
 
@@ -221,6 +209,16 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 				}
 				throw error;
 			});
+		const mutationDatasetPath = path.join(datasetRoot, 'mutation-dataset.jsonl');
+		const mutationCases = await fs.readFile(mutationDatasetPath, 'utf8')
+			.then((content) => parseJsonLines<DatasetCase>(content))
+			.catch((error: NodeJS.ErrnoException) => {
+				if (error.code === 'ENOENT') {
+					return [];
+				}
+				throw error;
+			});
+		const allMultiCases = [...multiCases, ...mutationCases];
 		const requestedIds = new Set(
 			(process.env.CLASSMATE_LIVE_EVAL_IDS ?? '')
 				.split(',')
@@ -231,8 +229,8 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 			? allSingleCases.filter((item) => requestedIds.has(item.id))
 			: allSingleCases;
 		const selectedMultiCases = requestedIds.size > 0
-			? multiCases.filter((item) => requestedIds.has(item.id))
-			: multiCases;
+			? allMultiCases.filter((item) => requestedIds.has(item.id))
+			: allMultiCases;
 		const allPlannedTurns = singleCases.length
 			+ selectedMultiCases.reduce((sum, item) => sum + (item.turns?.length ?? 0), 0);
 		const requestedLimit = Number(process.env.CLASSMATE_LIVE_EVAL_LIMIT);
@@ -254,15 +252,20 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 				await fs.readFile(outputPath, 'utf8')
 			) as LiveEvalCheckpoint;
 			if (
+				checkpoint.schemaVersion !== 2
+				||
 				checkpoint.provider !== liveModel.provider
 				|| checkpoint.model !== liveModel.model
 				|| checkpoint.plannedTurns !== plannedTurns
 			) {
 				throw new Error('Existing checkpoint does not match this evaluation run.');
 			}
+			checkpoint.results = checkpoint.results.filter(
+				(row) => row.status !== 'failed'
+			);
 		} else {
 			checkpoint = {
-				schemaVersion: 1,
+				schemaVersion: 2,
 				version: process.env.CLASSMATE_EVAL_VERSION
 					?? '0.0.5-workspace-context-update',
 				startedAt: new Date().toISOString(),
@@ -285,6 +288,7 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 		const runTurn = async (
 			item: DatasetCase,
 			turn: DatasetTurn,
+			appliedMutations: Bug1AppliedMutation[],
 			history: Array<{ role: 'user' | 'assistant'; content: string }>,
 			previousWorkspaceContext?: ConversationWorkspaceContext
 		): Promise<{
@@ -349,8 +353,11 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					expectedIntent: turn.expected_intent,
 					mustUse: turn.must_use,
 					mustAvoid: turn.must_avoid,
+					mutations: turn.mutations ?? [],
+					appliedMutations,
 					answer: result.answer,
 					status: 'success',
+					deliveryOutcome: result.state.answerOutcome ?? 'answered',
 					startedAt,
 					firstTokenMs,
 					totalDurationMs: Date.now() - startedAtMs,
@@ -362,6 +369,9 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					contextMode: result.state.contextMode,
 					loadedWorkspaceFiles: result.state.loadedWorkspaceItems.map(
 						(loaded) => loaded.path
+					),
+					workspaceEvidence: buildBug1WorkspaceEvidence(
+						result.state.workspaceSnapshot!
 					),
 					retrievedSkillIds: result.state.retrievedSkillSections.map(
 						(section) => section.nodeId
@@ -404,14 +414,23 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					expectedIntent: turn.expected_intent,
 					mustUse: turn.must_use,
 					mustAvoid: turn.must_avoid,
+					mutations: turn.mutations ?? [],
+					appliedMutations,
 					answer: '',
 					status: 'failed',
+					deliveryOutcome: error instanceof Error && error.name === 'AbortError'
+						? 'cancelled'
+						: 'provider_error',
 					error: error instanceof Error ? error.message : String(error),
 					startedAt,
 					firstTokenMs,
 					totalDurationMs: Date.now() - startedAtMs,
 					usage,
 					usageByNode: currentUsageByNode,
+					workspaceEvidence: {
+						snapshotId: 'unavailable-after-failed-run',
+						files: [],
+					},
 				});
 				await saveCheckpoint(outputPath, checkpoint);
 				return {};
@@ -427,49 +446,66 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 			if (completedByKey.has(`${item.id}#1`)) {
 				continue;
 			}
-			await runTurn(item, {
-				turn: 1,
-				prompt: item.prompt!,
-				expected_intent: item.expected_intent!,
-				must_use: item.must_use ?? [],
-				must_avoid: item.must_avoid ?? [],
-			}, []);
+			const workspacePath = path.resolve(datasetRoot, item.workspace);
+			const scenario = await openBug1WorkspaceScenario(workspacePath);
+			try {
+				const mutations = item.mutations ?? [];
+				const appliedMutations = await scenario.apply(mutations);
+				await runTurn(item, {
+					turn: 1,
+					prompt: item.prompt!,
+					expected_intent: item.expected_intent!,
+					must_use: item.must_use ?? [],
+					must_avoid: item.must_avoid ?? [],
+					mutations,
+				}, appliedMutations, []);
+			} finally {
+				await scenario.restore();
+			}
 		}
 
 		multiCaseLoop: for (const item of selectedMultiCases) {
-			const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
-			let previousWorkspaceContext: ConversationWorkspaceContext | undefined;
-			for (const turn of item.turns ?? []) {
-				if (checkpoint.results.length >= plannedTurns) {
-					break multiCaseLoop;
-				}
-				const completed = completedByKey.get(`${item.id}#${turn.turn}`);
-				if (completed) {
-					if (completed.status === 'success' && completed.answer) {
+			const workspacePath = path.resolve(datasetRoot, item.workspace);
+			const scenario = await openBug1WorkspaceScenario(workspacePath);
+			try {
+				const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+				let previousWorkspaceContext: ConversationWorkspaceContext | undefined;
+				for (const turn of item.turns ?? []) {
+					if (checkpoint.results.length >= plannedTurns) {
+						break multiCaseLoop;
+					}
+					const appliedMutations = await scenario.apply(turn.mutations ?? []);
+					const completed = completedByKey.get(`${item.id}#${turn.turn}`);
+					if (completed) {
+						if (completed.status === 'success' && completed.answer) {
+							history.push(
+								{ role: 'user', content: turn.prompt },
+								{ role: 'assistant', content: completed.answer }
+							);
+						}
+						previousWorkspaceContext =
+							completed.conversationWorkspaceContext
+								?? previousWorkspaceContext;
+						continue;
+					}
+					const turnResult = await runTurn(
+						item,
+						turn,
+						appliedMutations,
+						history,
+						previousWorkspaceContext
+					);
+					if (turnResult.answer) {
 						history.push(
 							{ role: 'user', content: turn.prompt },
-							{ role: 'assistant', content: completed.answer }
+							{ role: 'assistant', content: turnResult.answer }
 						);
 					}
 					previousWorkspaceContext =
-						completed.conversationWorkspaceContext
-						?? previousWorkspaceContext;
-					continue;
+						turnResult.workspaceContext ?? previousWorkspaceContext;
 				}
-				const turnResult = await runTurn(
-					item,
-					turn,
-					history,
-					previousWorkspaceContext
-				);
-				if (turnResult.answer) {
-					history.push(
-						{ role: 'user', content: turn.prompt },
-						{ role: 'assistant', content: turnResult.answer }
-					);
-				}
-				previousWorkspaceContext =
-					turnResult.workspaceContext ?? previousWorkspaceContext;
+			} finally {
+				await scenario.restore();
 			}
 		}
 

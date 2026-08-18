@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>ClassMate bug1 人工判卷</title>
+	<style>
+		:root { color-scheme: dark; font-family: Inter, "Microsoft YaHei", system-ui, sans-serif; }
+		* { box-sizing: border-box; }
+		body { margin: 0; background: #11151c; color: #e6edf3; }
+		button, input, select, textarea { font: inherit; }
+		button { cursor: pointer; }
+		#app { height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+		header { padding: 12px 18px; border-bottom: 1px solid #30363d; background: #161b22; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+		header h1 { margin: 0; font-size: 18px; }
+		.stats { display: flex; gap: 10px; flex-wrap: wrap; }
+		.stat { background: #21262d; border: 1px solid #30363d; border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+		.layout { min-height: 0; display: grid; grid-template-columns: 320px minmax(0, 1fr) 350px; }
+		.sidebar, .grading { min-height: 0; overflow: auto; background: #161b22; }
+		.sidebar { border-right: 1px solid #30363d; }
+		.grading { border-left: 1px solid #30363d; padding: 16px; }
+		.toolbar { position: sticky; top: 0; z-index: 2; padding: 12px; background: #161b22; border-bottom: 1px solid #30363d; }
+		.toolbar input, .toolbar select, .grading input, .grading select, textarea { width: 100%; color: inherit; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; }
+		.toolbar-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+		.case-list { padding: 8px; }
+		.case { width: 100%; text-align: left; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 10px; margin-bottom: 5px; }
+		.case:hover { background: #21262d; }
+		.case.active { border-color: #58a6ff; background: #1f2937; }
+		.case-title { font-weight: 650; }
+		.case-prompt { color: #9da7b3; font-size: 12px; margin-top: 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+		.badge { display: inline-block; margin-left: 6px; border-radius: 999px; padding: 1px 6px; font-size: 11px; background: #30363d; }
+		.badge.pass { background: #1f6f43; }.badge.fail { background: #8b2e2e; }.badge.unjudgeable { background: #725b16; }.badge.skip { background: #4b5563; }
+		.content { min-width: 0; overflow: auto; padding: 18px 22px 80px; }
+		.panel { border: 1px solid #30363d; background: #161b22; border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+		.panel h2 { font-size: 15px; margin: 0; padding: 10px 12px; background: #21262d; border-bottom: 1px solid #30363d; }
+		.panel-body { padding: 12px; }
+		.meta-grid { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 13px; }
+		.meta-key { color: #9da7b3; }
+		pre { margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; line-height: 1.5; background: #0d1117; }
+		.answer { font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
+		.file-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid #30363d; }
+		.file-tabs button { color: inherit; background: #21262d; border: 1px solid #30363d; border-radius: 5px; padding: 4px 7px; }
+		.file-tabs button.active { border-color: #58a6ff; color: #79c0ff; }
+		.mutation { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #30363d; }
+		.mutation > div { min-width: 0; background: #0d1117; }
+		.mutation-label { padding: 6px 10px; color: #9da7b3; border-bottom: 1px solid #30363d; }
+		.dimension { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 10px 0; }
+		.dimension select { width: 110px; }
+		.verdicts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+		.verdict { border: 1px solid #30363d; border-radius: 6px; padding: 9px; background: #21262d; color: inherit; }
+		.verdict.selected { border-color: #58a6ff; box-shadow: 0 0 0 1px #58a6ff inset; }
+		.tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+		.tag { display: flex; align-items: center; gap: 4px; font-size: 12px; background: #21262d; padding: 4px 7px; border-radius: 5px; }
+		.actions { position: sticky; bottom: 0; background: #161b22; padding-top: 12px; }
+		.save { width: 100%; padding: 10px; border: 0; border-radius: 6px; color: white; background: #238636; font-weight: 650; }
+		.save:disabled { opacity: .55; cursor: default; }
+		.message { min-height: 22px; margin-top: 8px; font-size: 12px; color: #9da7b3; }
+		.error { color: #ff7b72; }
+		.empty { padding: 40px; text-align: center; color: #9da7b3; }
+		.shortcuts { margin-top: 12px; color: #8b949e; font-size: 11px; line-height: 1.5; }
+		@media (max-width: 1100px) { .layout { grid-template-columns: 260px 1fr; }.grading { grid-column: 1 / -1; border-left: 0; border-top: 1px solid #30363d; max-height: 50vh; }.layout { grid-template-rows: 1fr auto; } }
+	</style>
+</head>
+<body>
+<div id="app">
+	<header>
+		<h1>ClassMate bug1 人工判卷</h1>
+		<div class="stats" id="stats"></div>
+	</header>
+	<div class="layout">
+		<aside class="sidebar">
+			<div class="toolbar">
+				<input id="search" placeholder="搜索 ID、问题或回答">
+				<div class="toolbar-row">
+					<select id="filter">
+						<option value="unreviewed">仅未判</option>
+						<option value="all">全部</option>
+						<option value="pass">正确</option>
+						<option value="fail">错误</option>
+						<option value="unjudgeable">无法判断</option>
+						<option value="skip">跳过</option>
+					</select>
+					<select id="statusFilter">
+						<option value="all">全部运行</option>
+						<option value="success">运行成功</option>
+						<option value="failed">运行失败</option>
+					</select>
+				</div>
+			</div>
+			<div class="case-list" id="caseList"></div>
+		</aside>
+		<main class="content" id="content"><div class="empty">正在加载判卷数据…</div></main>
+		<aside class="grading" id="grading"></aside>
+	</div>
+</div>
+<script>
+(() => {
+	'use strict';
+	const state = { session: null, selectedId: null, selectedFile: null, draft: null };
+	const failureTags = ['旧工作区事实', '没有回答问题', '教学无帮助', '提示越级', '通用兜底', '引用目标错误', '普通词误链', '代码样式错误', '路由偏差', '运行失败', '其他'];
+	const $ = (id) => document.getElementById(id);
+	const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+	const judgmentsById = () => new Map((state.session?.validJudgments ?? []).map((j) => [j.reviewId, j]));
+	const items = () => state.session?.bundle?.items ?? [];
+
+	function defaultDraft(item) {
+		const existing = judgmentsById().get(item.reviewId);
+		return existing ? JSON.parse(JSON.stringify(existing)) : {
+			verdict: null,
+			dimensions: { workspaceGrounded: true, answersQuestion: true, teachingHelpful: true, hintLevelCompliant: true, referencesCorrect: null, genericFallback: false },
+			failureTags: [], notes: '', reviewer: localStorage.getItem('bug1-reviewer') ?? ''
+		};
+	}
+
+	function renderStats() {
+		const s = state.session.summary;
+		$('stats').innerHTML = [
+			`总计 ${s.total}`, `已判 ${s.reviewed}`, `未判 ${s.unreviewed}`,
+			`正确 ${s.verdicts.pass}`, `错误 ${s.verdicts.fail}`, `过期 ${s.stale}`
+		].map((text) => `<span class="stat">${text}</span>`).join('');
+	}
+
+	function filteredItems() {
+		const query = $('search').value.trim().toLowerCase();
+		const filter = $('filter').value;
+		const runStatus = $('statusFilter').value;
+		const judgments = judgmentsById();
+		return items().filter((item) => {
+			const judgment = judgments.get(item.reviewId);
+			if (filter === 'unreviewed' && judgment) return false;
+			if (!['all', 'unreviewed'].includes(filter) && judgment?.verdict !== filter) return false;
+			if (runStatus !== 'all' && item.status !== runStatus) return false;
+			if (!query) return true;
+			return [item.reviewId, item.sourceProblem, item.prompt, item.answer]
+				.some((value) => String(value ?? '').toLowerCase().includes(query));
+		});
+	}
+
+	function renderList() {
+		const judgments = judgmentsById();
+		const list = filteredItems();
+		$('caseList').innerHTML = list.length ? list.map((item) => {
+			const judgment = judgments.get(item.reviewId);
+			return `<button class="case ${item.reviewId === state.selectedId ? 'active' : ''}" data-id="${escapeHtml(item.reviewId)}">
+				<div class="case-title">${escapeHtml(item.reviewId)}${judgment ? `<span class="badge ${judgment.verdict}">${judgment.verdict}</span>` : ''}</div>
+				<div class="case-prompt">${escapeHtml(item.prompt)}</div>
+			</button>`;
+		}).join('') : '<div class="empty">当前筛选没有用例</div>';
+		$('caseList').querySelectorAll('.case').forEach((button) => button.addEventListener('click', () => selectItem(button.dataset.id)));
+	}
+
+	function renderContent(item) {
+		const files = item.workspaceEvidence?.files ?? [];
+		if (!state.selectedFile || !files.some((f) => f.path === state.selectedFile)) state.selectedFile = files[0]?.path ?? null;
+		const selected = files.find((f) => f.path === state.selectedFile);
+		const mutations = item.appliedMutations ?? [];
+		$('content').innerHTML = `
+			<section class="panel"><h2>情景与运行</h2><div class="panel-body meta-grid">
+				<div class="meta-key">问题</div><div>${escapeHtml(item.prompt)}</div>
+				<div class="meta-key">来源</div><div>${escapeHtml(item.sourceProblem)}</div>
+				<div class="meta-key">活动文件</div><div>${escapeHtml(item.activeFile ?? '无')}</div>
+				<div class="meta-key">预期 / 实际 intent</div><div>${escapeHtml(item.expectedIntent)} / ${escapeHtml(item.actualRequestType ?? '无')}</div>
+				<div class="meta-key">运行</div><div>${escapeHtml(item.status)} · outcome ${escapeHtml(item.deliveryOutcome)} · ${item.totalDurationMs} ms · retry ${escapeHtml(item.answerRetryCount ?? 0)}</div>
+				<div class="meta-key">模型</div><div>${escapeHtml(state.session.bundle.source.provider)} / ${escapeHtml(state.session.bundle.source.model)}</div>
+				<div class="meta-key">snapshot</div><div>${escapeHtml(item.workspaceEvidence?.snapshotId ?? '缺失')}</div>
+				${item.error ? `<div class="meta-key">错误</div><div class="error">${escapeHtml(item.error)}</div>` : ''}
+			</div></section>
+			${mutations.length ? `<section class="panel"><h2>本轮工作区修改</h2>${mutations.map((m) => `<div class="panel-body"><strong>${escapeHtml(m.file)}</strong><div class="mutation"><div><div class="mutation-label">修改前 · ${escapeHtml(m.beforeHash)}</div><pre>${escapeHtml(m.beforeContent)}</pre></div><div><div class="mutation-label">修改后 · ${escapeHtml(m.afterHash)}</div><pre>${escapeHtml(m.afterContent)}</pre></div></div></div>`).join('')}</section>` : ''}
+			<section class="panel"><h2>模型实际看到的工作区文件</h2>
+				<div class="file-tabs">${files.map((f) => `<button data-file="${escapeHtml(f.path)}" class="${f.path === state.selectedFile ? 'active' : ''}">${escapeHtml(f.path)}</button>`).join('') || '没有记录文件证据'}</div>
+				${selected ? `<div class="meta-grid panel-body"><div class="meta-key">hash</div><div>${escapeHtml(selected.contentHash)}</div><div class="meta-key">加载原因</div><div>${escapeHtml(selected.reason)}</div></div><pre>${escapeHtml(selected.content)}</pre>` : ''}
+			</section>
+			<section class="panel"><h2>模型回答</h2><div class="panel-body answer">${escapeHtml(item.answer || '[空回答]')}</div></section>
+		`;
+		$('content').querySelectorAll('[data-file]').forEach((button) => button.addEventListener('click', () => { state.selectedFile = button.dataset.file; renderContent(item); }));
+	}
+
+	function boolSelect(name, value, nullable = false) {
+		return `<select data-dimension="${name}">${nullable ? '<option value="null">不适用</option>' : ''}<option value="true" ${value === true ? 'selected' : ''}>是</option><option value="false" ${value === false ? 'selected' : ''}>否</option></select>`;
+	}
+
+	function renderGrading(item) {
+		const d = state.draft;
+		$('grading').innerHTML = `
+			<h2>人工判卷</h2>
+			<label>判卷人<input id="reviewer" value="${escapeHtml(d.reviewer ?? '')}" placeholder="姓名或代号"></label>
+			<div class="dimension"><span>基于当前工作区</span>${boolSelect('workspaceGrounded', d.dimensions.workspaceGrounded)}</div>
+			<div class="dimension"><span>回答了问题</span>${boolSelect('answersQuestion', d.dimensions.answersQuestion)}</div>
+			<div class="dimension"><span>教学上有帮助</span>${boolSelect('teachingHelpful', d.dimensions.teachingHelpful)}</div>
+			<div class="dimension"><span>符合提示深度</span>${boolSelect('hintLevelCompliant', d.dimensions.hintLevelCompliant)}</div>
+			<div class="dimension"><span>引用正确</span>${boolSelect('referencesCorrect', d.dimensions.referencesCorrect, true)}</div>
+			<div class="dimension"><span>出现通用兜底</span>${boolSelect('genericFallback', d.dimensions.genericFallback)}</div>
+			<div class="verdicts">
+				${[['pass','1 正确'],['fail','2 错误'],['unjudgeable','3 无法判断'],['skip','4 跳过']].map(([value,label]) => `<button class="verdict ${d.verdict === value ? 'selected' : ''}" data-verdict="${value}">${label}</button>`).join('')}
+			</div>
+			<div>错误原因</div><div class="tags">${failureTags.map((tag) => `<label class="tag"><input type="checkbox" data-tag="${escapeHtml(tag)}" ${d.failureTags.includes(tag) ? 'checked' : ''}>${escapeHtml(tag)}</label>`).join('')}</div>
+			<label>备注<textarea id="notes" rows="5" placeholder="记录判断依据或争议点">${escapeHtml(d.notes ?? '')}</textarea></label>
+			<div class="actions"><button class="save" id="save">保存并进入下一条（Ctrl+Enter）</button><div class="message" id="message"></div></div>
+			<div class="shortcuts">快捷键：1 正确 · 2 错误 · 3 无法判断 · 4 跳过 · N 下一条 · P 上一条 · Ctrl+Enter 保存</div>
+		`;
+		$('grading').querySelectorAll('[data-dimension]').forEach((select) => select.addEventListener('change', () => {
+			state.draft.dimensions[select.dataset.dimension] = select.value === 'null' ? null : select.value === 'true';
+		}));
+		$('grading').querySelectorAll('[data-verdict]').forEach((button) => button.addEventListener('click', () => { state.draft.verdict = button.dataset.verdict; renderGrading(item); }));
+		$('grading').querySelectorAll('[data-tag]').forEach((box) => box.addEventListener('change', () => {
+			state.draft.failureTags = [...$('grading').querySelectorAll('[data-tag]:checked')].map((node) => node.dataset.tag);
+		}));
+		$('save').addEventListener('click', saveJudgment);
+	}
+
+	function selectItem(reviewId) {
+		const item = items().find((candidate) => candidate.reviewId === reviewId);
+		if (!item) return;
+		state.selectedId = reviewId; state.selectedFile = null; state.draft = defaultDraft(item);
+		renderList(); renderContent(item); renderGrading(item);
+	}
+
+	async function saveJudgment() {
+		const item = items().find((candidate) => candidate.reviewId === state.selectedId);
+		if (!item) return;
+		state.draft.reviewer = $('reviewer').value.trim(); state.draft.notes = $('notes').value;
+		if (!state.draft.reviewer) { $('message').textContent = '请填写判卷人。'; $('message').className = 'message error'; return; }
+		if (!state.draft.verdict) { $('message').textContent = '请选择总判定。'; $('message').className = 'message error'; return; }
+		localStorage.setItem('bug1-reviewer', state.draft.reviewer);
+		$('save').disabled = true; $('message').textContent = '保存中…';
+		const response = await fetch(`/api/judgments/${encodeURIComponent(item.reviewId)}`, { method: 'PUT', headers: {'content-type':'application/json'}, body: JSON.stringify(state.draft) });
+		if (!response.ok) { const data = await response.json(); $('message').textContent = data.error ?? '保存失败'; $('message').className = 'message error'; $('save').disabled = false; return; }
+		await loadSession();
+		const next = filteredItems()[0] ?? items()[Math.min(items().findIndex((candidate) => candidate.reviewId === item.reviewId) + 1, items().length - 1)];
+		if (next) selectItem(next.reviewId);
+	}
+
+	function move(delta) {
+		const list = filteredItems().length ? filteredItems() : items();
+		const index = Math.max(0, list.findIndex((item) => item.reviewId === state.selectedId));
+		const next = list[Math.max(0, Math.min(list.length - 1, index + delta))];
+		if (next) selectItem(next.reviewId);
+	}
+
+	async function loadSession() {
+		const response = await fetch('/api/session');
+		if (!response.ok) throw new Error((await response.json()).error ?? '加载失败');
+		state.session = await response.json(); renderStats(); renderList();
+	}
+
+	$('search').addEventListener('input', renderList); $('filter').addEventListener('change', renderList); $('statusFilter').addEventListener('change', renderList);
+	document.addEventListener('keydown', (event) => {
+		if (event.ctrlKey && event.key === 'Enter') { event.preventDefault(); void saveJudgment(); return; }
+		if (event.target.matches('input, textarea, select')) return;
+		if (['1','2','3','4'].includes(event.key) && state.draft) { state.draft.verdict = ({'1':'pass','2':'fail','3':'unjudgeable','4':'skip'})[event.key]; renderGrading(items().find((item) => item.reviewId === state.selectedId)); }
+		if (event.key.toLowerCase() === 'n') move(1); if (event.key.toLowerCase() === 'p') move(-1);
+	});
+
+	loadSession().then(() => { const first = filteredItems()[0] ?? items()[0]; if (first) selectItem(first.reviewId); else $('content').innerHTML = '<div class="empty">没有可判用例</div>'; }).catch((error) => { $('content').innerHTML = `<div class="empty error">${escapeHtml(error.message)}</div>`; });
+})();
+</script>
+</body>
+</html>

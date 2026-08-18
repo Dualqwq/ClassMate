@@ -313,7 +313,8 @@
     "watch-tests": "tsc -p . -w --outDir out",
     "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "eval:review": "npm run compile-tests && node scripts/bug1-review.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
