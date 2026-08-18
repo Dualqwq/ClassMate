@@ -41,6 +41,7 @@
     "onCommand:classmate.closeDebugJourneyTree",
     "onCommand:classmate.openDebugNodeDiff",
     "onCommand:classmate.exportDebugNotebook",
+    "onCommand:classmate.exportConversationDiagnostics",
     "onCommand:classmate.setupApiKey"
   ],
   "main": "./dist/extension.js",
@@ -105,6 +106,12 @@
         "title": "Export Debug Notebook",
         "category": "ClassMate",
         "icon": "$(export)"
+      },
+      {
+        "command": "classmate.exportConversationDiagnostics",
+        "title": "Export Conversation Diagnostics",
+        "category": "ClassMate",
+        "icon": "$(json)"
       },
       {
         "command": "classmate.openChatPanel",
@@ -229,6 +236,9 @@
         },
         {
           "command": "classmate.exportDebugNotebook"
+        },
+        {
+          "command": "classmate.exportConversationDiagnostics"
         },
         {
           "command": "classmate.setupApiKey"

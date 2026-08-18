@@ -13,6 +13,9 @@ describe('parseDebugCommand', () => {
 		assert.deepStrictEqual(parseDebugCommand('//show-prompts'), {
 			command: 'show-prompts',
 		});
+		assert.deepStrictEqual(parseDebugCommand('//export-diagnostics'), {
+			command: 'export-diagnostics',
+		});
 	});
 
 	it('parses a command with a file path', () => {
@@ -31,6 +34,10 @@ describe('parseDebugCommand', () => {
 		assert.deepStrictEqual(parseDebugCommand('//show-prompts prompts.json'), {
 			command: 'show-prompts',
 			filePath: 'prompts.json',
+		});
+		assert.deepStrictEqual(parseDebugCommand('//export-diagnostics bug1-real.json'), {
+			command: 'export-diagnostics',
+			filePath: 'bug1-real.json',
 		});
 	});
 

@@ -71,6 +71,19 @@ export interface GraphNodeTiming {
 	durationMs: number;
 }
 
+export type GraphNodeTrace =
+	| (GraphNodeTiming & {
+		status: 'completed';
+		inputState: ClassMateGraphState;
+		state: ClassMateGraphState;
+	})
+	| (GraphNodeTiming & {
+		status: 'failed';
+		inputState: ClassMateGraphState;
+		state: ClassMateGraphState;
+		error: { name: string; message: string; stack?: string };
+	});
+
 export interface InitialRoute {
 	requestType: RequestType;
 	confidence: number;

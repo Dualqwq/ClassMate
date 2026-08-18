@@ -52,6 +52,7 @@ import type {
 	ClassMateGraphState,
 	ClassMateRequest,
 	ContextRequest,
+	GraphNodeTrace,
 	GraphNodeTiming,
 	InitialRoute,
 	ProblemConstraints,
@@ -88,6 +89,7 @@ export interface ClassMateGraphServices {
 	onAnswerToken?: (token: string) => void;
 	onProgress?: (node: string, message: string) => void;
 	onDebug?: (event: string, data: unknown) => void;
+	onNodeTrace?: (trace: GraphNodeTrace) => void;
 }
 
 export interface ClassMateGraphResult {
@@ -224,6 +226,14 @@ function pathIsUnsafe(value: string): boolean {
 export class ClassMateGraphRunner {
 	constructor(private readonly _services: ClassMateGraphServices) {}
 
+	private _emitNodeTrace(trace: GraphNodeTrace): void {
+		try {
+			this._services.onNodeTrace?.(trace);
+		} catch (error) {
+			console.warn('ClassMate graph node diagnostics trace failed:', error);
+		}
+	}
+
 	public async run(request: ClassMateRequest): Promise<ClassMateGraphResult> {
 		const graphStartedAt = Date.now();
 		const initial: ClassMateGraphState = {
@@ -343,16 +353,36 @@ export class ClassMateGraphRunner {
 				durationMs: Date.now() - startedAt,
 			};
 			this._services.onDebug?.('graph_node_timing', timing);
-			return nextState(result, {
+			const completed = nextState(result, {
 				nodeTimings: [...(result.value.nodeTimings ?? previousTimings), timing],
 			});
+			this._emitNodeTrace({
+				...timing,
+				status: 'completed',
+				inputState: state.value,
+				state: completed.value,
+			});
+			return completed;
 		} catch (error) {
-			this._services.onDebug?.('graph_node_failed_timing', {
+			const normalizedError = error instanceof Error
+				? { name: error.name, message: error.message, stack: error.stack }
+				: { name: 'Error', message: String(error) };
+			const timing: GraphNodeTiming = {
 				node,
 				sequence,
 				startedAt,
 				durationMs: Date.now() - startedAt,
-				error: error instanceof Error ? error.message : String(error),
+			};
+			this._services.onDebug?.('graph_node_failed_timing', {
+				...timing,
+				error: normalizedError.message,
+			});
+			this._emitNodeTrace({
+				...timing,
+				status: 'failed',
+				inputState: state.value,
+				state: state.value,
+				error: normalizedError,
 			});
 			throw error;
 		}

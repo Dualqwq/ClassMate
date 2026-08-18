@@ -10,6 +10,7 @@ import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
 import type { ChatReference, LLMConfig, MessageIntent, PersistedChatData } from './chat/types';
+import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
@@ -791,6 +792,21 @@ export function activate(
 	const workspaceId = getWorkspaceId();
 	const debugStore = new DebugJourneyStore(context, workspaceId);
 	chatSession.setDebugStore(debugStore, sessionId, workspaceId);
+	const diagnosticRecorder = new ConversationDiagnosticRecorder(
+		vscode.Uri.joinPath(
+			context.globalStorageUri,
+			'conversation-diagnostics',
+			workspaceId,
+			`${sessionId}.jsonl`
+		).fsPath,
+		{ sessionId, workspaceId }
+	);
+	chatSession.setDiagnosticRecorder(diagnosticRecorder, {
+		extensionVersion: String(context.extension.packageJSON.version ?? 'unknown'),
+		workspaceFolders: vscode.workspace.workspaceFolders?.map(
+			(folder) => folder.uri.fsPath
+		) ?? [],
+	});
 
 	// Track the last known source text per file to detect meaningful edits.
 	const lastKnownSource = new Map<string, string>();
@@ -1045,6 +1061,23 @@ export function activate(
 		{
 			id: 'classmate.exportDebugNotebook',
 			handler: () => void exportDebugNotebookHandler(context, debugStore),
+		},
+		{
+			id: 'classmate.exportConversationDiagnostics',
+			handler: async (...args: unknown[]) => {
+				const outputPath = typeof args[0] === 'string' ? args[0] : undefined;
+				const options = typeof args[1] === 'object' && args[1] !== null
+					? args[1] as { reveal?: boolean }
+					: undefined;
+				try {
+					return await chatSession.exportDiagnostics(outputPath, options);
+				} catch (error) {
+					void vscode.window.showErrorMessage(
+						`ClassMate: 对话诊断导出失败：${error instanceof Error ? error.message : String(error)}`
+					);
+					throw error;
+				}
+			},
 		},
 		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) },
 	];

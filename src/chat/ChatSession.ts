@@ -25,6 +25,7 @@ import {
 import type { ConversationWorkspaceContext } from '../graph/types';
 import { AdapterGraphModelClient } from '../graph/modelClient';
 import type { GraphModelClient } from '../graph/modelClient';
+import type { GraphModelTrace } from '../graph/modelClient';
 import { addTokenUsage } from '../llm/tokenUsage';
 import { looksLikeCodeEditRequest } from './codeEditIntent';
 import type { LoadedWorkspaceItem } from '../workspace/types';
@@ -33,6 +34,8 @@ import {
 	type ReferenceExtractionFile,
 } from './answerReferenceSanitizer';
 import { extractAnswerReferences } from './answerReferenceExtractor';
+import type { ConversationDiagnosticBundle } from './conversationDiagnostics';
+import { ConversationDiagnosticRecorder } from './conversationDiagnostics';
 
 const HINT_INTENTS: MessageIntent[] = [
 	'hint',
@@ -90,6 +93,11 @@ export class ChatSession {
 	private _lastPromptsDebug: Record<string, LLMRequest['messages']> = {};
 	/** 调试输出文件的固定落点(开发态为项目根下的 log,由 extension.ts 注入),不随工作区变化。 */
 	private _debugOutputDir?: string;
+	private _diagnosticRecorder?: ConversationDiagnosticRecorder;
+	private _diagnosticMetadata?: {
+		extensionVersion: string;
+		workspaceFolders: string[];
+	};
 
 	private async _buildKnowledgeCardsContent(): Promise<string> {
 		if (!this._debugStore) {
@@ -322,6 +330,61 @@ export class ChatSession {
 	/** 注入调试输出目录(扩展激活时设为 `<扩展项目根>/log`,开发态即 智理杯/log)。 */
 	public setDebugOutputDir(fsPath: string): void {
 		this._debugOutputDir = fsPath;
+	}
+
+	public setDiagnosticRecorder(
+		recorder: ConversationDiagnosticRecorder,
+		metadata: { extensionVersion: string; workspaceFolders: string[] }
+	): void {
+		this._diagnosticRecorder = recorder;
+		this._diagnosticMetadata = metadata;
+	}
+
+	private _recordDiagnostic(
+		type: Parameters<ConversationDiagnosticRecorder['record']>[0]['type'],
+		context: { conversationId?: string; requestId?: string },
+		data: unknown
+	): void {
+		try {
+			this._diagnosticRecorder?.record({
+				type,
+				conversationId: context.conversationId,
+				requestId: context.requestId,
+				data,
+			});
+		} catch (error) {
+			console.warn('ClassMate conversation diagnostics record failed:', error);
+		}
+	}
+
+	public async exportDiagnostics(
+		filePath?: string,
+		options: { reveal?: boolean } = {}
+	): Promise<ConversationDiagnosticBundle> {
+		if (!this._diagnosticRecorder || !this._diagnosticMetadata) {
+			throw new Error('ClassMate conversation diagnostics are not initialized.');
+		}
+		this._saveActiveConversation();
+		const defaultName = `classmate-conversation-diagnostics-${new Date()
+			.toISOString()
+			.replace(/[:.]/g, '-')}.json`;
+		const uri = this._resolveDebugOutputUri(filePath ?? defaultName);
+		const bundle = await this._diagnosticRecorder.exportTo(uri.fsPath, {
+			extensionVersion: this._diagnosticMetadata.extensionVersion,
+			provider: this._llmConfig?.provider,
+			model: this._llmConfig?.model,
+			workspaceFolders: this._diagnosticMetadata.workspaceFolders,
+			activeConversationId: this._state.activeConversationId,
+			conversations: [...this._conversationRecords.values()],
+		});
+		if (options.reveal !== false) {
+			const document = await vscode.workspace.openTextDocument(uri);
+			await vscode.window.showTextDocument(document, { preview: true });
+			void vscode.window.showInformationMessage(
+				`ClassMate: 已导出 ${bundle.conversations.length} 段对话和 ${bundle.events.length} 条诊断事件。`
+			);
+		}
+		return bundle;
 	}
 
 	private async _insertDebugLog(userText: string, filePath?: string): Promise<void> {
@@ -871,9 +934,21 @@ export class ChatSession {
 		answer: string,
 		loadedItems: LoadedWorkspaceItem[],
 		model: GraphModelClient,
-		signal?: AbortSignal
+		signal?: AbortSignal,
+		diagnosticContext: { conversationId: string; requestId: string } = {
+			conversationId: this._state.activeConversationId,
+			requestId: 'unknown',
+		}
 	): Promise<void> {
 		if (!answer.trim() || loadedItems.length === 0) {
+			this._recordDiagnostic('reference_extraction_completed', diagnosticContext, {
+				messageId,
+				answer,
+				loadedItems,
+				files: [],
+				references: [],
+				skipped: !answer.trim() ? 'empty_answer' : 'no_loaded_workspace_files',
+			});
 			return;
 		}
 		const files = buildReferenceExtractionInput(loadedItems);
@@ -886,9 +961,23 @@ export class ChatSession {
 				signal,
 			});
 			this._setMessageReferences(messageId, references);
+			this._recordDiagnostic('reference_extraction_completed', diagnosticContext, {
+				messageId,
+				answer,
+				loadedItems,
+				files,
+				references,
+			});
 		} catch (error) {
 			console.warn('ClassMate answer reference extraction failed:', error);
 			this._clearReferenceExtractionPending(messageId);
+			this._recordDiagnostic('reference_extraction_failed', diagnosticContext, {
+				messageId,
+				answer,
+				loadedItems,
+				files,
+				error,
+			});
 		}
 	}
 
@@ -1018,6 +1107,16 @@ export class ChatSession {
 			await this._insertPromptsDebug(userText, debugCommand.filePath);
 			return;
 		}
+		if (debugCommand?.command === 'export-diagnostics') {
+			try {
+				await this.exportDiagnostics(debugCommand.filePath);
+			} catch (error) {
+				void vscode.window.showErrorMessage(
+					`ClassMate: 对话诊断导出失败：${error instanceof Error ? error.message : String(error)}`
+				);
+			}
+			return;
+		}
 
 		let messages: LLMRequest['messages'] = [];
 		try {
@@ -1069,6 +1168,52 @@ export class ChatSession {
 			this._graphAbortController = controller;
 			const graphRequestId = this._generateId();
 			const graphStartedAt = Date.now();
+			const graphConversationId = this._state.activeConversationId;
+			const previousWorkspaceContext = this._conversationWorkspaceContexts.get(
+				graphConversationId
+			);
+			const history = this._getConversationHistory()
+				.filter((message): message is typeof message & { role: 'user' | 'assistant' } =>
+					message.role === 'user' || message.role === 'assistant'
+				)
+				.map((message) => ({
+					role: message.role,
+					content: message.content,
+					images: message.images,
+					attachments: message.attachments,
+				}));
+			const activeEditor = vscode.window.activeTextEditor;
+			this._recordDiagnostic('turn_started', {
+				conversationId: graphConversationId,
+				requestId: graphRequestId,
+			}, {
+				assistantMessageId: assistantMessage.id,
+				userText,
+				frontendIntent,
+				requestSource: frontendIntent && frontendIntent !== 'chat'
+					? 'button'
+					: 'conversation',
+				conversationHistory: history,
+				previousWorkspaceContext,
+				llmConfig: cfg,
+				workspaceFolders: vscode.workspace.workspaceFolders?.map((folder) => ({
+					name: folder.name,
+					uri: folder.uri.toString(),
+				})) ?? [],
+				activeEditor: activeEditor ? {
+					uri: activeEditor.document.uri.toString(),
+					languageId: activeEditor.document.languageId,
+					version: activeEditor.document.version,
+					isDirty: activeEditor.document.isDirty,
+					content: activeEditor.document.getText(),
+					selection: {
+						startLine: activeEditor.selection.start.line + 1,
+						startCharacter: activeEditor.selection.start.character + 1,
+						endLine: activeEditor.selection.end.line + 1,
+						endCharacter: activeEditor.selection.end.character + 1,
+					},
+				} : undefined,
+			});
 			this._onPerformanceTrace?.('request_started', {
 				requestId: graphRequestId,
 				startedAt: graphStartedAt,
@@ -1094,6 +1239,16 @@ export class ChatSession {
 				});
 			}, (messages, label) => {
 				this._lastPromptsDebug[label ?? 'unknown'] = messages;
+			}, (trace: GraphModelTrace) => {
+				const type = trace.phase === 'request'
+					? 'model_request'
+					: trace.phase === 'response'
+						? 'model_response'
+						: 'model_error';
+				this._recordDiagnostic(type, {
+					conversationId: graphConversationId,
+					requestId: graphRequestId,
+				}, trace);
 			});
 			const runner = new ClassMateGraphRunner({
 				...this._graphServices,
@@ -1120,26 +1275,32 @@ export class ChatSession {
 				},
 				onDebug: (event, data) => {
 					console.debug(`[ClassMate graph] ${event}`, data);
+					this._recordDiagnostic('graph_debug', {
+						conversationId: graphConversationId,
+						requestId: graphRequestId,
+					}, { event, data });
 					this._onPerformanceTrace?.(event, {
 						requestId: graphRequestId,
 						data,
 					});
 				},
+				onNodeTrace: (trace) => {
+					this._recordDiagnostic(
+						trace.status === 'completed'
+							? 'graph_node_completed'
+							: 'graph_node_failed',
+						{
+							conversationId: graphConversationId,
+							requestId: graphRequestId,
+						},
+						trace
+					);
+				},
 			});
 			try {
-				const history = this._getConversationHistory()
-					.filter((message): message is typeof message & { role: 'user' | 'assistant' } =>
-						message.role === 'user' || message.role === 'assistant'
-					)
-					.map((message) => ({
-						role: message.role,
-						content: message.content,
-						images: message.images,
-						attachments: message.attachments,
-					}));
 				const result = await runner.run({
 					requestId: graphRequestId,
-					conversationId: this._state.activeConversationId,
+					conversationId: graphConversationId,
 					userText,
 					frontendIntent,
 					requestSource: frontendIntent && frontendIntent !== 'chat'
@@ -1149,13 +1310,11 @@ export class ChatSession {
 						? frontendIntent
 						: undefined,
 					conversationHistory: history,
-					previousWorkspaceContext: this._conversationWorkspaceContexts.get(
-						this._state.activeConversationId
-					),
+					previousWorkspaceContext,
 				});
 				if (result.state.conversationWorkspaceContext) {
 					this._conversationWorkspaceContexts.set(
-						this._state.activeConversationId,
+						graphConversationId,
 						result.state.conversationWorkspaceContext
 					);
 				}
@@ -1191,15 +1350,49 @@ export class ChatSession {
 				if (editTarget) {
 					this._attachProposedEdit(assistantMessage.id, editTarget);
 				}
+				this._recordDiagnostic('turn_completed', {
+					conversationId: graphConversationId,
+					requestId: graphRequestId,
+				}, {
+					answer: result.answer,
+					state: result.state,
+					totalDurationMs: result.totalDurationMs,
+					nodeTimings: result.nodeTimings,
+					usage: graphUsage,
+					usageByNode: graphUsageByNode,
+					assistantMessage: this._state.messages.find(
+						(message) => message.id === assistantMessage.id
+					),
+				});
 				// 流已结束(finally 里 endStream),后台异步提取代码引用,不阻塞收尾。
 				void this._extractAndAttachReferences(
 					assistantMessage.id,
 					result.answer,
 					result.state.loadedWorkspaceItems,
 					model,
-					controller.signal
+					controller.signal,
+					{
+						conversationId: graphConversationId,
+						requestId: graphRequestId,
+					}
 				);
 			} catch (error) {
+				this._recordDiagnostic(
+					controller.signal.aborted ? 'turn_cancelled' : 'turn_failed',
+					{
+						conversationId: graphConversationId,
+						requestId: graphRequestId,
+					},
+					{
+						error,
+						totalDurationMs: Date.now() - graphStartedAt,
+						usage: graphUsage,
+						usageByNode: graphUsageByNode,
+						assistantMessage: this._state.messages.find(
+							(message) => message.id === assistantMessage.id
+						),
+					}
+				);
 				if (!controller.signal.aborted) {
 					const message = error instanceof Error ? error.message : String(error);
 					console.error('ClassMate graph error:', error);

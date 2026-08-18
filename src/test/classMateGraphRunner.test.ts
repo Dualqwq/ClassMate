@@ -212,6 +212,106 @@ describe('ClassMate LangGraph runner', () => {
 		assert.deepStrictEqual(progressNodes, result.nodeTimings.map((timing) => timing.node));
 	});
 
+	it('traces the complete state after every executed graph node', async () => {
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return { content: mergedPlan('concept_explanation', [{
+						target: 'main.cpp',
+						required: true,
+						reason: 'inspect code',
+					}]) };
+				}
+				return { content: '这段函数把变量加一。' };
+			},
+		};
+		const minimal: MinimalWorkspaceContext = {
+			catalog: {
+				files: [{
+					path: 'main.cpp',
+					uri: 'file:///main.cpp',
+					kind: 'code',
+					size: 20,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+				activeEditor: {
+					fileName: 'main.cpp',
+					uri: 'file:///main.cpp',
+					languageId: 'cpp',
+				},
+			},
+		};
+		const services = createServices(model, minimal, async () => [{
+			path: 'main.cpp',
+			kind: 'code',
+			content: 'void f() { value++; }',
+			contentHash: 'main-hash',
+			reason: 'test',
+		}]);
+		const traces: Array<{
+			status: string;
+			node: string;
+			sequence: number;
+			inputState: { request: { requestId: string } };
+			state?: { workspaceSnapshot?: { snapshotId: string }; answer?: string };
+		}> = [];
+		services.onNodeTrace = (trace) => traces.push(trace);
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'node-trace',
+			conversationId: 'conversation-node-trace',
+			userText: '解释 main.cpp',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(traces.length, result.nodeTimings.length);
+		assert.ok(traces.every((trace) => trace.status === 'completed'));
+		assert.ok(traces.every((trace) => trace.inputState.request.requestId === 'node-trace'));
+		assert.deepStrictEqual(
+			traces.map((trace) => `${trace.node}#${trace.sequence}`),
+			result.nodeTimings.map((timing) => `${timing.node}#${timing.sequence}`)
+		);
+		const frozen = traces.find((trace) => trace.node === 'freeze_context');
+		assert.ok(frozen?.state?.workspaceSnapshot?.snapshotId);
+		const final = traces.at(-1);
+		assert.strictEqual(final?.state?.answer, result.state.answer);
+	});
+
+	it('does not fail the graph when a node trace sink throws', async () => {
+		const originalWarn = console.warn;
+		console.warn = () => undefined;
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				return text.includes('ClassMate RouteAndPlan Mode')
+					? { content: mergedPlan('concept_explanation') }
+					: { content: '图回答仍然可用。' };
+			},
+		};
+		const services = createServices(
+			model,
+			{ catalog: { files: [], questionFiles: [] } },
+			async () => []
+		);
+		services.onNodeTrace = () => { throw new Error('diagnostic sink failed'); };
+
+		try {
+			const result = await new ClassMateGraphRunner(services).run({
+				requestId: 'trace-sink-failure',
+				conversationId: 'trace-sink-failure',
+				userText: '解释指针',
+				requestSource: 'conversation',
+				conversationHistory: [],
+			});
+			assert.strictEqual(result.answer, '图回答仍然可用。');
+		} finally {
+			console.warn = originalWarn;
+		}
+	});
+
 	it('calls the problem identifier once and supplies one matched card as optional answer context', async () => {
 		let identifierCalls = 0;
 		const model: GraphModelClient = {
