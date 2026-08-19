@@ -18,6 +18,7 @@ import type {
 	MinimalWorkspaceContext,
 	WorkspaceContextSnapshot,
 } from '../workspace/types';
+import type { WorkspaceChange, WorkspaceVersionIndex } from '../workspace/workspaceVersionIndex';
 
 export type RequestType =
 	| 'chat'
@@ -249,6 +250,14 @@ export interface ClassMateGraphState {
 	routeAndPlanWorkspacePreview: LoadedWorkspaceItem[];
 	loadedWorkspaceItems: LoadedWorkspaceItem[];
 	workspaceSnapshot?: WorkspaceContextSnapshot;
+	/** 冻结时的整个可加载工作区版本;回答交付前用它复核是否漂移。 */
+	workspaceVersionIndex?: WorkspaceVersionIndex;
+	/** 交付前复核发现的工作区漂移(创建/修改/删除/重命名)。 */
+	workspaceDriftChanges?: WorkspaceChange[];
+	/** 因工作区漂移已经重建上下文并重生成的次数。 */
+	workspaceDriftRetryCount: number;
+	/** verify_workspace 本步刚完成重载、下一步应重建回答的瞬时标记。 */
+	workspaceDriftRegenerate: boolean;
 	conversationWorkspaceContext?: ConversationWorkspaceContext;
 	problemConstraints?: ProblemConstraints;
 	constraintExtractionDegraded: boolean;

@@ -21,8 +21,16 @@ import { retrieveSkillCandidates } from '../skill/skillGraphRetriever';
 import type { SkillSectionExtractor } from '../skill/skillSectionExtractor';
 import type { SkillCandidate } from '../skill/types';
 import type { WorkspaceContextLoader } from '../workspace/workspaceContextLoader';
+import {
+	buildWorkspaceVersionIndex,
+	diffWorkspaceVersions,
+} from '../workspace/workspaceVersionIndex';
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
-import type { LoadedWorkspaceItem } from '../workspace/types';
+import type {
+	LoadedWorkspaceItem,
+	MinimalWorkspaceContext,
+	WorkspaceCatalog,
+} from '../workspace/types';
 import { buildWorkspaceSnapshot } from '../workspace/workspaceSnapshotBuilder';
 import {
 	assessAssignmentWorkspace,
@@ -254,6 +262,8 @@ export class ClassMateGraphRunner {
 			correctnessCheckRequired: false,
 			answerMessages: [],
 			answerRetryCount: 0,
+			workspaceDriftRetryCount: 0,
+			workspaceDriftRegenerate: false,
 			answerDelivered: false,
 			nodeTimings: [],
 		};
@@ -283,6 +293,8 @@ export class ClassMateGraphRunner {
 				this._measureNode('answer', state, () => this._answer(state)))
 			.addNode('validate', (state) =>
 				this._measureNode('validate', state, () => this._validate(state)))
+			.addNode('verify_workspace', (state) =>
+				this._measureNode('verify_workspace', state, () => this._verifyWorkspace(state)))
 			.addNode('correctness_check', (state) =>
 				this._measureNode('correctness_check', state, () => this._correctnessCheck(state)))
 			.addEdge(START, 'prepare')
@@ -303,6 +315,16 @@ export class ClassMateGraphRunner {
 					&& !state.value.answerDelivered
 					&& state.value.answerRetryCount <= MAX_ANSWER_RETRIES
 					? 'answer'
+					: 'verify_workspace'
+			)
+			.addConditionalEdges('verify_workspace', (state) =>
+				// 复核发现漂移且回答未流出:已重建快照,按新工作区重生成一次。
+				// workspaceDriftRegenerate 是本步刚重载的瞬时标记,
+				// 由 build_answer_prompt 消费,避免第二次经过时再次路由回去。
+				state.value.workspaceDriftRegenerate
+					&& !state.value.answerDelivered
+					&& !state.value.answerValidation?.shouldRegenerate
+					? 'build_answer_prompt'
 					: 'correctness_check'
 			)
 			.addConditionalEdges('correctness_check', (state) =>
@@ -1178,6 +1200,10 @@ export class ClassMateGraphRunner {
 				current.minimalWorkspaceContext!,
 				current.loadedWorkspaceItems
 			),
+			workspaceVersionIndex: buildWorkspaceVersionIndex(
+				current.minimalWorkspaceContext!.catalog,
+				current.loadedWorkspaceItems
+			),
 			answerContextFrozen: true,
 		});
 	}
@@ -1275,7 +1301,12 @@ export class ClassMateGraphRunner {
 			userText: current.request.userText,
 			conversationHistory: current.request.conversationHistory,
 		});
-		return nextState(state, { answerMessages: messages });
+		// 消费漂移重生成标记:本轮回答基于重载后的快照,标记复位后
+		// 再次经过 verify_workspace 不会重复路由回来。
+		return nextState(state, {
+			answerMessages: messages,
+			workspaceDriftRegenerate: false,
+		});
 	}
 
 	private async _answer(state: WrappedState): Promise<WrappedState> {
@@ -1360,6 +1391,111 @@ export class ClassMateGraphRunner {
 			onToken(characters.slice(index, index + 48).join(''));
 		}
 		return true;
+	}
+
+	/**
+	 * 回答交付前的工作区复核:重新读取 catalog,对比冻结时的版本索引和
+	 * 已加载条目的新鲜度。发现漂移且回答尚未流出时,重载涉及的文件并
+	 * 重建快照,回到 build_answer_prompt 按新版本重生成一次(只重试一次,
+	 * 防止学生在生成期间持续编辑造成循环)。回答已流出或已用掉重试时,
+	 * 只记录漂移事件,不丢弃回答。
+	 */
+	private async _verifyWorkspace(state: WrappedState): Promise<WrappedState> {
+		const current = state.value;
+		if (!current.workspaceVersionIndex || !current.workspaceSnapshot) {
+			return state;
+		}
+		let freshMinimal: MinimalWorkspaceContext | undefined;
+		try {
+			freshMinimal = await this._services.workspaceProvider.getMinimalContext();
+		} catch (error) {
+			this._services.onDebug?.('workspace_verify_catalog_degraded', String(error));
+			return state;
+		}
+		const freshCatalog = freshMinimal.catalog;
+		const changes = diffWorkspaceVersions(
+			current.workspaceVersionIndex,
+			buildWorkspaceVersionIndex(freshCatalog, [])
+		);
+		const staleLoaded = current.loadedWorkspaceItems.filter((item) =>
+			!this._services.workspaceLoader.isItemFresh(freshCatalog, item)
+		);
+		const drifted = changes.length > 0 || staleLoaded.length > 0;
+		if (!drifted) {
+			return state;
+		}
+		this._services.onDebug?.('workspace_drift_detected', {
+			changes,
+			staleLoadedPaths: staleLoaded.map((item) => item.path),
+			delivered: current.answerDelivered,
+			retryUsed: current.workspaceDriftRetryCount > 0,
+		});
+		const canRegenerate = !current.answerDelivered
+			&& current.workspaceDriftRetryCount === 0
+			&& staleLoaded.length > 0;
+		if (!canRegenerate) {
+			return nextState(state, {
+				workspaceDriftChanges: changes.length > 0
+					? changes
+					: staleLoaded.map((item) => ({
+						kind: 'modified' as const,
+						path: item.path,
+					})),
+			});
+		}
+		try {
+			const targets = new Set(staleLoaded.map((item) =>
+				item.path.replace(/\\/g, '/').toLocaleLowerCase()
+			));
+			const requests = current.routeAndPlanResult?.workspaceRequests
+				.filter((request) => targets.has(
+					request.target.replace(/\\/g, '/').toLocaleLowerCase()
+				))
+				?? [];
+			const reloadTargets = requests.length > 0
+				? requests
+				: [...targets].map((target) => ({
+					source: 'workspace' as const,
+					target,
+					required: false,
+					reason: 'Reload after workspace drift.',
+				}));
+			const reloaded = await this._services.workspaceLoader.load(
+				freshCatalog,
+				reloadTargets
+			);
+			const byPath = new Map(current.loadedWorkspaceItems.map((item) => [
+				item.path.replace(/\\/g, '/').toLocaleLowerCase(),
+				item,
+			]));
+			for (const item of reloaded) {
+				byPath.set(item.path.replace(/\\/g, '/').toLocaleLowerCase(), item);
+			}
+			const loadedWorkspaceItems = [...byPath.values()];
+			const minimalWorkspaceContext: MinimalWorkspaceContext = {
+				...current.minimalWorkspaceContext!,
+				catalog: freshCatalog,
+			};
+			return nextState(state, {
+				minimalWorkspaceContext,
+				loadedWorkspaceItems,
+				workspaceSnapshot: buildWorkspaceSnapshot(
+					minimalWorkspaceContext,
+					loadedWorkspaceItems
+				),
+				workspaceVersionIndex: buildWorkspaceVersionIndex(
+					freshCatalog,
+					loadedWorkspaceItems
+				),
+				workspaceDriftChanges: changes,
+				workspaceDriftRetryCount: current.workspaceDriftRetryCount + 1,
+				workspaceDriftRegenerate: true,
+				answerValidation: undefined,
+			});
+		} catch (error) {
+			this._services.onDebug?.('workspace_drift_reload_degraded', String(error));
+			return state;
+		}
 	}
 
 	/**

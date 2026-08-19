@@ -29,7 +29,7 @@ function createGraph(): SkillGraph {
 }
 
 function mergedPlan(
-	requestType: 'concept_explanation' | 'runtime_error_help' | 'problem_hint',
+	requestType: 'concept_explanation' | 'runtime_error_help' | 'problem_hint' | 'code_edit',
 	workspaceRequests: Array<{
 		target: string;
 		section?: string | null;
@@ -203,6 +203,199 @@ describe('ClassMate LangGraph runner', () => {
 		));
 	});
 
+	it('regenerates a buffered answer once when the workspace drifts before delivery', async () => {
+		const debugEvents: Array<{ event: string; data: unknown }> = [];
+		// 第一次 Answer 生成时工作区是 v1;在 verify_workspace 复核前,
+		// provider 换成 v2(hash 变化),期望:重载 + 基于新内容的回答。
+		let workspaceContent = 'int value = 1;';
+		let workspaceHash = 'hash-v1';
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return {
+						content: mergedPlan('code_edit', [{
+							target: 'monster.h',
+							section: null,
+							required: true,
+							reason: '读取目标文件',
+						}]),
+					};
+				}
+				if (text.includes('ClassMate Correctness Check Mode')) {
+					return { content: JSON.stringify({ p: true, s: 'none', i: [] }) };
+				}
+				if (text.includes('ClassMate Problem Constraint Mode')) {
+					return { content: JSON.stringify({ h: [], o: [], l: [], e: [], u: [] }) };
+				}
+				// Answer:根据当前 prompt 里冻结的内容给出可区分、且能通过
+				// code_edit 校验(恰好一个完整代码块)的回答。
+				return text.includes('int value = 2;')
+					? { content: '先补上新的取值:\n\n```cpp\nint takeTurn(int v) {\n    int value = 2;\n    return value;\n}\n```' }
+					: { content: '先看旧的取值:\n\n```cpp\nint takeTurn(int v) {\n    int value = 1;\n    return value;\n}\n```' };
+			},
+		};
+		const makeMinimal = (): MinimalWorkspaceContext => ({
+			catalog: {
+				files: [{
+					path: 'monster.h',
+					uri: 'file:///monster.h',
+					kind: 'code',
+					size: workspaceContent.length,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+			},
+		});
+		let loadCalls = 0;
+		const services = createServices(model, makeMinimal(), async () => {
+			loadCalls++;
+			return [{
+				path: 'monster.h',
+				kind: 'code',
+				content: workspaceContent,
+				contentHash: workspaceHash,
+				reason: 'test',
+			}];
+		});
+		// provider 每次返回"当前"目录状态;Answer 第一次生成后切换到 v2。
+		let phase = 'before-answer';
+		(services.workspaceProvider as {
+			getMinimalContext: () => Promise<MinimalWorkspaceContext>;
+		}).getMinimalContext = async () => {
+			if (phase === 'before-answer') {
+				// prepare/route 阶段用 v1;Answer 生成完成后切 v2 模拟学生保存。
+				return makeMinimal();
+			}
+			return {
+				...makeMinimal(),
+				catalog: {
+					...makeMinimal().catalog,
+					files: [{
+						path: 'monster.h',
+						uri: 'file:///monster.h',
+						kind: 'code',
+						size: 13,
+						modifiedAt: 2,
+					}],
+				},
+			};
+		};
+		const realModel = services.model;
+		(services as { model: GraphModelClient }).model = {
+			async complete(messages: LLMMessage[], options?: Parameters<GraphModelClient["complete"]>[1]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate Answer Mode')) {
+					// 第一次 Answer 完成后进入漂移窗口。
+					const result = await realModel.complete(messages, options);
+					phase = 'after-answer';
+					workspaceContent = 'int value = 2;';
+					workspaceHash = 'hash-v2';
+					return result;
+				}
+				return realModel.complete(messages, options);
+			},
+		};
+		(services.workspaceLoader as unknown as {
+			isItemFresh: (catalog: unknown, item: { contentHash: string }) => boolean;
+		}).isItemFresh = (_catalog, item) => item.contentHash === workspaceHash;
+		services.onDebug = (event, data) => debugEvents.push({ event, data });
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'drift-retry',
+			conversationId: 'conversation-drift',
+			userText: '怎么改 monster.h',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.ok(result.answer.includes('int value = 2;'), '必须基于重载后的新内容重生成');
+		assert.strictEqual(result.state.workspaceDriftRetryCount, 1);
+		assert.ok(debugEvents.some((item) => item.event === 'workspace_drift_detected'));
+	});
+
+	it('records drift without regenerating once the answer has streamed out', async () => {
+		const debugEvents: Array<{ event: string; data: unknown }> = [];
+		let workspaceHash = 'hash-v1';
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return {
+						content: mergedPlan('concept_explanation', [{
+							target: 'note.md',
+							section: null,
+							required: true,
+							reason: '读取用户笔记',
+						}]),
+					};
+				}
+				return { content: '已经流式展示的回答。' };
+			},
+		};
+		const minimal: MinimalWorkspaceContext = {
+			catalog: {
+				files: [{
+					path: 'note.md',
+					uri: 'file:///note.md',
+					kind: 'text',
+					size: 20,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+			},
+		};
+		const services = createServices(model, minimal, async () => [{
+			path: 'note.md',
+			kind: 'text',
+			content: 'note',
+			contentHash: 'hash-v1',
+			reason: 'test',
+		}]);
+		// 回答通过 onAnswerToken 流出 → 不能静默重生成。
+		let streamed = false;
+		services.onAnswerToken = () => {
+			streamed = true;
+		};
+		(services.workspaceLoader as unknown as {
+			isItemFresh: (catalog: unknown, item: { contentHash: string }) => boolean;
+		}).isItemFresh = (_catalog, item) => item.contentHash === workspaceHash;
+		services.onDebug = (event, data) => debugEvents.push({ event, data });
+		// Answer 完成后模拟学生编辑未保存缓冲区:isItemFresh 变为 false。
+		// 概念回答走流式路径:mock 在返回前把内容按 token 交给 onToken,
+		// 对齐真实适配器的流式行为(answerDelivered 因此为 true)。
+		const realModel = services.model;
+		(services as { model: GraphModelClient }).model = {
+			async complete(messages: LLMMessage[], options?: Parameters<GraphModelClient["complete"]>[1]) {
+				const result = await realModel.complete(messages, options);
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate Answer Mode')) {
+					for (const token of result.content.split(/(?<=。)/)) {
+						options?.onToken?.(token);
+					}
+					workspaceHash = 'hash-v2';
+				}
+				return result;
+			},
+		};
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'drift-streamed',
+			conversationId: 'conversation-drift-streamed',
+			userText: '什么是指针？',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(result.answer, '已经流式展示的回答。');
+		assert.ok(streamed);
+		assert.strictEqual(result.state.workspaceDriftRetryCount, 0);
+		assert.ok(debugEvents.some((item) => item.event === 'workspace_drift_detected'));
+		assert.ok((result.state.workspaceDriftChanges ?? []).some((change) =>
+			change.path === 'note.md'
+		));
+	});
+
 	it('plans once, loads context once, retrieves selected Skill, and answers', async () => {
 		let routeAndPlanCalls = 0;
 		let workspaceLoadCalls = 0;
@@ -284,6 +477,7 @@ describe('ClassMate LangGraph runner', () => {
 				'build_answer_prompt',
 				'answer',
 				'validate',
+				'verify_workspace',
 				'correctness_check',
 			]
 		);
