@@ -217,7 +217,15 @@ export function buildGroundingRetryInstruction(
 	conflicts: GroundingConflict[],
 	symbols: CppSymbol[]
 ): string {
+	const seenTargets = new Set<string>();
 	const facts = conflicts
+		.filter((claim) => {
+			if (seenTargets.has(claim.targetId)) {
+				return false;
+			}
+			seenTargets.add(claim.targetId);
+			return true;
+		})
 		.map((claim) => conflictFactSentence(claim, symbols))
 		.join('；');
 	return [
@@ -232,12 +240,21 @@ export function buildGroundingRetryInstruction(
 /**
  * 本地事实提示:重生成仍冲突或无法重生成时的最终兜底。
  * 由程序事实确定性生成,含道歉措辞,不出现内部术语。
+ * 同一符号的多条冲突只陈述一次事实。
  */
 export function buildGroundedLocalHint(
 	conflicts: GroundingConflict[],
 	symbols: CppSymbol[]
 ): string {
+	const seenTargets = new Set<string>();
 	const facts = conflicts
+		.filter((claim) => {
+			if (seenTargets.has(claim.targetId)) {
+				return false;
+			}
+			seenTargets.add(claim.targetId);
+			return true;
+		})
 		.map((claim) => conflictFactSentence(claim, symbols))
 		.join('；');
 	return [

@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import {
+	buildGroundedLocalHint,
 	checkAnswerGrounding,
 	type GroundingClaim,
 } from '../chat/answerGroundingValidator';
@@ -177,3 +178,13 @@ describe('grounding claim phrasing from run7 (真实措辞回归)', () => {
 		assert.strictEqual(result.passed, true);
 	});
 });
+
+	it('states each symbol fact once even when one sentence triggers multiple claim kinds', () => {
+		const conflicts = [
+			{ kind: 'comment_only' as const, targetId: 'sym:monster.h:Monster:takeTurn', symbolName: 'takeTurn', statedFact: 'comment_only' as const, actualFact: 'active' as const, sentence: 's1' },
+			{ kind: 'empty' as const, targetId: 'sym:monster.h:Monster:takeTurn', symbolName: 'takeTurn', statedFact: 'empty' as const, actualFact: 'active' as const, sentence: 's1' },
+		];
+		const hint = buildGroundedLocalHint(conflicts, [ACTIVE_TAKE_TURN]);
+		const occurrences = hint.split('takeTurn`（monster.h 第 26–31 行）').length - 1;
+		assert.strictEqual(occurrences, 1, '同一符号只陈述一次事实');
+	});
