@@ -31,6 +31,7 @@ import { looksLikeCodeEditRequest } from './codeEditIntent';
 import type { LoadedWorkspaceItem } from '../workspace/types';
 import {
 	buildReferenceExtractionInput,
+	stripContractNotation,
 	type ReferenceExtractionFile,
 } from './answerReferenceSanitizer';
 import { extractAnswerReferences } from './answerReferenceExtractor';
@@ -951,11 +952,14 @@ export class ChatSession {
 			});
 			return;
 		}
-		const files = buildReferenceExtractionInput(loadedItems);
+		// 防御:回退提取只针对自然行文正文;引用契约的标记/链接尾巴
+		// 若混进缓冲路径,先剥离再提取(正常契约路径不会走到这里)。
+		const cleanAnswer = stripContractNotation(answer);
+		const files = buildReferenceExtractionInput(loadedItems, cleanAnswer);
 		this._setReferenceExtractionPending(messageId);
 		this._setMessageReferenceDebug(messageId, files);
 		try {
-			const references = await extractAnswerReferences(answer, loadedItems, {
+			const references = await extractAnswerReferences(cleanAnswer, loadedItems, {
 				model,
 				workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri,
 				signal,
@@ -1032,6 +1036,12 @@ export class ChatSession {
 				this.deleteConversation(message.conversationId);
 				break;
 			case 'openReference':
+				if (message.inferred) {
+					this._recordDiagnostic('reference_link_opened', {
+						conversationId: this._state.activeConversationId,
+						requestId: 'unknown',
+					}, { inferred: true, reference: message.reference });
+				}
 				this._onOpenReference?.(message.reference);
 				break;
 			case 'applyProposedEdit':
@@ -1257,6 +1267,9 @@ export class ChatSession {
 			});
 			const runner = new ClassMateGraphRunner({
 				...this._graphServices,
+				// 引用契约需要真实根路径生成可点击 URI;每轮求值,
+				// 避免记住激活时刻的旧根目录。
+				workspaceRootUri: vscode.workspace.workspaceFolders?.[0]?.uri.toString(),
 				model,
 				signal: controller.signal,
 				onAnswerToken: (token) => {

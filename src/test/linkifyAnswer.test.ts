@@ -1,134 +1,35 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { linkifyAnswer, transformReferenceUrl } from '../chat/linkifyAnswer';
-import type { ChatReference } from '../chat/types';
+import { tokenizeMarkdown, transformReferenceUrl } from '../chat/linkifyAnswer';
 
-function makeRef(partial: Partial<ChatReference> & { uri: string; label: string }): ChatReference {
-	return { startLine: undefined, symbol: undefined, ...partial };
-}
-
-describe('linkifyAnswer', () => {
-	it('returns the content unchanged when there are no references', () => {
-		assert.strictEqual(linkifyAnswer('hello sort', []), 'hello sort');
-	});
-
-	it('links every occurrence of a unique symbol with the symbol as label', () => {
-		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
-		const out = linkifyAnswer('sort 有 bug,看看 sort 的实现', refs);
-		assert.strictEqual(
-			out,
-			'[sort](classmate-ref://0) 有 bug,看看 [sort](classmate-ref://0) 的实现'
-		);
-	});
-
-	it('does not link bare symbols that have multiple targets (宁缺毋滥)', () => {
-		const refs = [
-			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' }),
-			makeRef({ uri: 'file:///helper.cpp', label: 'helper.cpp', symbol: 'sort' }),
-		];
-		const out = linkifyAnswer('sort 到底在哪个文件', refs);
-		assert.strictEqual(out, 'sort 到底在哪个文件');
-	});
-
-	it('links file:line mentions with their natural label', () => {
-		const refs = [
-			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', startLine: 12, symbol: 'sort' }),
-		];
-		const out = linkifyAnswer('看 main.cpp:12 的 sort', refs);
-		assert.strictEqual(
-			out,
-			'看 [main.cpp:12](classmate-ref://0) 的 [sort](classmate-ref://0)'
-		);
-	});
-
-	it('links single-symbol inline code, skips code blocks and existing links', () => {
-		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
+describe('tokenizeMarkdown', () => {
+	it('splits code blocks, inline code, links and plain text', () => {
 		const content = [
 			'```cpp',
 			'sort(a, n);',
 			'```',
-			'用 `sort` 排序',
-			'代码段 `sort(a, n);` 不链',
-			'详见 [sort 文档](https://example.com)',
+			'用 `sort` 排序,链接 [`sort`](classmate-ref://0) 与补链 [`sort`](classmate-ref://0?i)。',
 		].join('\n');
-		const out = linkifyAnswer(content, refs);
-		assert.ok(out.includes('```cpp\nsort(a, n);\n```'), '代码块内不链接');
-		assert.ok(out.includes('用 [`sort`](classmate-ref://0) 排序'), '单个符号的行内代码应链接并保留反引号');
-		assert.ok(out.includes('`sort(a, n);`'), '非单一标识符的行内代码保持代码样式');
-		assert.ok(out.includes('[sort 文档](https://example.com)'), '已有链接不修改');
-	});
-
-	it('does not link ambiguous symbols inside inline code', () => {
-		const refs = [
-			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' }),
-			makeRef({ uri: 'file:///helper.cpp', label: 'helper.cpp', symbol: 'sort' }),
-		];
-		assert.strictEqual(linkifyAnswer('用 `sort` 排序', refs), '用 `sort` 排序');
-	});
-
-	it('does not link symbols preceded by std:: but links the bare symbol', () => {
-		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
-		assert.strictEqual(
-			linkifyAnswer('用 std::sort 排序,而 sort 是我们自己写的', refs),
-			'用 std::sort 排序,而 [sort](classmate-ref://0) 是我们自己写的'
+		const segments = tokenizeMarkdown(content);
+		assert.deepStrictEqual(
+			segments.map((segment) => segment.kind),
+			['code-block', 'plain', 'inline-code', 'plain', 'link', 'plain', 'link', 'plain']
 		);
 	});
 
-	it('links class type names like functions', () => {
-		const refs = [makeRef({ uri: 'file:///player.h', label: 'player.h', symbol: 'Player' })];
-		assert.strictEqual(
-			linkifyAnswer('`Player` 类定义在 player.h', refs),
-			'[`Player`](classmate-ref://0) 类定义在 player.h'
-		);
-	});
-
-	it('links qualified names inside inline code', () => {
-		const refs = [makeRef({ uri: 'file:///monster.h', label: 'monster.h', symbol: 'takeTurn' })];
-		assert.strictEqual(
-			linkifyAnswer('这段代码是 `Monster::takeTurn` 函数', refs),
-			'这段代码是 [`Monster::takeTurn`](classmate-ref://0) 函数'
-		);
-	});
-
-	it('links multi-level qualified names by their last segment', () => {
-		const refs = [makeRef({ uri: 'file:///a.h', label: 'a.h', symbol: 'run' })];
-		assert.strictEqual(
-			linkifyAnswer('调用 `ns::Module::run`', refs),
-			'调用 [`ns::Module::run`](classmate-ref://0)'
-		);
-	});
-
-	it('does not link std:: qualified names inside inline code', () => {
-		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
-		assert.strictEqual(linkifyAnswer('用 `std::sort` 排序', refs), '用 `std::sort` 排序');
-	});
-
-	it('does not link qualified names whose last segment is ambiguous', () => {
-		const refs = [
-			makeRef({ uri: 'file:///player.h', label: 'player.h', symbol: 'printStatus' }),
-			makeRef({ uri: 'file:///monster.h', label: 'monster.h', symbol: 'printStatus' }),
-		];
-		assert.strictEqual(
-			linkifyAnswer('`Player::printStatus` 方法', refs),
-			'`Player::printStatus` 方法'
-		);
-	});
-
-	it('file:line mention wins over an overlapping bare symbol', () => {
-		const refs = [
-			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', startLine: 12, symbol: 'main' }),
-		];
-		const out = linkifyAnswer('main.cpp:12 里的 main 函数', refs);
-		assert.strictEqual(
-			out,
-			'[main.cpp:12](classmate-ref://0) 里的 [main](classmate-ref://0) 函数'
+	it('keeps an unclosed code fence as one trailing segment', () => {
+		const segments = tokenizeMarkdown('前文 ```cpp int x = 1;');
+		assert.deepStrictEqual(
+			segments.map((segment) => segment.kind),
+			['plain', 'code-block']
 		);
 	});
 });
 
 describe('transformReferenceUrl', () => {
-	it('preserves classmate-ref links', () => {
+	it('preserves classmate-ref links with and without the inferred suffix', () => {
 		assert.strictEqual(transformReferenceUrl('classmate-ref://0'), 'classmate-ref://0');
+		assert.strictEqual(transformReferenceUrl('classmate-ref://0?i'), 'classmate-ref://0?i');
 	});
 
 	it('keeps safe protocols untouched', () => {

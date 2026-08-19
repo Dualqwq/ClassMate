@@ -1,25 +1,15 @@
-import type { ChatReference } from './types';
-
 interface Segment {
 	text: string;
 	kind: 'plain' | 'code-block' | 'inline-code' | 'link';
 }
 
-function escapeRegExp(text: string): string {
-	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function basename(uri: string): string {
-	return uri.split(/[\\/]/).pop() ?? uri;
-}
-
-/** 与 react-markdown 默认白名单一致,保证自定义消毒不改变其余行为。 */
+/**
+ * react-markdown 的 urlTransform:放行 classmate-ref://(含渲染层补链的
+ * ?i 后缀),其余交给默认安全规则(未知协议置空,避免 LLM 输出里的可疑
+ * scheme 进入 DOM)。
+ */
 const SAFE_PROTOCOL = /^(https?|ircs?|mailto|xmpp)$/i;
 
-/**
- * react-markdown 的 urlTransform:放行 classmate-ref://,其余交给默认安全规则
- * (未知协议置空,避免 LLM 输出里的可疑 scheme 进入 DOM)。
- */
 export function transformReferenceUrl(value: string): string {
 	if (value.startsWith('classmate-ref://')) {
 		return value;
@@ -40,8 +30,12 @@ export function transformReferenceUrl(value: string): string {
 	return '';
 }
 
-/** markdown 感知切分:代码块、行内代码、已有链接原样保留,其余为正文。 */
-function tokenizeMarkdown(content: string): Segment[] {
+/**
+ * markdown 感知切分:代码块、行内代码、已有链接(含 classmate-ref://N 与
+ * 带 ?i 后缀的形态)原样保留,其余为正文。展示层补链
+ * (answerReferenceRenderer)与旧提取路径共用本切分。
+ */
+export function tokenizeMarkdown(content: string): Segment[] {
 	const segments: Segment[] = [];
 	let i = 0;
 	while (i < content.length) {
@@ -88,132 +82,4 @@ function tokenizeMarkdown(content: string): Segment[] {
 		i = next;
 	}
 	return segments;
-}
-
-interface LinkRange {
-	start: number;
-	end: number;
-	label: string;
-	refIndex: number;
-}
-
-function linkifyPlain(
-	text: string,
-	references: ChatReference[],
-	uniqueSymbols: Set<string>
-): string {
-	const ranges: LinkRange[] = [];
-	references.forEach((reference, index) => {
-		if (reference.startLine !== undefined) {
-			const file = basename(reference.uri);
-			const pattern = new RegExp(`\\b${escapeRegExp(file)}:${reference.startLine}\\b`, 'g');
-			let m: RegExpExecArray | null;
-			while ((m = pattern.exec(text)) !== null) {
-				ranges.push({
-					start: m.index,
-					end: m.index + m[0].length,
-					label: m[0],
-					refIndex: index,
-				});
-			}
-		}
-		if (reference.symbol && uniqueSymbols.has(reference.symbol)) {
-			// std:: 限定的标准库符号(如 std::sort)不链用户代码,避免误链。
-			const pattern = new RegExp(
-				`(?<!std::)\\b${escapeRegExp(reference.symbol)}\\b`,
-				'g'
-			);
-			let m: RegExpExecArray | null;
-			while ((m = pattern.exec(text)) !== null) {
-				ranges.push({
-					start: m.index,
-					end: m.index + m[0].length,
-					label: m[0],
-					refIndex: index,
-				});
-			}
-		}
-	});
-	if (ranges.length === 0) {
-		return text;
-	}
-	ranges.sort((a, b) => a.start - b.start || b.end - a.end);
-	const accepted: LinkRange[] = [];
-	for (const range of ranges) {
-		const last = accepted[accepted.length - 1];
-		if (last && range.start < last.end) {
-			continue; // 与已接受区间重叠(如 文件:行 优先于裸符号)
-		}
-		accepted.push(range);
-	}
-	let out = '';
-	let cursor = 0;
-	for (const range of accepted) {
-		out += text.slice(cursor, range.start);
-		out += `[${range.label}](classmate-ref://${range.refIndex})`;
-		cursor = range.end;
-	}
-	out += text.slice(cursor);
-	return out;
-}
-
-/** 行内代码段:内容恰好是单个可链符号时,保留反引号成链(渲染层借此保持代码 chip 观感);否则保持代码样式。 */
-function linkifyInlineCode(
-	segment: string,
-	references: ChatReference[],
-	uniqueSymbols: Set<string>
-): string {
-	const inner = segment.slice(1, -1).trim();
-	const single = /^[A-Za-z_]\w*$/.exec(inner);
-	const qualified = /^[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+$/.exec(inner);
-	if (!single && !qualified) {
-		return segment;
-	}
-	const symbol = single ? single[0] : inner.split('::').pop()!;
-	if (inner.split('::')[0] === 'std') {
-		return segment; // std:: 标准库符号不链用户代码
-	}
-	if (!uniqueSymbols.has(symbol)) {
-		return segment;
-	}
-	const refIndex = references.findIndex((reference) => reference.symbol === symbol);
-	if (refIndex === -1) {
-		return segment;
-	}
-	return `[\`${inner}\`](classmate-ref://${refIndex})`;
-}
-
-/**
- * 把回答正文里的代码提及变成内联链接(仅渲染层使用,不改动原始内容)。
- * 跳过代码块与已有链接;行内代码里"恰好是单个符号"的提及也会链接;
- * 裸符号只在目标唯一时链接(宁缺毋滥)。
- */
-export function linkifyAnswer(content: string, references: ChatReference[]): string {
-	if (references.length === 0) {
-		return content;
-	}
-	const symbolCounts = new Map<string, number>();
-	for (const reference of references) {
-		if (!reference.symbol) {
-			continue;
-		}
-		symbolCounts.set(reference.symbol, (symbolCounts.get(reference.symbol) ?? 0) + 1);
-	}
-	const uniqueSymbols = new Set<string>();
-	for (const [symbol, count] of symbolCounts) {
-		if (count === 1) {
-			uniqueSymbols.add(symbol);
-		}
-	}
-	return tokenizeMarkdown(content)
-		.map((segment) => {
-			if (segment.kind === 'plain') {
-				return linkifyPlain(segment.text, references, uniqueSymbols);
-			}
-			if (segment.kind === 'inline-code') {
-				return linkifyInlineCode(segment.text, references, uniqueSymbols);
-			}
-			return segment.text;
-		})
-		.join('');
 }

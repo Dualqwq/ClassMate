@@ -31,6 +31,7 @@ import {
 	type Bug1EvalCheckpoint,
 	type Bug1EvalResult,
 } from '../eval/bug1Review';
+import { summarizeReferenceLinks } from '../chat/answerReferenceRenderer';
 import {
 	openBug1WorkspaceScenario,
 	type Bug1AppliedMutation,
@@ -319,6 +320,8 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 			try {
 				const result = await new ClassMateGraphRunner({
 					workspaceProvider,
+					// 数据集工作区根,让引用契约生成指向真实文件的 URI。
+					workspaceRootUri: vscode.Uri.file(workspacePath).toString(),
 					workspaceLoader: new WorkspaceContextLoader(),
 					skillContentLoader,
 					skillGraphLoader: new SkillGraphLoader(skillContentLoader),
@@ -358,6 +361,11 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					answer: result.answer,
 					status: 'success',
 					deliveryOutcome: result.state.answerOutcome ?? 'answered',
+					// 分层度量:证词层(模型标记链接)与展示层(inferred 补链)分开计数。
+					answerReferenceStats: {
+						references: result.state.answerReferences?.length ?? 0,
+						...summarizeReferenceLinks(result.answer),
+					},
 					startedAt,
 					firstTokenMs,
 					totalDurationMs: Date.now() - startedAtMs,

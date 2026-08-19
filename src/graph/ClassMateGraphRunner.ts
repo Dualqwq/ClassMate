@@ -98,6 +98,12 @@ export interface ClassMateGraphServices {
 	problemCardIndexLoader: ProblemCardIndexLoader;
 	problemCardExtractor: ProblemCardExtractor;
 	problemCardFactsLoader: ProblemCardFactsLoader;
+	/**
+	 * 当前工作区根目录的 URI 字符串(vscode.workspace.workspaceFolders[0])。
+	 * 引用契约用它把符号的相对路径拼成可点击的真实文件 URI;
+	 * 缺失时标记降级为行内代码,不生成链接。
+	 */
+	workspaceRootUri?: string;
 	model: GraphModelClient;
 	signal?: AbortSignal;
 	onAnswerToken?: (token: string) => void;
@@ -1417,7 +1423,8 @@ export class ClassMateGraphRunner {
 			? finalizeAnswerReferences(
 				answer,
 				current.workspaceSymbols.symbols,
-				new Map(current.loadedWorkspaceItems.map((item) => [item.path, item.contentHash]))
+				new Map(current.loadedWorkspaceItems.map((item) => [item.path, item.contentHash])),
+				{ workspaceRootUri: this._services.workspaceRootUri }
 			)
 			: undefined;
 		if (finalized && finalized.issues.length > 0) {

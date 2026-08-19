@@ -258,3 +258,69 @@ describe('Answer prompt source-grounding safeguards', () => {
 		assert.match(snapshot, /\n   1 \| int a\(\) \{ return 1; \}/);
 	});
 });
+
+describe('Answer prompt reference-target contract block', () => {
+	function buildWithTargets() {
+		return new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'concept_explanation',
+				depthLevel: 2,
+				responsePattern: ['definition'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'concept_explanation',
+					concepts: ['class'],
+					purposes: ['definition'],
+					learnerLevel: 'beginner',
+					hintLevel: 2,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'class guidance',
+			workspaceSnapshot: {
+				snapshotId: 'snap-1',
+				createdAt: 1,
+				minimal: {
+					catalog: { files: [], questionFiles: [] },
+				},
+				loadedItems: [{
+					path: 'monster.h',
+					kind: 'code',
+					content: 'class Monster { void takeTurn() {} };',
+					contentHash: 'hash',
+					reason: 'active',
+				}],
+			},
+			referenceTargets: [{
+				targetId: 'sym:monster.h:Monster:takeTurn',
+				file: 'monster.h',
+				name: 'takeTurn',
+				kind: 'method',
+				startLine: 26,
+			}],
+			userText: 'takeTurn 是干什么的?',
+			conversationHistory: [],
+		});
+	}
+
+	it('requires marking EVERY occurrence of a symbol, not just the first mention', () => {
+		const prompt = buildWithTargets().map((message) => message.content).join('\n');
+		assert.match(prompt, /EVERY occurrence/);
+		assert.doesNotMatch(prompt, /first mention/);
+	});
+
+	it('shows an example where the same symbol is marked twice', () => {
+		const prompt = buildWithTargets().map((message) => message.content).join('\n');
+		const markerRegex = /\{\{ref:sym:monster\.h:Monster:takeTurn\|takeTurn\}\}/g;
+		const count = (prompt.match(markerRegex) ?? []).length;
+		assert.ok(
+			count >= 2,
+			`示例必须展示同一符号被标记两次,实际出现 ${count} 次`
+		);
+	});
+});

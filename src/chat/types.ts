@@ -130,7 +130,7 @@ export type WebviewToExtensionMessage =
 	| { type: 'newConversation' }
 	| { type: 'switchConversation'; conversationId: string }
 	| { type: 'deleteConversation'; conversationId: string }
-	| { type: 'openReference'; reference: ChatReference }
+	| { type: 'openReference'; reference: ChatReference; inferred?: boolean }
 	| { type: 'applyProposedEdit'; messageId: string }
 	| { type: 'cancelResponse' };
 

@@ -8,6 +8,7 @@ import {
 	hasSymbolOnLine,
 	inferSymbolKind,
 	sanitizeAnswerReferences,
+	stripContractNotation,
 	scanSymbols,
 	type ExtractedReference,
 } from '../chat/answerReferenceSanitizer';
@@ -244,5 +245,24 @@ describe('answerReferenceSanitizer', () => {
 		const line = helper!.lines[0];
 		assert.ok(line.text.length <= 101, `line text too long: ${line.text.length}`);
 		assert.ok(line.text.endsWith('…'));
+	});
+});
+
+describe('contract marker defense (旧提取路径防御)', () => {
+	it('strips {{ref:}} markers and classmate-ref link tails from the answer before extraction', () => {
+		const answer = [
+			'你看 {{ref:sym:monster.h:Monster:takeTurn|takeTurn}} 函数,',
+			'再看 [`sort`](classmate-ref://0) 与补链 [`sort`](classmate-ref://1?i),',
+			'普通文字 sort 保留。',
+		].join('');
+		const cleaned = stripContractNotation(answer);
+		assert.ok(!cleaned.includes('{{ref:'));
+		assert.ok(!cleaned.includes('classmate-ref://'));
+		assert.strictEqual(cleaned, '你看 `takeTurn` 函数,再看 `sort` 与补链 `sort`,普通文字 sort 保留。');
+	});
+
+	it('returns plain answers unchanged', () => {
+		const answer = '看看 sort 的第 3 行,行内代码 `sort(a, n);` 原样保留。';
+		assert.strictEqual(stripContractNotation(answer), answer);
 	});
 });

@@ -51,6 +51,12 @@ export interface Bug1EvalResult {
 	answer: string;
 	status: 'success' | 'failed';
 	deliveryOutcome: Bug1DeliveryOutcome;
+	/** 分层度量:证词层(模型标记)与展示层(inferred 补链)分开计数。 */
+	answerReferenceStats?: {
+		references: number;
+		modelMarkedLinks: number;
+		inferredLinks: number;
+	};
 	error?: string;
 	startedAt: string;
 	firstTokenMs?: number;
@@ -189,6 +195,11 @@ const evalResultSchema = z.object({
 		'provider_error',
 		'cancelled',
 	]),
+	answerReferenceStats: z.object({
+		references: z.number().nonnegative(),
+		modelMarkedLinks: z.number().nonnegative(),
+		inferredLinks: z.number().nonnegative(),
+	}).optional(),
 	error: z.string().optional(),
 	startedAt: z.string().min(1),
 	firstTokenMs: z.number().nonnegative().optional(),
@@ -274,6 +285,7 @@ function caseIdentity(result: Bug1EvalResult): unknown {
 		mustAvoid: result.mustAvoid,
 		mutations: result.mutations,
 		workspaceEvidence: result.workspaceEvidence,
+		answerReferenceStats: result.answerReferenceStats,
 	};
 }
 

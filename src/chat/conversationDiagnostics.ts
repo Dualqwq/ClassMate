@@ -12,6 +12,7 @@ export type ConversationDiagnosticEventType =
 	| 'graph_node_failed'
 	| 'reference_extraction_completed'
 	| 'reference_extraction_failed'
+	| 'reference_link_opened'
 	| 'turn_completed'
 	| 'turn_failed'
 	| 'turn_cancelled';

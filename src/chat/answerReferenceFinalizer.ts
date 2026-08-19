@@ -20,7 +20,10 @@ export interface FinalizedAnswer {
 	/** 标记已替换为链接/行内代码的 Markdown;不含任何 {{ref: 残留。 */
 	markdown: string;
 	references: ChatReference[];
-	issues: Array<{ kind: 'unknown_target' | 'stale_hash'; targetId: string }>;
+	issues: Array<{
+		kind: 'unknown_target' | 'stale_hash' | 'missing_root';
+		targetId: string;
+	}>;
 }
 
 export function buildReferenceTargetCatalog(
@@ -58,9 +61,16 @@ function symbolToReference(
 	symbol: CppSymbol,
 	workspaceRootUri: string
 ): ChatReference {
+	// URI 编码对齐 vscode.Uri.joinPath:根去尾斜杠,相对路径逐段 encodeURIComponent,
+	// 空格等特殊字符在链接里保持 %XX 形态,打开时与旧提取路径行为一致。
+	const root = workspaceRootUri.replace(/\/+$/, '');
+	const relative = symbol.file
+		.split('/')
+		.map((segment) => encodeURIComponent(segment))
+		.join('/');
 	return {
 		label: symbol.name,
-		uri: `${workspaceRootUri}/${symbol.file}`,
+		uri: `${root}/${relative}`,
 		startLine: symbol.startLine,
 		endLine: symbol.endLine,
 		symbol: symbol.name,
@@ -75,7 +85,7 @@ export function finalizeAnswerReferences(
 	options?: { workspaceRootUri?: string }
 ): FinalizedAnswer {
 	const byTargetId = new Map(symbols.map((symbol) => [symbol.targetId, symbol]));
-	const root = options?.workspaceRootUri ?? 'file:///w';
+	const root = options?.workspaceRootUri;
 	const references: ChatReference[] = [];
 	const issues: FinalizedAnswer['issues'] = [];
 
@@ -89,11 +99,17 @@ export function finalizeAnswerReferences(
 			issues.push({ kind: 'stale_hash', targetId });
 			return `\`${label}\``;
 		}
+		if (!root) {
+			// 无真实工作区根路径时宁可降级为行内代码,也不产出
+			// 指向不存在文件的链接(点击只会失败)。
+			issues.push({ kind: 'missing_root', targetId });
+			return `\`${label}\``;
+		}
 		const refIndex = references.findIndex((reference) =>
 			reference.symbol === symbol.name && reference.startLine === symbol.startLine
 		);
 		if (refIndex === -1) {
-			references.push(symbolToReference(symbol, root));
+			references.push(symbolToReference(symbol, root!));
 			return `[\`${label}\`](classmate-ref://${references.length - 1})`;
 		}
 		return `[\`${label}\`](classmate-ref://${refIndex})`;

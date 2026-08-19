@@ -20,6 +20,7 @@ export class AnswerReferencePromptBuilder {
 			'You are given the final teaching answer and the workspace files it may refer to.',
 			'Extract EVERY concrete code symbol the answer mentions explicitly: functions, member variables, class/struct/type names, base classes, and qualified names like X::Y.',
 			'Rules:',
+			'- Ignore any {{ref:...}} marker syntax and any classmate-ref:// link tails in the answer text; they are rendering artifacts, not mentions. Extract only real code-symbol mentions written in natural prose.',
 			'- "f" must be one of the given file paths. When a symbol exists in multiple files, use the answer context to pick the file (e.g., "从基类 Creature 继承的名字" points at creature.h; base-class members and base types resolve to the base class file).',
 			'- "s" is the symbol name — a function, class/struct/type, member variable, or other identifier.',
 			'- The student-facing answer was written against numbered file blocks: line numbers are 1-based file lines (e.g. "第 3 行" means the third line of the file).',

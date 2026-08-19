@@ -44,3 +44,14 @@ describe('AnswerReferencePromptBuilder', () => {
 		);
 	});
 });
+
+	it('tells the extractor to ignore contract markers and reference links in the answer', () => {
+		const messages = new AnswerReferencePromptBuilder().build({
+			answer: '看 {{ref:sym:monster.h:Monster:takeTurn|takeTurn}} 与 [`sort`](classmate-ref://0)',
+			files: [],
+		});
+		const system = messages[0].content;
+		assert.match(system, /\{\{ref:/);
+		assert.match(system, /classmate-ref:\/\//);
+		assert.match(system, /Ignore any|ignore any/);
+	});

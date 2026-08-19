@@ -4,7 +4,8 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatReference } from '../../../src/chat/types';
-import { linkifyAnswer, transformReferenceUrl } from '../../../src/chat/linkifyAnswer';
+import { inferenceLinkifyAnswer } from '../../../src/chat/answerReferenceRenderer';
+import { transformReferenceUrl } from '../../../src/chat/linkifyAnswer';
 import { sendMessage } from '../vscodeApi';
 
 interface MarkdownRendererProps {
@@ -42,9 +43,10 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 };
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, references }) => {
-	// 只在引用就绪后(流结束后)叠加内联链接,流式期间保持纯文本渲染。
+	// 只在引用就绪后(流结束后)叠加 inferred 补链(行内代码 + 唯一匹配),
+	// 流式期间保持纯文本渲染;模型标记的链接已在正文里,不受影响。
 	const displayContent =
-		references && references.length > 0 ? linkifyAnswer(content, references) : content;
+		references && references.length > 0 ? inferenceLinkifyAnswer(content, references) : content;
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm]}
@@ -88,11 +90,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, ref
 				},
 				a({ children, href }) {
 					if (href?.startsWith('classmate-ref://')) {
-						const index = Number(href.slice('classmate-ref://'.length));
+						// ?i 后缀 = 渲染层保守补链(inferred);点击行为与模型标记链接一致,
+						// 元数据随消息带给宿主做分层诊断。
+						const match = /^classmate-ref:\/\/(\d+)(\?i)?$/.exec(href);
+						const index = match ? Number(match[1]) : Number(href.slice('classmate-ref://'.length));
+						const inferred = match?.[2] === '?i';
 						const reference = references?.[index];
 						const openReference = () => {
 							if (reference) {
-								sendMessage({ type: 'openReference', reference });
+								sendMessage({ type: 'openReference', reference, inferred });
 							}
 						};
 						return (

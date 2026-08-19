@@ -65,7 +65,7 @@ describe('answer reference finalizer', () => {
 		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
 			['monster.h', 'hash-a'],
 			['util.h', 'hash-b'],
-		]));
+		]), { workspaceRootUri: 'file:///c%3A/Users/dev/ws' });
 
 		assert.strictEqual(result.markdown.includes('[`takeTurn`](classmate-ref://0)'), true);
 		assert.strictEqual(result.markdown.includes('[`sort`](classmate-ref://1)'), true);
@@ -77,9 +77,39 @@ describe('answer reference finalizer', () => {
 		assert.ok(!result.markdown.includes('{{ref:'));
 		// 引用清单由标记生成:目标文件/行号/符号kind 正确。
 		assert.strictEqual(result.references.length, 2);
-		assert.strictEqual(result.references[0].uri, 'file:///w/monster.h');
+		assert.strictEqual(result.references[0].uri, 'file:///c%3A/Users/dev/ws/monster.h');
 		assert.strictEqual(result.references[0].startLine, 26);
 		assert.strictEqual(result.references[0].kind, 'func');
+	});
+
+	it('degrades every marker to inline code when no workspace root is available', () => {
+		// 无真实根路径时宁可不给链接,也不产出指向不存在文件的 file:///w 链接。
+		const answer = '看 {{ref:sym:monster.h:Monster:takeTurn|takeTurn}}';
+		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
+			['monster.h', 'hash-a'],
+		]));
+		assert.ok(!result.markdown.includes('classmate-ref://'), '缺根路径时不得生成链接');
+		assert.ok(result.markdown.includes('`takeTurn`'), '保留行内代码样式');
+		assert.deepStrictEqual(result.references, []);
+		assert.deepStrictEqual(result.issues.map((issue) => issue.kind), ['missing_root']);
+	});
+
+	it('encodes workspace-relative paths into the final URI', () => {
+		const symbols: CppSymbol[] = [{
+			targetId: 'sym:src/my util.cpp::helper',
+			file: 'src/my util.cpp',
+			name: 'helper',
+			kind: 'function',
+			startLine: 3,
+			endLine: 5,
+		}];
+		const result = finalizeAnswerReferences(
+			'调用 {{ref:sym:src/my util.cpp::helper|helper}}',
+			symbols,
+			new Map([['src/my util.cpp', 'hash-x']]),
+			{ workspaceRootUri: 'file:///root/' }
+		);
+		assert.strictEqual(result.references[0].uri, 'file:///root/src/my%20util.cpp');
 	});
 
 	it('degrades invalid or stale-hash markers to plain code text without links', () => {

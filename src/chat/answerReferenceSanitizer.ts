@@ -275,6 +275,20 @@ export function buildReferenceExtractionInput(
  * 确定性校验:文件白名单 → 符号存在性 → 行号一致性(±5) → kind 轻量校验。
  * 宁缺毋滥:任何一步不满足就丢弃或回退,不产生可疑链接。
  */
+/**
+ * 旧提取路径防御:回退提取只应看到"自然行文正文"。引用契约的
+ * {{ref:targetId|name}} 标记与 [`x`](classmate-ref://N[?i]) 链接尾巴
+ * 不是学生的自然提及,剥掉后再做符号匹配,避免链接尾巴被当成
+ * 行号信号或把标记语法本身当成提及。
+ */
+export function stripContractNotation(answer: string): string {
+	return answer
+		.replace(/\{\{ref:([^|}]+)\|([^}]+)\}\}/g, (_match, _targetId: string, label: string) =>
+			`\`${label}\``)
+		.replace(/\[(`[^`]*`|[^[\]]*)\]\(classmate-ref:\/\/\d+(?:\?i)?\)/g, (_match, label: string) =>
+			label.length > 0 ? label : '');
+}
+
 export function sanitizeAnswerReferences(
 	candidates: ExtractedReference[],
 	loadedItems: LoadedWorkspaceItem[]
