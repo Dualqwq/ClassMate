@@ -266,3 +266,19 @@ describe('contract marker defense (旧提取路径防御)', () => {
 		assert.strictEqual(stripContractNotation(answer), answer);
 	});
 });
+
+	it('strips refblock markers and rendered source lines too', () => {
+		const answer = [
+			'```cpp',
+			'int x;',
+			'```',
+			'*来源: [`takeTurn`](classmate-ref://0) · monster.h:26–31*',
+			'{{refblock:sym:monster.h:Monster:takeTurn}}',
+			'正文 `takeTurn` 保留。',
+		].join('\n');
+		const cleaned = stripContractNotation(answer);
+		assert.ok(!cleaned.includes('*来源:'));
+		assert.ok(!cleaned.includes('{{refblock:'));
+		assert.ok(!cleaned.includes('classmate-ref://'));
+		assert.ok(cleaned.includes('正文 `takeTurn` 保留。'));
+	});

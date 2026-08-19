@@ -49,6 +49,8 @@ export interface ChatMessage {
 
 export interface ChatContextSummary {
 	workspaceFiles: string[];
+	/** 本轮实际加载的 C/C++ 代码文件相对路径;渲染层文件名补链目录。 */
+	codeFiles?: string[];
 }
 
 export interface ChatImage {

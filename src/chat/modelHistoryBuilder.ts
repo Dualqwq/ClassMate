@@ -3,9 +3,11 @@ import { estimateTokens } from '../workspace/contextPolicy';
 /**
  * 模型可见历史的裁剪规则:
  * - UI 历史原样保留,这里只决定"发给模型什么";
- * - 文件 hash 变化后,旧 assistant 消息里的代码块与实现状态结论不再是证据:
- *   代码块整体移除(不留半截 fence),状态声明替换为占位说明;
- * - 文件没变时历史一字不动;
+ * - 成品引用链接(classmate-ref://)与来源行**无条件**剥成行内代码:历史里
+ *   出现这些会让模型模仿着自编裸链接(死链),无论文件是否变化(run3 实证);
+ * - 文件 hash 变化后,旧 assistant 消息里的多行代码块与实现状态结论不再是
+ *   证据:代码块整体移除(连同其来源行,不留半截 fence),状态声明替换为占位说明;
+ * - 文件没变时历史一字不动(除防模仿清洗);
  * - token 预算从最旧整轮开始裁,最新一轮永不裁。
  */
 export const MODEL_HISTORY_TOKEN_BUDGET = 8_000;
@@ -46,9 +48,32 @@ function anyReferencedFileChanged(input: ModelHistoryInput, message: string): bo
 	);
 }
 
+const FINISHED_LINK_PATTERN =
+	/\[(`[^`]*`|[^[\]]*)\]\(classmate-ref:\/\/\d+(?:\?i)?\)/g;
+const SOURCE_LINE_PATTERN = /^\*来源:.*$\n?/gm;
+/** refblock 残留(模型写了对齐标记但 finalizer 未接,或历史迁移残留)。 */
+const REFBLOCK_REMNANT_PATTERN = /\{\{refblock:[^}\s]*\}\}\n?/g;
+
+/**
+ * 防模仿清洗(无条件,所有 assistant 轮):历史里的成品链接/来源行对模型是
+ * "可以这么写链接"的示范,run3 实证模型会照抄出指向空清单的死链。
+ * 剥成行内代码文字后,教学语义保留、格式示范消失。
+ */
+function stripContractArtifacts(content: string): string {
+	return content
+		.replace(REFBLOCK_REMNANT_PATTERN, '')
+		.replace(FINISHED_LINK_PATTERN, (_match, label: string) =>
+			label.startsWith('`') ? label : `\`${label}\``)
+		.replace(SOURCE_LINE_PATTERN, '')
+		.replace(/\n{3,}/g, '\n\n');
+}
+
 function stripStaleCodeBlocks(content: string): string {
-	// 整块移除 fenced code block;块外文字保留。
-	return content.replace(/```[\s\S]*?```/g, '').replace(/\n{3,}/g, '\n\n').trim();
+	// 整块移除 fenced code block(含紧随其后的来源行);块外文字保留。
+	return content
+		.replace(/```[\s\S]*?```(\n\*来源:[^\n]*\n?)?/g, '')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim();
 }
 
 function replaceStaleStateClaims(content: string): string {
@@ -85,8 +110,13 @@ export function buildModelVisibleHistory(input: ModelHistoryInput): Array<{
 	const turnReferences = (index: number): string[] | undefined =>
 		input.history[index - (index % 2 === 0 ? 0 : 1) + 1]?.referenceFiles;
 	const cleaned = input.history.map((message, index) => {
-		if (message.role !== 'assistant' || !workspaceChanged) {
+		if (message.role !== 'assistant') {
 			return message;
+		}
+		// 防模仿清洗无条件执行(与文件变化无关)。
+		if (!workspaceChanged) {
+			const sanitized = stripContractArtifacts(message.content);
+			return sanitized === message.content ? message : { ...message, content: sanitized };
 		}
 		// 精确绑定:referenceFiles 里任一文件 hash 变化才清洗。
 		const preciseFiles = turnReferences(index);
@@ -105,7 +135,7 @@ export function buildModelVisibleHistory(input: ModelHistoryInput): Array<{
 		const withoutCode = stripStaleCodeBlocks(message.content);
 		return {
 			...message,
-			content: replaceStaleStateClaims(withoutCode),
+			content: replaceStaleStateClaims(stripContractArtifacts(withoutCode)),
 		};
 	});
 

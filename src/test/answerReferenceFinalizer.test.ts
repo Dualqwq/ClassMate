@@ -112,6 +112,65 @@ describe('answer reference finalizer', () => {
 		assert.strictEqual(result.references[0].uri, 'file:///root/src/my%20util.cpp');
 	});
 
+	it('converts refblock source markers after fenced code blocks into visible source lines', () => {
+		const answer = [
+			'改成这样:',
+			'',
+			'```cpp',
+			'std::cout << "turn";',
+			'player.takeDamage(attack_);',
+			'```',
+			'{{refblock:sym:monster.h:Monster:takeTurn}}',
+			'后续正文。',
+		].join('\n');
+		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
+			['monster.h', 'hash-a'],
+		]), { workspaceRootUri: 'file:///ws' });
+		assert.ok(!result.markdown.includes('{{refblock:'), 'refblock 标记不得泄漏');
+		assert.ok(
+			result.markdown.includes('*来源: [`takeTurn`](classmate-ref://0) · monster.h:26–31*'),
+			'代码块后应出现可见来源行'
+		);
+		assert.strictEqual(result.references.length, 1);
+		assert.strictEqual(result.references[0].startLine, 26);
+	});
+
+	it('degrades refblock markers with unknown or stale targets to plain source text', () => {
+		const answer = [
+			'```cpp',
+			'int x;',
+			'```',
+			'{{refblock:sym:nope.h::ghost,sym:util.h::sort}}',
+		].join('\n');
+		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
+			['monster.h', 'hash-a'],
+		]), { workspaceRootUri: 'file:///ws' });
+		assert.ok(!result.markdown.includes('{{refblock:'));
+		// sort 的 hash 未在本轮加载清单里 → stale,不链接;ghost 未知。
+		// 降级形态:来源行保留但无链接。
+		assert.ok(!result.markdown.includes('classmate-ref://'), '坏目标不得生成链接');
+		assert.deepStrictEqual(result.issues.map((issue) => issue.kind), [
+			'unknown_target',
+			'stale_hash',
+		]);
+	});
+
+	it('strips model-fabricated bare classmate-ref links, keeping the label text', () => {
+		const answer = [
+			'你现在需要补全 [`takeTurn`](classmate-ref://0) 函数,',
+			'再看 [Creature](classmate-ref://3) 基类。',
+		].join('');
+		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
+			['monster.h', 'hash-a'],
+		]), { workspaceRootUri: 'file:///ws' });
+		// 模型自编的裸链接(没有对应 {{ref:}} 标记)不得进入成品正文:
+		// 行内代码文字保留,链接剥掉。
+		assert.ok(!result.markdown.includes('](classmate-ref://'), '裸链接必须剥离');
+		assert.ok(result.markdown.includes('`takeTurn`'));
+		assert.ok(result.markdown.includes('Creature'));
+		assert.deepStrictEqual(result.references, []);
+	});
+
 	it('degrades invalid or stale-hash markers to plain code text without links', () => {
 		const answer = '坏的 {{ref:sym:nope.h::ghost|ghost}}、'
 			+ '过期的 {{ref:sym:monster.h:Monster:takeTurn|takeTurn}}(hash 不匹配)';

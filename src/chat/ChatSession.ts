@@ -864,16 +864,25 @@ export class ChatSession {
 
 	private _setMessageContextSummary(
 		messageId: string,
-		workspaceFiles: string[]
+		workspaceFiles: string[],
+		codeFiles?: string[]
 	): void {
 		const uniqueFiles = [...new Set(workspaceFiles)].sort((left, right) =>
 			left.localeCompare(right, 'zh-CN')
 		);
+		const uniqueCodeFiles = codeFiles
+			? [...new Set(codeFiles)].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+			: undefined;
 		this._state = {
 			...this._state,
 			messages: this._state.messages.map((message) =>
 				message.id === messageId
-					? { ...message, contextSummary: { workspaceFiles: uniqueFiles } }
+					? {
+						...message,
+						contextSummary: uniqueCodeFiles
+							? { workspaceFiles: uniqueFiles, codeFiles: uniqueCodeFiles }
+							: { workspaceFiles: uniqueFiles },
+					}
 					: message
 			),
 		};
@@ -1363,7 +1372,10 @@ export class ChatSession {
 				}
 				this._setMessageContextSummary(
 					assistantMessage.id,
-					result.state.loadedWorkspaceItems.map((item) => item.path)
+					result.state.loadedWorkspaceItems.map((item) => item.path),
+					result.state.loadedWorkspaceItems
+						.filter((item) => item.kind === 'code')
+						.map((item) => item.path)
 				);
 				if (result.state.answerReferences
 					&& result.state.answerReferences.length > 0) {

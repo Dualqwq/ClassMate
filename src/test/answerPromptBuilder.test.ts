@@ -323,4 +323,10 @@ describe('Answer prompt reference-target contract block', () => {
 			`示例必须展示同一符号被标记两次,实际出现 ${count} 次`
 		);
 	});
+
+	it('documents the refblock source contract for multi-line code blocks', () => {
+		const prompt = buildWithTargets().map((message) => message.content).join('\n');
+		assert.match(prompt, /\{\{refblock:/);
+		assert.match(prompt, /after the closing fence/);
+	});
 });

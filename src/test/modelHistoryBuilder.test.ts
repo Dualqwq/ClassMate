@@ -100,3 +100,62 @@ describe('model history builder', () => {
 		assert.strictEqual(visible.length, 2);
 	});
 });
+
+describe('model history contract-notation hygiene (防模仿与多行块清洗)', () => {
+	it('always strips finished links, source lines and refblock remnants, even when nothing changed', () => {
+		const source = [
+			{ role: 'user' as const, content: '怎么改?' },
+			{
+				role: 'assistant' as const,
+				content: [
+					'你现在需要补全 [`takeTurn`](classmate-ref://0) 函数。',
+					'```cpp',
+					'std::cout << "turn";',
+					'```',
+					'*来源: [`takeTurn`](classmate-ref://0) · monster.h:26–31*',
+					'再看 [Creature](classmate-ref://3) 基类,以及补链 [`sort`](classmate-ref://1?i)。',
+				].join('\n'),
+			},
+		];
+		const visible = buildModelVisibleHistory({
+			history: source,
+			// hash 完全一致 → 旧逻辑不动这轮;防模仿清洗必须仍然执行。
+			currentFileHashes: new Map([['monster.h', 'h1']]),
+			previousFileHashes: new Map([['monster.h', 'h1']]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		const content = visible[1].content;
+		assert.ok(!content.includes('classmate-ref://'), '成品链接必须剥掉,防模型模仿');
+		assert.ok(!content.includes('*来源:'), '来源行必须剥掉');
+		assert.ok(content.includes('`takeTurn`'), '行内代码文字保留');
+		assert.ok(content.includes('Creature'), '普通文字保留');
+		assert.ok(content.includes('```cpp'), '文件未变时代码块本体保留');
+	});
+
+	it('cleans multi-line blocks along with trailing source line when the file changed', () => {
+		const source = [
+			{ role: 'user' as const, content: '怎么改?' },
+			{
+				role: 'assistant' as const,
+				content: [
+					'改成这样:',
+					'```cpp',
+					'std::cout << "old";',
+					'```',
+					'*来源: [`takeTurn`](classmate-ref://0) · monster.h:26–31*',
+					'takeTurn 现在是空的。',
+				].join('\n'),
+			},
+		];
+		const visible = buildModelVisibleHistory({
+			history: source,
+			currentFileHashes: new Map([['monster.h', 'h2']]),
+			previousFileHashes: new Map([['monster.h', 'h1']]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		const content = visible[1].content;
+		assert.ok(!content.includes('```'), '文件变化后多行代码块必须整体移除');
+		assert.ok(!content.includes('classmate-ref://'), '链接与来源行一并清除');
+		assert.ok(content.includes('旧版本'), '状态声明被替换为占位说明');
+	});
+});

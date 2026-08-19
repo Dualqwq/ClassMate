@@ -11,6 +11,8 @@ import { sendMessage } from '../vscodeApi';
 interface MarkdownRendererProps {
 	content: string;
 	references?: ChatReference[];
+	/** 本轮工作区实际加载的代码文件,文件名补链目录(用户边界:文件名任意提及可链)。 */
+	codeFiles?: string[];
 }
 
 const CodeBlock: React.FC<{ className?: string; children: string } > = ({
@@ -42,11 +44,14 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 	);
 };
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, references }) => {
-	// 只在引用就绪后(流结束后)叠加 inferred 补链(行内代码 + 唯一匹配),
-	// 流式期间保持纯文本渲染;模型标记的链接已在正文里,不受影响。
-	const displayContent =
-		references && references.length > 0 ? inferenceLinkifyAnswer(content, references) : content;
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, references, codeFiles }) => {
+	// 只在引用就绪后(流结束后)叠加 inferred 补链(行内代码 + 唯一匹配 +
+	// 工作区代码文件名任意提及),流式期间保持纯文本渲染;模型标记的链接
+	// 已在正文里,不受影响。
+	const hasInferenceInput = (references?.length ?? 0) > 0 || (codeFiles?.length ?? 0) > 0;
+	const displayContent = hasInferenceInput
+		? inferenceLinkifyAnswer(content, references ?? [], { codeFiles })
+		: content;
 	return (
 		<ReactMarkdown
 			remarkPlugins={[remarkGfm]}

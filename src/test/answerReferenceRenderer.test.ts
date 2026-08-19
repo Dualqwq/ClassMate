@@ -12,11 +12,11 @@ function makeRef(partial: Partial<ChatReference> & { uri: string; label: string 
 }
 
 describe('inferenceLinkifyAnswer (展示层保守补链)', () => {
-	it('returns the content unchanged when there are no references', () => {
+	it('returns the content unchanged when there are no references and no code files', () => {
 		assert.strictEqual(inferenceLinkifyAnswer('hello `sort`', []), 'hello `sort`');
 	});
 
-	it('never links plain-text words, even when the symbol is unique (红线)', () => {
+	it('never links plain-text identifier words, even when the symbol is unique (红线)', () => {
 		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
 		assert.strictEqual(
 			inferenceLinkifyAnswer('sort 有 bug,看看 sort 的实现', refs),
@@ -24,13 +24,40 @@ describe('inferenceLinkifyAnswer (展示层保守补链)', () => {
 		);
 	});
 
-	it('does not link plain-text file:line mentions', () => {
-		const refs = [
-			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', startLine: 12, symbol: 'main' }),
-		];
+	it('links ANY plain-text mention of a workspace C/C++ file name (用户边界: 文件名任意提及)', () => {
+		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
+		const out = inferenceLinkifyAnswer(
+			'打开 main.cpp 看,monster.h 里也有问题,README.md 不链。',
+			refs,
+			{ codeFiles: ['monster.h'] }
+		);
+		// main.cpp 经引用目录(基准);monster.h 经工作区文件目录(无行号);
+		// README.md 不是代码文件,不链。
 		assert.strictEqual(
-			inferenceLinkifyAnswer('看 main.cpp:12 的定义', refs),
-			'看 main.cpp:12 的定义'
+			out,
+			'打开 [main.cpp](classmate-ref://0?i) 看,[monster.h](classmate-ref://1?i) 里也有问题,README.md 不链。'
+		);
+	});
+
+	it('links plain-text file mentions even with zero references (fallback appended)', () => {
+		const out = inferenceLinkifyAnswer('看 src/create.h 的定义', [], {
+			codeFiles: ['src/create.h'],
+		});
+		assert.strictEqual(out, '看 [src/create.h](classmate-ref://0?i) 的定义');
+	});
+
+	it('does not link file names absent from the code-file list', () => {
+		assert.strictEqual(
+			inferenceLinkifyAnswer('看 util.h 的定义', []),
+			'看 util.h 的定义'
+		);
+	});
+
+	it('links inline-code file names too', () => {
+		const refs = [makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'sort' })];
+		assert.strictEqual(
+			inferenceLinkifyAnswer('改 `main.cpp` 与 `monster.h`', refs, { codeFiles: ['monster.h'] }),
+			'改 [`main.cpp`](classmate-ref://0?i) 与 [`monster.h`](classmate-ref://1?i)'
 		);
 	});
 
@@ -75,6 +102,15 @@ describe('inferenceLinkifyAnswer (展示层保守补链)', () => {
 			inferenceLinkifyAnswer('`Player::printStatus` 方法', refs),
 			'`Player::printStatus` 方法'
 		);
+	});
+
+	it('never links multi-object inline code like calls with arguments (用户边界)', () => {
+		const refs = [
+			makeRef({ uri: 'file:///main.cpp', label: 'main.cpp', symbol: 'playCard' }),
+			makeRef({ uri: 'file:///card.h', label: 'card.h', symbol: 'players' }),
+		];
+		const out = inferenceLinkifyAnswer('看 `players[i].playCard(c)` 和 `sort(a, n)`', refs);
+		assert.strictEqual(out, '看 `players[i].playCard(c)` 和 `sort(a, n)`');
 	});
 
 	it('keeps marker-generated links untouched and skips code blocks / other links', () => {

@@ -259,6 +259,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 								<MarkdownRenderer
 									content={message.content}
 									references={message.references}
+									codeFiles={message.contextSummary?.codeFiles}
 								/>
 								{!isUser && referenceExtractionPending && (
 									<div
