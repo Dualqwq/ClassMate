@@ -167,6 +167,11 @@
 				${item.error ? `<div class="meta-key">错误</div><div class="error">${escapeHtml(item.error)}</div>` : ''}
 			</div></section>
 			${mutations.length ? `<section class="panel"><h2>本轮工作区修改</h2>${mutations.map((m) => `<div class="panel-body"><strong>${escapeHtml(m.file)}</strong><div class="mutation"><div><div class="mutation-label">修改前 · ${escapeHtml(m.beforeHash)}</div><pre>${escapeHtml(m.beforeContent)}</pre></div><div><div class="mutation-label">修改后 · ${escapeHtml(m.afterHash)}</div><pre>${escapeHtml(m.afterContent)}</pre></div></div></div>`).join('')}</section>` : ''}
+			<section class="panel"><h2>模型收到的引用目标清单（Tree-sitter）</h2>
+				${item.referenceTargetsReceived?.length
+					? `<div class="panel-body"><div class="meta-grid"><div class="meta-key">数量</div><div>${item.referenceTargetsReceived.length}</div></div><details><summary>展开全部 targetId</summary><pre>${escapeHtml(item.referenceTargetsReceived.join('\n'))}</pre></details></div>`
+					: '<div class="panel-body">本轮未下发引用目标(无符号索引或加载为空)</div>'}
+			</section>
 			<section class="panel"><h2>模型实际看到的工作区文件</h2>
 				<div class="file-tabs">${files.map((f) => `<button data-file="${escapeHtml(f.path)}" class="${f.path === state.selectedFile ? 'active' : ''}">${escapeHtml(f.path)}</button>`).join('') || '没有记录文件证据'}</div>
 				${selected ? `<div class="meta-grid panel-body"><div class="meta-key">hash</div><div>${escapeHtml(selected.contentHash)}</div><div class="meta-key">加载原因</div><div>${escapeHtml(selected.reason)}</div></div><pre>${escapeHtml(selected.content)}</pre>` : ''}

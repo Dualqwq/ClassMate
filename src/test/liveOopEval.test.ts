@@ -366,6 +366,11 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 						references: result.state.answerReferences?.length ?? 0,
 						...summarizeReferenceLinks(result.answer),
 					},
+					// 模型实际收到的 Tree-sitter 引用目标清单(审计:标记率低时
+					// 可判别是目录没下发还是模型没用)。
+					referenceTargetsReceived: result.state.workspaceSymbols?.symbols.map(
+						(symbol) => symbol.targetId
+					) ?? [],
 					// 程序侧块来源证词(不渲染):供历史清洗与 7.7 校验审计。
 					answerBlockSources: result.state.answerBlockSources ?? [],
 					startedAt,

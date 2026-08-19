@@ -64,6 +64,8 @@ export interface Bug1EvalResult {
 		file?: string;
 		targetId?: string;
 	}>;
+	/** 模型实际收到的 Tree-sitter 引用目标清单。 */
+	referenceTargetsReceived?: string[];
 	error?: string;
 	startedAt: string;
 	firstTokenMs?: number;
@@ -213,6 +215,7 @@ const evalResultSchema = z.object({
 		file: z.string().optional(),
 		targetId: z.string().optional(),
 	})).optional(),
+	referenceTargetsReceived: z.array(z.string()).optional(),
 	error: z.string().optional(),
 	startedAt: z.string().min(1),
 	firstTokenMs: z.number().nonnegative().optional(),
@@ -300,6 +303,7 @@ function caseIdentity(result: Bug1EvalResult): unknown {
 		workspaceEvidence: result.workspaceEvidence,
 		answerReferenceStats: result.answerReferenceStats,
 		answerBlockSources: result.answerBlockSources,
+		referenceTargetsReceived: result.referenceTargetsReceived,
 	};
 }
 
