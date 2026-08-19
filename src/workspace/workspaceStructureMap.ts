@@ -23,7 +23,7 @@ const MAX_STRUCTURE_FILES = 80;
 
 export async function buildWorkspaceStructureMap(
 	files: Array<{ path: string; kind: string; content: string }>,
-	indexBuilder: typeof buildCppWorkspaceIndex = buildCppWorkspaceIndex
+	options?: { extensionPath?: string; indexBuilder?: typeof buildCppWorkspaceIndex }
 ): Promise<WorkspaceStructureFile[]> {
 	const codeFiles = files
 		.filter((file) => file.kind === 'code')
@@ -31,9 +31,11 @@ export async function buildWorkspaceStructureMap(
 	if (codeFiles.length === 0) {
 		return [];
 	}
+	const indexBuilder = options?.indexBuilder ?? buildCppWorkspaceIndex;
 	// buildCppWorkspaceIndex 内部按文件逐个降级;这里不因个别坏文件失败。
 	const index: CppWorkspaceIndex = await indexBuilder(
-		codeFiles.map((file) => ({ path: file.path, content: file.content }))
+		codeFiles.map((file) => ({ path: file.path, content: file.content })),
+		{ extensionPath: options?.extensionPath }
 	);
 	return index.symbols.length === 0 && index.degradedFiles.length > 0
 		? []

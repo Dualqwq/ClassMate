@@ -105,6 +105,11 @@ export interface ClassMateGraphServices {
 	 * 缺失时标记降级为行内代码,不生成链接。
 	 */
 	workspaceRootUri?: string;
+	/**
+	 * 扩展安装根目录(context.extensionPath)。Tree-sitter wasm 定位的
+	 * 权威基准:VSIX 与 F5(dist) 布局下优先在此找 dist/wasm。
+	 */
+	extensionPath?: string;
 	model: GraphModelClient;
 	signal?: AbortSignal;
 	onAnswerToken?: (token: string) => void;
@@ -521,7 +526,8 @@ export class ClassMateGraphRunner {
 					}]))[0]?.content ?? '',
 				})));
 				workspaceStructureMap = await buildWorkspaceStructureMap(
-					structureFiles.filter((file) => file.content.length > 0)
+					structureFiles.filter((file) => file.content.length > 0),
+					{ extensionPath: this._services.extensionPath }
 				);
 			} catch (error) {
 				this._services.onDebug?.(
@@ -1248,7 +1254,8 @@ export class ClassMateGraphRunner {
 			workspaceSymbols = await buildCppWorkspaceIndex(
 				current.loadedWorkspaceItems
 					.filter((item) => item.kind === 'code')
-					.map((item) => ({ path: item.path, content: item.content }))
+					.map((item) => ({ path: item.path, content: item.content })),
+				{ extensionPath: this._services.extensionPath }
 			);
 		} catch (error) {
 			this._services.onDebug?.('workspace_symbol_index_degraded', String(error));

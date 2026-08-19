@@ -897,6 +897,8 @@ export function activate(
 	const problemCardIndexLoader = new ProblemCardIndexLoader(skillContentLoader);
 	chatSession.setGraphServices({
 		workspaceProvider,
+		// Tree-sitter wasm 定位基准:VSIX/F5 布局下优先 dist/wasm。
+		extensionPath: context.extensionPath,
 		workspaceLoader: new WorkspaceContextLoader(),
 		skillContentLoader,
 		skillGraphLoader: new SkillGraphLoader(skillContentLoader),

@@ -1,7 +1,9 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
+import * as path from 'path';
 import {
 	buildCppWorkspaceIndex,
+	locateTreeSitterWasm,
 } from '../parser/cppWorkspaceIndex';
 
 const MONSTER_H = `#pragma once
@@ -172,5 +174,56 @@ describe('cpp workspace index', () => {
 		assert.ok(fine, '其他文件不受坏文件影响');
 		// 坏文件不得伪造任何符号。
 		assert.ok(index.symbols.every((symbol) => symbol.file !== 'broken.cpp'));
+	});
+});
+
+describe('tree-sitter wasm locating (dist 与源码两种布局)', () => {
+	it('finds grammar/runtime wasm when the module itself sits in a flat bundle dir (dist)', async () => {
+		// 打包产物布局: __dirname == <root>/dist, wasm 在 <root>/dist/wasm。
+		// 用临时目录模拟 dist 布局,验证不再依赖"两层向上=根"的源码布局假设。
+		const fs = await import('fs');
+		const os = await import('os');
+		const path = await import('path');
+		const distDir = fs.mkdtempSync(path.join(os.tmpdir(), 'classmate-dist-'));
+		const wasmDir = path.join(distDir, 'wasm');
+		fs.mkdirSync(wasmDir, { recursive: true });
+		for (const name of ['web-tree-sitter.wasm', 'tree-sitter-cpp.wasm', 'tree-sitter-c.wasm']) {
+			fs.copyFileSync(
+				path.resolve(__dirname, '..', '..', 'node_modules',
+					name === 'web-tree-sitter.wasm' ? 'web-tree-sitter' : name.replace('.wasm', ''),
+					name),
+				path.join(wasmDir, name)
+			);
+		}
+		try {
+						const found = locateTreeSitterWasm([distDir]);
+			assert.strictEqual(found?.grammar, path.join(wasmDir, 'tree-sitter-cpp.wasm'));
+			assert.strictEqual(found?.runtime, path.join(wasmDir, 'web-tree-sitter.wasm'));
+		} finally {
+			fs.rmSync(distDir, { recursive: true, force: true });
+		}
+	});
+
+	it('still finds wasm from the source/out layout (two levels up to root)', async () => {
+				// 本测试模块位于 out/test/,与 src 同构:根在两层之上。
+		const moduleDir = path.resolve(__dirname, '..', 'parser');
+		const found = locateTreeSitterWasm([moduleDir]);
+		assert.ok(found?.grammar?.endsWith('.wasm'), '源码布局应能在 node_modules 找到语法 wasm');
+	});
+
+	it('prefers the explicit extensionPath base over module-relative guesses', async () => {
+		const fs = await import('fs');
+		const os = await import('os');
+		const path2 = (await import('path')).default ?? (await import('path'));
+		const extDir = fs.mkdtempSync(path2.join(os.tmpdir(), 'classmate-ext-'));
+		const wasmDir = path2.join(extDir, 'dist', 'wasm');
+		fs.mkdirSync(wasmDir, { recursive: true });
+		fs.writeFileSync(path2.join(wasmDir, 'tree-sitter-cpp.wasm'), 'stub');
+		try {
+						const found = locateTreeSitterWasm([extDir, path2.join(extDir, 'nowhere')]);
+			assert.strictEqual(found?.grammar, path2.join(wasmDir, 'tree-sitter-cpp.wasm'));
+		} finally {
+			fs.rmSync(extDir, { recursive: true, force: true });
+		}
 	});
 });

@@ -46,64 +46,91 @@ export interface CppIndexSourceFile {
 
 let parserReady: Promise<Parser> | undefined;
 
-async function loadParser(extensionPath?: string): Promise<Parser> {
-	parserReady ??= (async () => {
-		// 运行环境优先用扩展内置的 wasm 资源;测试/脚本环境回退到
-		// node_modules(web-tree-sitter 运行时 + tree-sitter-c 语法)。
-		// 扩展宿主的 cwd 是 VS Code 安装目录,因此所有候选都基于
-		// 本模块的实际位置推导,不用 process.cwd()。
-		const moduleRoot = path.resolve(__dirname, '..', '..');
-		const locateWasm = (bases: string[], relatives: string[]): string | undefined => {
-			for (const base of bases) {
-				for (const relative of relatives) {
-					const candidate = path.resolve(base, relative);
-					if (require('fs').existsSync(candidate)) {
-						return candidate;
-					}
-				}
+export interface TreeSitterWasmLocation {
+	grammar: string;
+	runtime?: string;
+}
+
+function locateWasm(bases: string[], relatives: string[]): string | undefined {
+	for (const base of bases) {
+		for (const relative of relatives) {
+			const candidate = path.resolve(base, relative);
+			if (require('fs').existsSync(candidate)) {
+				return candidate;
 			}
-			return undefined;
-		};
-		const bases = [
-			...(extensionPath ? [extensionPath] : []),
-			moduleRoot,
-			path.join(moduleRoot, '..'),
-		];
-		// 打包产物优先:webpack 把 wasm 复制到 dist/wasm/,VSIX 随扩展分发;
-		// 开发/测试环境回退到 node_modules。
-		const runtime = locateWasm(bases, [
-			path.join('dist', 'wasm', 'web-tree-sitter.wasm'),
-			path.join('node_modules', 'web-tree-sitter', 'web-tree-sitter.wasm'),
+		}
+	}
+	return undefined;
+}
+
+/**
+ * tree-sitter wasm 定位(导出供测试与诊断):
+ * 基准目录优先级 = 显式 extensionPath(扩展安装根,VSIX 布局) >
+ * __dirname 本身(webpack 打平产物,dist/wasm 就在旁边) >
+ * __dirname/..(VSIX/源码根) > __dirname/../..(src|out 布局,根在两层上)。
+ * 只依赖 __dirname 推导的旧逻辑假设"两层向上=项目根",在打包布局
+ * (dist/extension.js)下会高一级,导致真实扩展宿主全部候选落空。
+ */
+export function locateTreeSitterWasm(extensionBases: string[]): TreeSitterWasmLocation | undefined {
+	const bases = [
+		...extensionBases,
+		__dirname,
+		path.join(__dirname, '..'),
+		path.resolve(__dirname, '..', '..'),
+	];
+	const runtime = locateWasm(bases, [
+		path.join('dist', 'wasm', 'web-tree-sitter.wasm'),
+		path.join('wasm', 'web-tree-sitter.wasm'),
+		path.join('node_modules', 'web-tree-sitter', 'web-tree-sitter.wasm'),
+	]);
+	// C++ 语法是 C 的超集:教学作业是 .h/.cpp,类/继承/运算符重载只有
+	// tree-sitter-cpp 认识(tree-sitter-c 会把 class 整体解析成 ERROR)。
+	// cpp 语法不可用时回退到 c 语法,索引质量降级但可用。
+	const grammar = locateWasm(bases, [
+			path.join('dist', 'wasm', 'tree-sitter-cpp.wasm'),
+			path.join('wasm', 'tree-sitter-cpp.wasm'),
+			path.join('node_modules', 'tree-sitter-cpp', 'tree-sitter-cpp.wasm'),
+		])
+		?? locateWasm(bases, [
+			path.join('dist', 'wasm', 'tree-sitter-c.wasm'),
+			path.join('wasm', 'tree-sitter-c.wasm'),
+			path.join('node_modules', 'tree-sitter-c', 'tree-sitter-c.wasm'),
 		]);
-		// C++ 语法是 C 的超集:教学作业是 .h/.cpp,类/继承/运算符重载只有
-		// tree-sitter-cpp 认识(tree-sitter-c 会把 class 整体解析成 ERROR)。
-		// cpp 语法不可用时回退到 c 语法,索引质量降级但可用。
-		const grammar = locateWasm(bases, [
-				path.join('dist', 'wasm', 'tree-sitter-cpp.wasm'),
-				path.join('node_modules', 'tree-sitter-cpp', 'tree-sitter-cpp.wasm'),
-			])
-			?? locateWasm(bases, [
-				path.join('dist', 'wasm', 'tree-sitter-c.wasm'),
-				path.join('node_modules', 'tree-sitter-c', 'tree-sitter-c.wasm'),
-			]);
-		if (!grammar) {
+	if (!grammar) {
+		return undefined;
+	}
+	return { grammar, runtime };
+}
+
+async function loadParser(extensionPath?: string): Promise<Parser> {
+	// 失败不缓存:一次定位/加载失败(如临时布局缺 wasm)不能毁掉整个
+	// 会话的后续轮次,下一轮允许重试。
+	const attempt = (async () => {
+		const located = locateTreeSitterWasm(extensionPath ? [extensionPath] : []);
+		if (!located) {
 			throw new Error(
 				'tree-sitter wasm grammar not found; expected tree-sitter-cpp or tree-sitter-c under the extension or node_modules.'
 			);
 		}
-		if (runtime) {
+		if (located.runtime) {
 			await Parser.init({
-				locateFile: () => runtime,
+				locateFile: () => located.runtime!,
 			});
 		} else {
 			await Parser.init();
 		}
-		const language = await Language.load(grammar);
+		const language = await Language.load(located.grammar);
 		const parser = new Parser();
 		parser.setLanguage(language);
 		return parser;
 	})();
-	return parserReady;
+	parserReady = attempt;
+	try {
+		return await attempt;
+	} catch (error) {
+		parserReady = undefined;
+		throw error;
+	}
 }
 
 function targetIdOf(file: string, container: string | undefined, name: string): string {
