@@ -56,6 +56,8 @@ export interface ConversationWorkspaceContext {
 	questionPath?: string;
 	activeSourcePath?: string;
 	relatedPaths: string[];
+	/** 本轮实际加载文件的内容 hash;供下一轮裁剪模型可见历史。 */
+	fileHashes?: Record<string, string>;
 	previousRequestType?: RequestType;
 	previousContextMode?: ContextMode;
 	isAssignmentWorkspace?: boolean;

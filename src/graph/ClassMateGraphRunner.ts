@@ -824,6 +824,9 @@ export class ClassMateGraphRunner {
 				activeSourcePath: current.minimalWorkspaceContext?.catalog.activeEditor?.fileName
 					?? current.request.previousWorkspaceContext?.activeSourcePath,
 				relatedPaths: loadedWorkspaceItems.map((item) => item.path),
+			fileHashes: Object.fromEntries(
+				loadedWorkspaceItems.map((item) => [item.path, item.contentHash])
+			),
 				previousRequestType: current.requestType,
 				previousContextMode: current.contextMode,
 				isAssignmentWorkspace:
@@ -1330,6 +1333,7 @@ export class ClassMateGraphRunner {
 				}
 				: undefined,
 			workspaceSnapshot: current.workspaceSnapshot!,
+			previousFileHashes: current.request.previousWorkspaceContext?.fileHashes,
 			userText: current.request.userText,
 			conversationHistory: current.request.conversationHistory,
 		});

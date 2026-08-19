@@ -2,6 +2,10 @@ import type { AnswerPlan, ProblemConstraints } from '../graph/types';
 import type { LLMAttachment, LLMImage, LLMMessage } from '../llm/types';
 import type { LoadedProblemCardFacts } from '../problemKnowledge/types';
 import type { WorkspaceContextSnapshot } from '../workspace/types';
+import {
+	buildModelVisibleHistory,
+	MODEL_HISTORY_TOKEN_BUDGET,
+} from '../chat/modelHistoryBuilder';
 import { buildUnloadedBoundary, renderNativeFileBlock } from './nativeWorkspaceRenderer';
 
 export interface AnswerPromptInput {
@@ -19,6 +23,8 @@ export interface AnswerPromptInput {
 		evidence: string[];
 	};
 	workspaceSnapshot: WorkspaceContextSnapshot;
+	/** 上一轮加载文件 hash;与当前快照对比后裁剪模型可见历史。 */
+	previousFileHashes?: Record<string, string>;
 	userText: string;
 	conversationHistory: Array<{
 		role: 'user' | 'assistant';
@@ -29,16 +35,44 @@ export interface AnswerPromptInput {
 }
 
 const MAX_HISTORY_MESSAGES = 8;
-const MAX_HISTORY_MESSAGE_CHARS = 4_000;
 
 function compactConversationHistory(
-	history: AnswerPromptInput['conversationHistory']
+	history: AnswerPromptInput['conversationHistory'],
+	previousFileHashes?: Record<string, string>,
+	currentFileHashes?: Record<string, string>
 ): LLMMessage[] {
+	// 有 hash 信息时走 ModelHistoryBuilder:旧代码块/状态声明剔除 + token
+	// 预算整轮裁剪;没有时保持旧的"最近 8 条 + 截断"行为(兼容图直连调用)。
+	if (previousFileHashes || currentFileHashes) {
+		return buildModelVisibleHistory({
+			history: history.map((message) => ({
+				role: message.role,
+				content: message.content,
+			})),
+			previousFileHashes: new Map(
+				Object.entries(previousFileHashes ?? {})
+					.map(([file, hash]) => [file.replace(/\\/g, '/').toLocaleLowerCase(), hash])
+			),
+			currentFileHashes: new Map(
+				Object.entries(currentFileHashes ?? {})
+					.map(([file, hash]) => [file.replace(/\\/g, '/').toLocaleLowerCase(), hash])
+			),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		}).slice(-MAX_HISTORY_MESSAGES * 2).map((message) => {
+			const images = history.find((candidate) =>
+				candidate.role === message.role && candidate.content === message.content
+			)?.images;
+			const attachments = history.find((candidate) =>
+				candidate.role === message.role && candidate.content === message.content
+			)?.attachments;
+			return { ...message, images, attachments };
+		});
+	}
 	return history.slice(-MAX_HISTORY_MESSAGES).map((message) => ({
 		...message,
-		content: message.content.length <= MAX_HISTORY_MESSAGE_CHARS
+		content: message.content.length <= 4_000
 			? message.content
-			: `${message.content.slice(0, MAX_HISTORY_MESSAGE_CHARS)}\n[Earlier content truncated]`,
+			: `${message.content.slice(0, 4_000)}\n[Earlier content truncated]`,
 	}));
 }
 
@@ -213,7 +247,13 @@ export class AnswerPromptBuilder {
 					].join('\n\n'),
 				}]
 				: []),
-			...compactConversationHistory(input.conversationHistory),
+			...compactConversationHistory(
+				input.conversationHistory,
+				input.previousFileHashes,
+				Object.fromEntries(input.workspaceSnapshot.loadedItems.map((item) =>
+					[item.path, item.contentHash]
+				))
+			),
 			...buildQuestionAdjacentEvidence(input.workspaceSnapshot),
 		];
 		if (
