@@ -82,11 +82,14 @@ describe('conversation diagnostic recorder', () => {
 		});
 
 		assert.strictEqual(bundle.schemaVersion, 1);
-		assert.strictEqual(bundle.events.length, 3);
+		// 导出范围 = 仅 active 会话:其他会话(previous)的事件被过滤,
+		// 即便它们记录在同一个工作区的其他 journal 文件里。
+		assert.strictEqual(bundle.events.length, 2);
 		assert.deepStrictEqual(
 			new Set(bundle.events.map((event) => event.sessionId)),
-			new Set(['session-1', 'session-previous'])
+			new Set(['session-1'])
 		);
+		assert.ok(bundle.events.every((event) => event.conversationId === 'conversation-1'));
 		assert.strictEqual(bundle.conversations.length, 1);
 		const completedEvent = bundle.events.find(
 			(event) => event.type === 'graph_node_completed'
@@ -109,5 +112,65 @@ describe('conversation diagnostic recorder', () => {
 		assert.ok(!serialized.includes('"apiKey":"must-not-leak"'));
 		assert.ok(serialized.includes('int apiKey = 0;'));
 		assert.deepStrictEqual(parseConversationDiagnosticBundle(JSON.parse(serialized)), bundle);
+	});
+});
+
+describe('export scope: active conversation only', () => {
+	it('keeps only the active conversation and its events, dropping others and unscoped events', async () => {
+		const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-scope-'));
+		const recorder = new ConversationDiagnosticRecorder(
+			path.join(directory, 'session.jsonl'),
+			{ sessionId: 'session-1', workspaceId: 'workspace-1' }
+		);
+		recorder.record({
+			type: 'turn_started',
+			conversationId: 'conversation-active',
+			requestId: 'r1',
+			data: { userText: '当前会话问题' },
+		});
+		recorder.record({
+			type: 'turn_started',
+			conversationId: 'conversation-other',
+			requestId: 'r2',
+			data: { userText: '别的会话问题' },
+		});
+		recorder.record({
+			type: 'turn_started',
+			requestId: 'r3',
+			data: { userText: '无会话归属事件' },
+		});
+		await recorder.flush();
+		const bundle = await recorder.exportTo(path.join(directory, 'out.json'), {
+			extensionVersion: '0.0.5',
+			workspaceFolders: ['C:/ws'],
+			activeConversationId: 'conversation-active',
+			conversations: [
+				{
+					id: 'conversation-active',
+					title: 'active',
+					createdAt: 1,
+					updatedAt: 1,
+					inputDraft: '',
+					messages: [],
+				},
+				{
+					id: 'conversation-other',
+					title: 'other',
+					createdAt: 1,
+					updatedAt: 1,
+					inputDraft: '',
+					messages: [],
+				},
+			],
+		});
+		assert.deepStrictEqual(
+			bundle.conversations.map((conversation) => conversation.id),
+			['conversation-active']
+		);
+		assert.strictEqual(bundle.events.length, 1);
+		assert.strictEqual(bundle.events[0].conversationId, 'conversation-active');
+		const serialized = await fs.readFile(path.join(directory, 'out.json'), 'utf8');
+		assert.ok(!serialized.includes('conversation-other'));
+		assert.ok(!serialized.includes('无会话归属事件'));
 	});
 });

@@ -249,12 +249,18 @@ export class ConversationDiagnosticRecorder {
 				.map((line) => line.trim())
 				.filter(Boolean)
 				.map((line) => parseDiagnosticEvent(JSON.parse(line))))
+			.filter((event) => event.conversationId === input.activeConversationId)
 			.sort((left, right) =>
 				left.timestamp.localeCompare(right.timestamp)
 				|| left.sessionId.localeCompare(right.sessionId)
 				|| left.sequence - right.sequence
 			);
 		const sanitizedInput = sanitizeDiagnosticValue(input) as ConversationDiagnosticExportInput;
+		// 导出范围 = 仅 active 会话:其他会话的聊天记录一并不出,
+		// 避免一次导出带出整个工作区历史(含学生代码/对话隐私)。
+		const activeConversation = sanitizedInput.conversations.filter(
+			(conversation) => conversation.id === input.activeConversationId
+		);
 		const bundle: ConversationDiagnosticBundle = {
 			schemaVersion: 1,
 			exportedAt: new Date().toISOString(),
@@ -265,10 +271,10 @@ export class ConversationDiagnosticRecorder {
 			model: sanitizedInput.model,
 			workspaceFolders: sanitizedInput.workspaceFolders,
 			activeConversationId: sanitizedInput.activeConversationId,
-			conversations: sanitizedInput.conversations,
+			conversations: activeConversation,
 			events,
 			notes: [
-				'Graph events from every diagnostic journal for this workspace are included.',
+				'Only the active conversation and its graph events are included.',
 				'Events are available only for turns recorded after the diagnostics feature was installed.',
 				'This local file contains student prompts, answers and workspace source content.',
 			],

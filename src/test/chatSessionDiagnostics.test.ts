@@ -10,7 +10,7 @@ import {
 } from '../chat/conversationDiagnostics';
 
 describe('ChatSession conversation diagnostics export', () => {
-	it('exports all conversations together with recorded graph events', async () => {
+	it('exports only the active conversation together with its graph events', async () => {
 		ChatSession.resetInstance();
 		const session = ChatSession.getInstance();
 		const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-chat-export-'));
@@ -53,17 +53,18 @@ describe('ChatSession conversation diagnostics export', () => {
 			await fs.readFile(outputPath, 'utf8')
 		));
 
-		assert.strictEqual(bundle.conversations.length, 2);
+		// 新语义:只导出 active 会话(第二段),非 active 会话(第一段)不出。
+		assert.strictEqual(bundle.conversations.length, 1);
+		assert.strictEqual(bundle.conversations[0].id, secondConversationId);
 		assert.deepStrictEqual(
-			new Set(bundle.conversations.map((conversation) => conversation.id)),
-			new Set([firstConversationId, secondConversationId])
-		);
-		assert.deepStrictEqual(
-			bundle.conversations.map((conversation) => conversation.messages.length).sort(),
-			[2, 2]
+			bundle.conversations[0].messages.map((message) => message.content),
+			['第二段对话', '第二段回答']
 		);
 		assert.strictEqual(bundle.events.length, 1);
 		assert.strictEqual(bundle.events[0].requestId, 'request-second');
+		const serialized = await fs.readFile(outputPath, 'utf8');
+		assert.ok(!serialized.includes('第一段对话'), '非 active 会话内容不得进入导出');
+		assert.ok(!serialized.includes(firstConversationId));
 		assert.strictEqual(bundle.provider, 'deepseek');
 		assert.strictEqual(bundle.model, 'deepseek-v4-flash');
 	});
