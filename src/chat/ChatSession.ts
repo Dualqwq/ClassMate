@@ -35,6 +35,7 @@ import {
 	type ReferenceExtractionFile,
 } from './answerReferenceSanitizer';
 import { extractAnswerReferences } from './answerReferenceExtractor';
+import { mergeContractAndExtractedReferences } from './answerReferenceMerge';
 import type { ConversationDiagnosticBundle } from './conversationDiagnostics';
 import { ConversationDiagnosticRecorder } from './conversationDiagnostics';
 
@@ -951,6 +952,9 @@ export class ChatSession {
 	/**
 	 * 流结束后的引用提取:先让 endStream 收尾,再异步跑提取并挂载,
 	 * 不拖慢流式时序;期间显示"正在定位回答中的代码位置…"。
+	 * 兜底策略(2026-08-19 用户拍板):extract_references 一律调用,但只处理
+	 * 模型没有提到的部分——提取结果与模型 Answer 引用(契约标记生成)重合时
+	 * 一律以模型为准丢弃提取版;合并防止同一符号二次链接。
 	 */
 	private async _extractAndAttachReferences(
 		messageId: string,
@@ -961,7 +965,8 @@ export class ChatSession {
 		diagnosticContext: { conversationId: string; requestId: string } = {
 			conversationId: this._state.activeConversationId,
 			requestId: 'unknown',
-		}
+		},
+		contractReferences?: ChatReference[]
 	): Promise<void> {
 		if (!answer.trim() || loadedItems.length === 0) {
 			this._recordDiagnostic('reference_extraction_completed', diagnosticContext, {
@@ -969,23 +974,51 @@ export class ChatSession {
 				answer,
 				loadedItems,
 				files: [],
-				references: [],
+				references: contractReferences ?? [],
 				skipped: !answer.trim() ? 'empty_answer' : 'no_loaded_workspace_files',
+			});
+			if (contractReferences?.length) {
+				this._setMessageReferences(messageId, contractReferences);
+			}
+			return;
+		}
+		// 防御:提取只针对自然行文正文;引用契约的标记/链接尾巴先剥离。
+		const cleanAnswer = stripContractNotation(answer);
+		// 预过滤:模型已标记的符号不再交给提取小调用(只处理没提到的部分)。
+		const contractSymbols = new Set(
+			(contractReferences ?? [])
+				.map((item) => item.symbol)
+				.filter((symbol): symbol is string => Boolean(symbol))
+		);
+		const files = buildReferenceExtractionInput(loadedItems, cleanAnswer)
+			.map((file) => ({
+				...file,
+				symbols: file.symbols.filter((symbol) => !contractSymbols.has(symbol.name)),
+			}))
+			.filter((file) => file.symbols.length > 0);
+		if (contractReferences?.length && files.length === 0) {
+			// 模型已提及全部可提取符号:无需第二次模型调用。
+			this._recordDiagnostic('reference_extraction_completed', diagnosticContext, {
+				messageId,
+				answer,
+				loadedItems,
+				files: [],
+				references: contractReferences,
+				skipped: 'contract_covers_all_symbols',
 			});
 			return;
 		}
-		// 防御:回退提取只针对自然行文正文;引用契约的标记/链接尾巴
-		// 若混进缓冲路径,先剥离再提取(正常契约路径不会走到这里)。
-		const cleanAnswer = stripContractNotation(answer);
-		const files = buildReferenceExtractionInput(loadedItems, cleanAnswer);
 		this._setReferenceExtractionPending(messageId);
 		this._setMessageReferenceDebug(messageId, files);
 		try {
-			const references = await extractAnswerReferences(cleanAnswer, loadedItems, {
+			const extracted = await extractAnswerReferences(cleanAnswer, loadedItems, {
 				model,
 				workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri,
 				signal,
 			});
+			const references = contractReferences
+				? mergeContractAndExtractedReferences(contractReferences, extracted)
+				: extracted;
 			this._setMessageReferences(messageId, references);
 			this._recordDiagnostic('reference_extraction_completed', diagnosticContext, {
 				messageId,
@@ -1429,20 +1462,20 @@ export class ChatSession {
 					),
 				});
 				// 流已结束(finally 里 endStream),后台异步提取代码引用,不阻塞收尾。
-				// 引用契约已生成引用时跳过该提取(避免第二次模型调用与链接覆盖)。
-				if (!result.state.answerReferences?.length) {
-					void this._extractAndAttachReferences(
-						assistantMessage.id,
-						result.answer,
-						result.state.loadedWorkspaceItems,
-						model,
-						controller.signal,
-						{
-							conversationId: graphConversationId,
-							requestId: graphRequestId,
-						}
-					);
-				}
+				// 兜底策略:一律调用提取节点补模型没提到的符号;重合部分以模型
+				// Answer 为准(见 _extractAndAttachReferences 合并规则)。
+				void this._extractAndAttachReferences(
+					assistantMessage.id,
+					result.answer,
+					result.state.loadedWorkspaceItems,
+					model,
+					controller.signal,
+					{
+						conversationId: graphConversationId,
+						requestId: graphRequestId,
+					},
+					result.state.answerReferences
+				);
 			} catch (error) {
 				this._recordDiagnostic(
 					controller.signal.aborted ? 'turn_cancelled' : 'turn_failed',

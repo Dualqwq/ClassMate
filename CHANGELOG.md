@@ -4,6 +4,7 @@ ClassMate 的重要变更记录在这里。
 
 ## [Unreleased]
 
+- 引用兜底策略升级(7.6 收尾):extract_references 节点一律调用(不再只在契约零标记时回退)——多轮后段模型标记衰减(run6 判卷实证)时仍能补引用。三层约束:提取清单预过滤掉模型已标记符号(小调用只看没提到的部分);合并时符号级/行级任一重合即丢弃提取版(冲突一律以模型 Answer 为准);严防二次引用(同一符号不因两家来源重复链接,含提取内部去重)。模型已提及全部可提取符号时短路跳过第二次模型调用(skipped: contract_covers_all_symbols)。
 - 修复对话诊断导出范围过大:导出命令此前带出工作区**全部**会话聊天记录与**全部** journal 图事件(含其他会话的学生代码与对话);现改为只导出当前 active 会话的聊天记录与该会话(conversationId 匹配)的图节点事件,无会话归属的事件丢弃,导出文件 notes 同步说明范围。
 - 修复真实扩展宿主(F5/dist 打包产物)下 Tree-sitter 符号索引必然降级的问题:旧逻辑按"源码布局"假设 `__dirname` 两层向上是项目根,webpack 打平后 `__dirname` 变成 `dist/`,基准高一级导致全部 wasm 候选落空(freeze_context 报 workspace_symbol_index_degraded,引用契约整链失效,且失败的 Promise 被缓存殃及会话后续所有轮次)。wasm 定位改为多基准(extensionPath 显式基准 > `__dirname` 本身 > `/..` > `/../..`),新增 `wasm/` 相对候选(打平布局);定位/加载失败不再缓存,下一轮可重试;GraphServices 新增 extensionPath 并由 extension.ts 注入,freeze_context 符号索引与路由结构图两个调用点转发。新增 dist 布局/源码布局/显式基准三组定位测试(此前 342 测试全在 out/ 布局上跑,属盲区)。
 - 程序侧块来源自查(用户拍板:模型不再承担 refblock):新增 answerBlockSourceDetector,对回答中每个栅栏代码块做确定性溯源——块内有效代码行(去空白、剔纯符号噪声行)在冻结工作区已加载代码文件中按行集包含匹配,归到 Tree-sitter 函数行范围(嵌套取最内层符号)。三道防误配闸:命中行须为非注释有效代码;多行块需 ≥2 行有效命中(建议代码通常只有签名行同名,run5 离线验证:注释态快照下的建议补全代码全部正确判 none);单行块要求全工作区唯一有效出现。产出 `answerBlockSources` 证词数据(状态/文件/目标),不渲染、不进 answerReferences;块来源文件并入该轮 referenceFiles,历史清洗的文件归属升级为"标记+代码块实证"绑定;数据随消息持久化并进 eval 记录。提示词撤销对模型的 refblock 指示(保留"程序自行处理、禁自写链接"声明);finalizer 的 refblock 处理保留为防御路径。多行块来源的渲染(展示样式)延后至样式设计完成后(见 0803后要干的事情.md 待办)。
