@@ -33,6 +33,13 @@ export interface ChatMessage {
 	timestamp: number;
 	usage?: import('../llm/types').LLMTokenUsage;
 	references?: ChatReference[];
+	/** 程序侧块来源自查结果(证词数据,不渲染),供历史绑定与事实校验。 */
+	blockSources?: Array<{
+		blockIndex: number;
+		status: 'unique' | 'unique-file' | 'ambiguous' | 'none';
+		file?: string;
+		targetId?: string;
+	}>;
 	images?: ChatImage[];
 	attachments?: ChatAttachment[];
 	proposedEdit?: ProposedCodeEdit;

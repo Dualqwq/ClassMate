@@ -915,8 +915,21 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
-	private _setMessageReferences(messageId: string, references: ChatReference[]): void {
-		if (references.length === 0) {
+	/** 程序侧块来源证词挂到消息(不渲染,持久化随会话)。 */
+	private _setMessageBlockSources(
+		messageId: string,
+		blockSources: NonNullable<ChatMessage['blockSources']>
+	): void {
+		this._state = {
+			...this._state,
+			messages: this._state.messages.map((item) =>
+				item.id === messageId ? { ...item, blockSources } : item
+			),
+		};
+		this._broadcast({ type: 'stateSync', state: this._state });
+	}
+
+	private _setMessageReferences(messageId: string, references: ChatReference[]): void {		if (references.length === 0) {
 			this._clearReferenceExtractionPending(messageId);
 			return;
 		}
@@ -1201,10 +1214,16 @@ export class ChatSession {
 					content: message.content,
 					images: message.images,
 					attachments: message.attachments,
-					// 引用契约:该轮回答实际链接的文件,供历史裁剪精确绑定。
-					referenceFiles: message.references
-						?.map((reference) => path.basename(reference.uri))
-						.filter((file): file is string => Boolean(file)),
+					// 引用契约:该轮回答实际链接的文件 + 程序侧块来源实证文件,
+					// 供历史裁剪精确绑定(模型不标记时块溯源仍生效)。
+					referenceFiles: [
+						...(message.references
+							?.map((reference) => path.basename(reference.uri))
+							.filter((file): file is string => Boolean(file)) ?? []),
+						...(message.blockSources
+							?.map((block) => block.file)
+							.filter((file): file is string => Boolean(file)) ?? []),
+					].filter((file, index, all) => all.indexOf(file) === index),
 				}));
 			const activeEditor = vscode.window.activeTextEditor;
 			this._recordDiagnostic('turn_started', {
@@ -1384,6 +1403,12 @@ export class ChatSession {
 					this._setMessageReferences(
 						assistantMessage.id,
 						result.state.answerReferences
+					);
+				}
+				if (result.state.answerBlockSources?.length) {
+					this._setMessageBlockSources(
+						assistantMessage.id,
+						result.state.answerBlockSources
 					);
 				}
 				if (editTarget) {

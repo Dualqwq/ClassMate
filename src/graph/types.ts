@@ -293,6 +293,13 @@ export interface ClassMateGraphState {
 	answer?: string;
 	/** 引用契约生成的最终引用清单(由正文标记确定)。 */
 	answerReferences?: import('../chat/types').ChatReference[];
+	/** 程序侧块来源自查(证词数据,不渲染):每个栅栏代码块的确定性溯源结果。 */
+	answerBlockSources?: Array<{
+		blockIndex: number;
+		status: 'unique' | 'unique-file' | 'ambiguous' | 'none';
+		file?: string;
+		targetId?: string;
+	}>;
 	answerOutcome?: AnswerOutcome;
 	answerValidation?: AnswerValidationResult;
 	answerRetryCount: number;

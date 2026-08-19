@@ -324,17 +324,9 @@ describe('Answer prompt reference-target contract block', () => {
 		);
 	});
 
-	it('documents the refblock source contract for multi-line code blocks', () => {
+	it('stays silent about refblock so the model never learns the syntax', () => {
 		const prompt = buildWithTargets().map((message) => message.content).join('\n');
-		assert.match(prompt, /\{\{refblock:/);
-		assert.match(prompt, /after the closing fence/);
-	});
-
-	it('makes the refblock line mandatory with a complete fenced example', () => {
-		const prompt = buildWithTargets().map((message) => message.content).join('\n');
-		assert.match(prompt, /every fenced code block MUST end with/i);
-		assert.match(prompt, /never write classmate-ref:\/\/ links/);
-		// 完整示例:真栅栏块 + 紧随的 refblock 行,而非只有语法说明。
-		assert.match(prompt, /```cpp[\s\S]*```[\s\S]*\{\{refblock:sym:monster\.h:Monster:takeTurn\}\}/);
+		assert.doesNotMatch(prompt, /refblock/, '提示词不得出现 refblock 字样(不提及即不会生成)');
+		assert.doesNotMatch(prompt, /classmate-ref:\/\//, '提示词不得暴露成品链接协议');
 	});
 });

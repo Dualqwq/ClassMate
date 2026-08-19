@@ -27,6 +27,7 @@ import {
 } from '../workspace/workspaceVersionIndex';
 import { buildWorkspaceStructureMap } from '../workspace/workspaceStructureMap';
 import { buildCppWorkspaceIndex } from '../parser/cppWorkspaceIndex';
+import { detectCodeBlockSources } from '../chat/answerBlockSourceDetector';
 import {
 	buildReferenceTargetCatalog,
 	finalizeAnswerReferences,
@@ -1430,11 +1431,23 @@ export class ClassMateGraphRunner {
 		if (finalized && finalized.issues.length > 0) {
 			this._services.onDebug?.('answer_reference_issues', finalized.issues);
 		}
+		// 程序侧块来源自查(证词数据,不渲染):对成品正文做确定性溯源,
+		// 供历史清洗的文件绑定与 7.7 校验消费。无栅栏块时结果为空。
+		const blockSources = current.workspaceSymbols
+			? detectCodeBlockSources(
+				finalized ? finalized.markdown : answer,
+				current.workspaceSymbols.symbols,
+				new Map(current.loadedWorkspaceItems
+					.filter((item) => item.kind === 'code')
+					.map((item) => [item.path, item.content]))
+			)
+			: [];
 		return nextState(state, {
 			answer: finalized ? finalized.markdown : answer,
 			// 标记只在缓冲路径下出现;若流式路径意外收到标记,fallback
 			// 剥离保证不泄漏(缓冲与否已在上方控制,这里是防御)。
 			answerReferences: finalized?.references,
+			answerBlockSources: blockSources.length > 0 ? blockSources : undefined,
 			answerOutcome: answer ? 'answered' : current.answerOutcome,
 			answerRetryCount: current.answerRetryCount + 1,
 			answerDelivered: current.answerDelivered
