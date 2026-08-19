@@ -4,6 +4,9 @@
 docs/**
 out/**
 node_modules/**
+!node_modules/web-tree-sitter/**
+!node_modules/tree-sitter-cpp/tree-sitter-cpp.wasm
+!node_modules/tree-sitter-c/tree-sitter-c.wasm
 src/**
 webview/**
 .gitattributes
