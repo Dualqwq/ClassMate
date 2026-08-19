@@ -149,3 +149,31 @@ describe('answerGroundingValidator (7.7 结构事实核对)', () => {
 		assert.strictEqual(claim.actualFact, 'empty');
 	});
 });
+
+describe('grounding claim phrasing from run7 (真实措辞回归)', () => {
+	it('catches "还处于注释状态 / 没有真正取消注释" against active code', () => {
+		const result = checkAnswerGrounding(
+			'明白了，你是说 `takeTurn` 里的三行代码**还处于注释状态**，并没有真正取消注释。',
+			[ACTIVE_TAKE_TURN]
+		);
+		assert.strictEqual(result.passed, false);
+		assert.ok(result.conflicts.some((conflict) => conflict.kind === 'comment_only'));
+	});
+
+	it('still accepts those phrasings when the body is comment-only', () => {
+		const result = checkAnswerGrounding(
+			'`takeTurn` 里的三行代码还处于注释状态，并没有真正取消注释。',
+			[COMMENTED_TAKE_TURN]
+		);
+		assert.strictEqual(result.passed, true);
+	});
+
+	it('does not treat imperative "把注释取消注释" guidance as a state claim', () => {
+		// 祈使句(指导学生去改)不是对当前状态的断言,不得误伤
+		const result = checkAnswerGrounding(
+			'你可以先试着把 `takeTurn` 注释里的三行代码取消注释。',
+			[COMMENTED_TAKE_TURN]
+		);
+		assert.strictEqual(result.passed, true);
+	});
+});

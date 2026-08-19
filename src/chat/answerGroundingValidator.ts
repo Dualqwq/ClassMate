@@ -86,7 +86,7 @@ const CLAIM_PATTERNS: ClaimPattern[] = [
 	{
 		kind: 'comment_only',
 		statedFact: 'comment_only',
-		pattern: /(只有|都是|全是|只剩下?)(被)?(注释掉?了?)?(的)?(注释|代码)|(被)?注释掉?了|只剩(下)?注释/,
+		pattern: /(只有|都是|全是|只剩下?)(被)?(注释掉?了?)?(的)?(注释|代码)|(被)?注释掉?了|只剩(下)?注释|处于注释(状态)?|注释状态|没(有)?真正?取消注释/,
 	},
 	{
 		kind: 'empty',
