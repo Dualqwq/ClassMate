@@ -329,4 +329,12 @@ describe('Answer prompt reference-target contract block', () => {
 		assert.match(prompt, /\{\{refblock:/);
 		assert.match(prompt, /after the closing fence/);
 	});
+
+	it('makes the refblock line mandatory with a complete fenced example', () => {
+		const prompt = buildWithTargets().map((message) => message.content).join('\n');
+		assert.match(prompt, /every fenced code block MUST end with/i);
+		assert.match(prompt, /never write classmate-ref:\/\/ links/);
+		// 完整示例:真栅栏块 + 紧随的 refblock 行,而非只有语法说明。
+		assert.match(prompt, /```cpp[\s\S]*```[\s\S]*\{\{refblock:sym:monster\.h:Monster:takeTurn\}\}/);
+	});
 });

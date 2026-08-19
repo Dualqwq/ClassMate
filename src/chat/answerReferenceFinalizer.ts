@@ -48,8 +48,12 @@ export function buildReferenceTargetCatalog(
 const MARKER_PATTERN = /\{\{ref:([^|}]+)\|([^}]+)\}\}/g;
 /** 残缺标记:有 {{ref: 开头但未在合理长度内闭合,按普通文本处理。 */
 const UNCLOSED_MARKER_PATTERN = /\{\{ref:[^}]{0,120}$/;
-/** 代码块闭合栅栏后一行内的来源标记;仅该位置的 refblock 有效。 */
+/** 代码块闭合栅栏后一行内的来源标记(标准位置)。 */
 const REFBLOCK_PATTERN = /(```[ \t]*\n)\{\{refblock:([^}\s]+)\}\}/g;
+/** 散置形态:独立成行但与栅栏隔了空行/其他内容的来源标记,就地转来源行。 */
+const STRAY_REFBLOCK_PATTERN = /^[ \t]*\{\{refblock:([^}\s]+)\}\}[ \t]*\n?/gm;
+/** 残缺 refblock(未闭合):兜底清扫,不得进入渲染文本。 */
+const MALFORMED_REFBLOCK_PATTERN = /\{\{refblock:[^}\n]{0,200}\n?/g;
 /** 模型自编的裸引用链接(无对应标记):剥链接保文字。 */
 const BARE_REF_LINK_PATTERN = /\[(`[^`]*`|[^[\]]*)\]\(classmate-ref:\/\/\d+(?:\?i)?\)/g;
 
@@ -128,6 +132,25 @@ function codeSpan(label: string): string {
 		: `\`${label}\``;
 }
 
+/** 把来源标记的目标清单渲染为可见来源行;全部无效时返回空串(原样省略)。 */
+function renderSourceLine(context: FinalizeContext, list: string): string {
+	const parts = list.split(',').map((part) => part.trim()).filter(Boolean);
+	const rendered: string[] = [];
+	for (const targetId of parts) {
+		const outcome = checkTarget(context, targetId);
+		if ('issue' in outcome) {
+			context.issues.push({ kind: outcome.issue, targetId });
+			continue; // 坏目标:来源行里直接省略,不生成链接
+		}
+		const { symbol } = outcome;
+		rendered.push(
+			`[\`${symbol.name}\`](classmate-ref://${referenceIndexFor(context, symbol)})`
+				+ ` · ${symbol.file}:${symbol.startLine}–${symbol.endLine}`
+		);
+	}
+	return rendered.length === 0 ? '' : `*来源: ${rendered.join(' · ')}*\n`;
+}
+
 export function finalizeAnswerReferences(
 	answer: string,
 	symbols: CppSymbol[],
@@ -152,27 +175,11 @@ export function finalizeAnswerReferences(
 			}
 			return `[\`${label}\`](classmate-ref://${referenceIndexFor(context, outcome.symbol)})`;
 		})
-		// 2) 代码块来源标记 → 可见来源行
-		.replace(REFBLOCK_PATTERN, (_match, fence: string, list: string) => {
-			const parts = list.split(',').map((part) => part.trim()).filter(Boolean);
-			const rendered: string[] = [];
-			for (const targetId of parts) {
-				const outcome = checkTarget(context, targetId);
-				if ('issue' in outcome) {
-					context.issues.push({ kind: outcome.issue, targetId });
-					continue; // 坏目标:来源行里直接省略,不生成链接
-				}
-				const { symbol } = outcome;
-				rendered.push(
-					`[\`${symbol.name}\`](classmate-ref://${referenceIndexFor(context, symbol)})`
-						+ ` · ${symbol.file}:${symbol.startLine}–${symbol.endLine}`
-				);
-			}
-			if (rendered.length === 0) {
-				return fence;
-			}
-			return `${fence}*来源: ${rendered.join(' · ')}*\n`;
-		})
+		// 2) 代码块来源标记 → 可见来源行(标准位置 + 散置形态就地转换)
+		.replace(REFBLOCK_PATTERN, (_match, fence: string, list: string) =>
+			`${fence}${renderSourceLine(context, list)}`)
+		.replace(STRAY_REFBLOCK_PATTERN, (_match, list: string) =>
+			renderSourceLine(context, list))
 		// 3) 模型自编的裸引用链接 → 剥链接保文字(死链防线)。
 		//    仅剥本轮标记未生成过的索引;标记刚生成的链接在正文里,不能误伤。
 		.replace(BARE_REF_LINK_PATTERN, (match, label: string, _offset: number, whole: string) => {
@@ -181,7 +188,8 @@ export function finalizeAnswerReferences(
 			return index < context.references.length ? match : codeSpan(label);
 		})
 		// 4) 残缺(未闭合)标记不得进入渲染文本
-		.replace(UNCLOSED_MARKER_PATTERN, (match) => match.replace('{{ref:', '`').concat('`'));
+		.replace(UNCLOSED_MARKER_PATTERN, (match) => match.replace('{{ref:', '`').concat('`'))
+		.replace(MALFORMED_REFBLOCK_PATTERN, '');
 
 	return { markdown, references: context.references, issues: context.issues };
 }

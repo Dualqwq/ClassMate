@@ -196,3 +196,36 @@ describe('answer reference finalizer', () => {
 		assert.ok(!result.markdown.includes('{{ref:'), '残缺标记也不得进入渲染文本');
 	});
 });
+
+describe('refblock placement tolerance (散置形态与防泄漏)', () => {
+	it('converts a refblock marker separated from the fence by a blank line', () => {
+		const answer = [
+			'```cpp',
+			'int x;',
+			'```',
+			'',
+			'{{refblock:sym:monster.h:Monster:takeTurn}}',
+			'正文。',
+		].join('\n');
+		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
+			['monster.h', 'hash-a'],
+		]), { workspaceRootUri: 'file:///ws' });
+		assert.ok(!result.markdown.includes('{{refblock:'), '散置标记不得泄漏');
+		assert.ok(result.markdown.includes('*来源: [`takeTurn`](classmate-ref://0)'));
+		assert.strictEqual(result.references.length, 1);
+	});
+
+	it('never leaks malformed unclosed refblock remnants', () => {
+		const answer = [
+			'```cpp',
+			'int x;',
+			'```',
+			'{{refblock:sym:monster.h:Monster:takeTurn',
+		].join('\n');
+		const result = finalizeAnswerReferences(answer, SYMBOLS, new Map([
+			['monster.h', 'hash-a'],
+		]), { workspaceRootUri: 'file:///ws' });
+		assert.ok(!result.markdown.includes('{{refblock:'), '残缺标记不得泄漏');
+		assert.ok(!result.markdown.includes('classmate-ref://'), '残缺目标不生成链接');
+	});
+});
