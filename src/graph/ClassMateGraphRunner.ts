@@ -26,6 +26,11 @@ import {
 	diffWorkspaceVersions,
 } from '../workspace/workspaceVersionIndex';
 import { buildWorkspaceStructureMap } from '../workspace/workspaceStructureMap';
+import { buildCppWorkspaceIndex } from '../parser/cppWorkspaceIndex';
+import {
+	buildReferenceTargetCatalog,
+	finalizeAnswerReferences,
+} from '../chat/answerReferenceFinalizer';
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
 import type {
 	LoadedWorkspaceItem,
@@ -1230,6 +1235,17 @@ export class ClassMateGraphRunner {
 
 	private async _freezeContext(state: WrappedState): Promise<WrappedState> {
 		const current = state.value;
+		// 引用契约:对已加载的代码文件建一次符号索引,作为候选引用目标。
+		let workspaceSymbols: ClassMateGraphState['workspaceSymbols'];
+		try {
+			workspaceSymbols = await buildCppWorkspaceIndex(
+				current.loadedWorkspaceItems
+					.filter((item) => item.kind === 'code')
+					.map((item) => ({ path: item.path, content: item.content }))
+			);
+		} catch (error) {
+			this._services.onDebug?.('workspace_symbol_index_degraded', String(error));
+		}
 		return nextState(state, {
 			workspaceSnapshot: buildWorkspaceSnapshot(
 				current.minimalWorkspaceContext!,
@@ -1239,6 +1255,7 @@ export class ClassMateGraphRunner {
 				current.minimalWorkspaceContext!.catalog,
 				current.loadedWorkspaceItems
 			),
+			workspaceSymbols,
 			answerContextFrozen: true,
 		});
 	}
@@ -1334,6 +1351,9 @@ export class ClassMateGraphRunner {
 				: undefined,
 			workspaceSnapshot: current.workspaceSnapshot!,
 			previousFileHashes: current.request.previousWorkspaceContext?.fileHashes,
+			referenceTargets: current.workspaceSymbols
+				? buildReferenceTargetCatalog(current.workspaceSymbols.symbols).targets
+				: undefined,
 			userText: current.request.userText,
 			conversationHistory: current.request.conversationHistory,
 		});
@@ -1348,6 +1368,9 @@ export class ClassMateGraphRunner {
 	private async _answer(state: WrappedState): Promise<WrappedState> {
 		this._assertNotCancelled();
 		const current = state.value;
+		// 引用契约:候选目标存在时,带引用的回答必须完整缓冲,
+		// 标记在交付前由程序确定性转换(第一版;流式过滤在 perf 阶段)。
+		const hasReferenceTargets = (current.workspaceSymbols?.symbols.length ?? 0) > 0;
 		const messages: LLMMessage[] = [...current.answerMessages];
 		if (current.answerValidation && !current.answerValidation.valid) {
 			messages.push({
@@ -1360,7 +1383,10 @@ export class ClassMateGraphRunner {
 			});
 		}
 		// 高风险回答先缓冲，等正确性检查通过后再交给界面；普通问题继续直接流式输出。
+		// 引用契约生效时(候选目标非空)同样缓冲:标记必须先经程序转换,
+		// 不能把 {{ref:...}} 直接流给学生。
 		const streamImmediately = !current.correctnessCheckRequired
+			&& !hasReferenceTargets
 			&& current.answerRetryCount === 0;
 		const completion = await this._services.model.complete(messages, {
 			label: 'answer',
@@ -1386,8 +1412,22 @@ export class ClassMateGraphRunner {
 				: undefined,
 		});
 		const answer = completion.content.trim();
+		// 引用契约:标记 → 链接/引用清单。无标记时结果与原文一致。
+		const finalized = current.workspaceSymbols
+			? finalizeAnswerReferences(
+				answer,
+				current.workspaceSymbols.symbols,
+				new Map(current.loadedWorkspaceItems.map((item) => [item.path, item.contentHash]))
+			)
+			: undefined;
+		if (finalized && finalized.issues.length > 0) {
+			this._services.onDebug?.('answer_reference_issues', finalized.issues);
+		}
 		return nextState(state, {
-			answer,
+			answer: finalized ? finalized.markdown : answer,
+			// 标记只在缓冲路径下出现;若流式路径意外收到标记,fallback
+			// 剥离保证不泄漏(缓冲与否已在上方控制,这里是防御)。
+			answerReferences: finalized?.references,
 			answerOutcome: answer ? 'answered' : current.answerOutcome,
 			answerRetryCount: current.answerRetryCount + 1,
 			answerDelivered: current.answerDelivered

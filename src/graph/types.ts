@@ -228,6 +228,8 @@ export interface ClassMateRequest {
 		content: string;
 		images?: LLMImage[];
 		attachments?: LLMAttachment[];
+		/** 引用契约:该轮回答实际链接的文件(精确历史裁剪用)。 */
+		referenceFiles?: string[];
 	}>;
 	previousWorkspaceContext?: ConversationWorkspaceContext;
 }
@@ -256,6 +258,8 @@ export interface ClassMateGraphState {
 	workspaceVersionIndex?: WorkspaceVersionIndex;
 	/** 交付前复核发现的工作区漂移(创建/修改/删除/重命名)。 */
 	workspaceDriftChanges?: WorkspaceChange[];
+	/** 引用契约:冻结工作区的 C++ 符号索引(候选引用目标)。 */
+	workspaceSymbols?: import('../parser/cppWorkspaceIndex').CppWorkspaceIndex;
 	/** 因工作区漂移已经重建上下文并重生成的次数。 */
 	workspaceDriftRetryCount: number;
 	/** verify_workspace 本步刚完成重载、下一步应重建回答的瞬时标记。 */
@@ -287,6 +291,8 @@ export interface ClassMateGraphState {
 
 	answerMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
 	answer?: string;
+	/** 引用契约生成的最终引用清单(由正文标记确定)。 */
+	answerReferences?: import('../chat/types').ChatReference[];
 	answerOutcome?: AnswerOutcome;
 	answerValidation?: AnswerValidationResult;
 	answerRetryCount: number;

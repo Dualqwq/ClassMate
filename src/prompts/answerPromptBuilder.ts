@@ -25,6 +25,14 @@ export interface AnswerPromptInput {
 	workspaceSnapshot: WorkspaceContextSnapshot;
 	/** 上一轮加载文件 hash;与当前快照对比后裁剪模型可见历史。 */
 	previousFileHashes?: Record<string, string>;
+	/** 引用契约:程序提供的候选目标;模型在正文提及处放 {{ref:targetId|name}}。 */
+	referenceTargets?: Array<{
+		targetId: string;
+		file: string;
+		name: string;
+		kind: string;
+		startLine: number;
+	}>;
 	userText: string;
 	conversationHistory: Array<{
 		role: 'user' | 'assistant';
@@ -255,6 +263,24 @@ export class AnswerPromptBuilder {
 				))
 			),
 			...buildQuestionAdjacentEvidence(input.workspaceSnapshot),
+			...(input.referenceTargets && input.referenceTargets.length > 0
+				? [{
+					role: 'system' as const,
+					content: [
+						'=== Reference targets (code mentions in your answer) ===',
+						'When your answer mentions a workspace symbol as code, wrap that exact mention with a marker:',
+						'{{ref:<targetId>|<visibleName>}}',
+						'Example: 你看 {{ref:sym:monster.h:Monster:takeTurn|takeTurn}} 函数 —— the marked takeTurn becomes a clickable code link; an unmarked plain word stays plain.',
+						'Rules:',
+						'- Only use targetIds from the list below; never invent one.',
+						'- Mark only the mentions that refer to workspace code. Plain English words with the same spelling stay unmarked.',
+						'- std:: library names are never workspace targets; leave them unmarked.',
+						'- Mark at least the first mention of each symbol you discuss.',
+						...input.referenceTargets.map((target) =>
+							`${target.targetId} → ${target.name} (${target.kind}, ${target.file}:${target.startLine})`),
+					].join('\n'),
+				}]
+				: []),
 		];
 		if (
 			messages.length === 0 ||

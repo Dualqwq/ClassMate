@@ -1172,15 +1172,20 @@ export class ChatSession {
 			const previousWorkspaceContext = this._conversationWorkspaceContexts.get(
 				graphConversationId
 			);
-			const history = this._getConversationHistory()
+			const history = this._state.messages
 				.filter((message): message is typeof message & { role: 'user' | 'assistant' } =>
-					message.role === 'user' || message.role === 'assistant'
+					(message.role === 'user' || message.role === 'assistant')
+					&& message.content.trim().length > 0
 				)
 				.map((message) => ({
 					role: message.role,
 					content: message.content,
 					images: message.images,
 					attachments: message.attachments,
+					// 引用契约:该轮回答实际链接的文件,供历史裁剪精确绑定。
+					referenceFiles: message.references
+						?.map((reference) => path.basename(reference.uri))
+						.filter((file): file is string => Boolean(file)),
 				}));
 			const activeEditor = vscode.window.activeTextEditor;
 			this._recordDiagnostic('turn_started', {
@@ -1347,6 +1352,15 @@ export class ChatSession {
 					assistantMessage.id,
 					result.state.loadedWorkspaceItems.map((item) => item.path)
 				);
+				if (result.state.answerReferences
+					&& result.state.answerReferences.length > 0) {
+					// 引用契约:图内已由标记生成精确引用,直接挂到消息,
+					// 跳过下面那次独立的引用提取模型调用。
+					this._setMessageReferences(
+						assistantMessage.id,
+						result.state.answerReferences
+					);
+				}
 				if (editTarget) {
 					this._attachProposedEdit(assistantMessage.id, editTarget);
 				}
@@ -1365,17 +1379,20 @@ export class ChatSession {
 					),
 				});
 				// 流已结束(finally 里 endStream),后台异步提取代码引用,不阻塞收尾。
-				void this._extractAndAttachReferences(
-					assistantMessage.id,
-					result.answer,
-					result.state.loadedWorkspaceItems,
-					model,
-					controller.signal,
-					{
-						conversationId: graphConversationId,
-						requestId: graphRequestId,
-					}
-				);
+				// 引用契约已生成引用时跳过该提取(避免第二次模型调用与链接覆盖)。
+				if (!result.state.answerReferences?.length) {
+					void this._extractAndAttachReferences(
+						assistantMessage.id,
+						result.answer,
+						result.state.loadedWorkspaceItems,
+						model,
+						controller.signal,
+						{
+							conversationId: graphConversationId,
+							requestId: graphRequestId,
+						}
+					);
+				}
 			} catch (error) {
 				this._recordDiagnostic(
 					controller.signal.aborted ? 'turn_cancelled' : 'turn_failed',

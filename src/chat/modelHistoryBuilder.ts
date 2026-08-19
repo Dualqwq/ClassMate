@@ -11,7 +11,11 @@ import { estimateTokens } from '../workspace/contextPolicy';
 export const MODEL_HISTORY_TOKEN_BUDGET = 8_000;
 
 export interface ModelHistoryInput {
-	history: Array<{ role: 'user' | 'assistant'; content: string }>;
+	history: Array<{
+		role: 'user' | 'assistant';
+		content: string;
+		referenceFiles?: string[];
+	}>;
 	currentFileHashes: Map<string, string>;
 	previousFileHashes: Map<string, string>;
 	tokenBudget: number;
@@ -21,13 +25,19 @@ export interface ModelHistoryInput {
 const STALE_STATE_PATTERN =
 	/(现在是?空的|函数体(里)?只有注释|还没写完|已经写(完|好)了|不需要再改|有\s*\d+\s*行(实际)?代码|只有\s*\d+\s*行)/;
 
+function basenameOf(file: string): string {
+	return file.replace(/\\/g, '/').split('/').pop() ?? file;
+}
+
 function comparablePath(value: string): string {
 	return value.replace(/\\/g, '/').toLocaleLowerCase();
 }
 
 function anyReferencedFileChanged(input: ModelHistoryInput, message: string): boolean {
-	// 无路径信息时保守起见按"可能已变"处理;真正的路径绑定在 7.6 引用
-	// 契约落地后由 targetId→file 精确化。
+	// 兜底策略(临时):按"文件名词干出现在整轮文本"猜测归属。
+	// 这只在 7.6 引用契约(正文 {{ref:targetId|name}} 标记 → targetId → 文件
+	// 的精确绑定)落地前使用;契约接入后应替换为按引用标记逐轮精确判断,
+	// 本函数随即退役。
 	const mentioned = [...input.previousFileHashes.keys()]
 		.filter((file) => message.includes(file.split('/').pop()!.split('.')[0]));
 	return mentioned.some((file) =>
@@ -70,11 +80,26 @@ export function buildModelVisibleHistory(input: ModelHistoryInput): Array<{
 			.map((message) => message.content)
 			.join('\n');
 	};
+	// 精确绑定(优先):引用契约下 assistant 轮带 referenceFiles(实际链接的
+	// 文件)。这些文件中任一 hash 变化 → 该轮按旧版本清洗。
+	const turnReferences = (index: number): string[] | undefined =>
+		input.history[index - (index % 2 === 0 ? 0 : 1) + 1]?.referenceFiles;
 	const cleaned = input.history.map((message, index) => {
 		if (message.role !== 'assistant' || !workspaceChanged) {
 			return message;
 		}
-		if (!anyReferencedFileChanged(input, turnScope(index))) {
+		// 精确绑定:referenceFiles 里任一文件 hash 变化才清洗。
+		const preciseFiles = turnReferences(index);
+		if (preciseFiles !== undefined) {
+			const changed = preciseFiles.some((file) =>
+				input.currentFileHashes.get(comparablePath(basenameOf(file)))
+					!== input.previousFileHashes.get(comparablePath(basenameOf(file)))
+			);
+			if (!changed) {
+				return message;
+			}
+		} else if (!anyReferencedFileChanged(input, turnScope(index))) {
+			// 兜底(7.6 后仅在旧会话无引用元数据时走到)。
 			return message;
 		}
 		const withoutCode = stripStaleCodeBlocks(message.content);
