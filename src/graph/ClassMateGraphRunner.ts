@@ -29,6 +29,11 @@ import { buildWorkspaceStructureMap } from '../workspace/workspaceStructureMap';
 import { buildCppWorkspaceIndex } from '../parser/cppWorkspaceIndex';
 import { detectCodeBlockSources } from '../chat/answerBlockSourceDetector';
 import {
+	buildGroundedLocalHint,
+	buildGroundingRetryInstruction,
+	checkAnswerGrounding,
+} from '../chat/answerGroundingValidator';
+import {
 	buildReferenceTargetCatalog,
 	finalizeAnswerReferences,
 } from '../chat/answerReferenceFinalizer';
@@ -281,6 +286,7 @@ export class ClassMateGraphRunner {
 			answerMessages: [],
 			answerRetryCount: 0,
 			workspaceDriftRetryCount: 0,
+			groundingRetryCount: 0,
 			workspaceDriftRegenerate: false,
 			answerDelivered: false,
 			nodeTimings: [],
@@ -313,6 +319,8 @@ export class ClassMateGraphRunner {
 				this._measureNode('validate', state, () => this._validate(state)))
 			.addNode('verify_workspace', (state) =>
 				this._measureNode('verify_workspace', state, () => this._verifyWorkspace(state)))
+			.addNode('grounding_check', (state) =>
+				this._measureNode('grounding_check', state, () => this._groundingCheck(state)))
 			.addNode('correctness_check', (state) =>
 				this._measureNode('correctness_check', state, () => this._correctnessCheck(state)))
 			.addEdge(START, 'prepare')
@@ -338,11 +346,19 @@ export class ClassMateGraphRunner {
 			.addConditionalEdges('verify_workspace', (state) =>
 				// 复核发现漂移且回答未流出:已重建快照,按新工作区重生成一次。
 				// workspaceDriftRegenerate 是本步刚重载的瞬时标记,
-				// 由 build_answer_prompt 消费,避免第二次经过时再次路由回去。
+				// 由 build_answer_prompt 消耗,避免第二次经过时再次路由回去。
 				state.value.workspaceDriftRegenerate
 					&& !state.value.answerDelivered
 					&& !state.value.answerValidation?.shouldRegenerate
 					? 'build_answer_prompt'
+					: 'grounding_check'
+			)
+			.addConditionalEdges('grounding_check', (state) =>
+				// 结构事实冲突且回答未流出:grounding_check 设置一次性
+				// groundingCorrectionInstruction,answer 消费后清除并回到
+				// validate→verify_workspace→grounding_check 复核。
+				state.value.groundingCorrectionInstruction
+					? 'answer'
 					: 'correctness_check'
 			)
 			.addConditionalEdges('correctness_check', (state) =>
@@ -1396,12 +1412,23 @@ export class ClassMateGraphRunner {
 				].join('\n'),
 			});
 		}
+		// 7.7 事实冲突重生成:本地事实作为硬约束注入(一次性,由
+		// grounding_check 设置,answer 消费后随新状态自然清除)。
+		if (current.groundingCorrectionInstruction) {
+			messages.push({
+				role: 'system',
+				content: current.groundingCorrectionInstruction,
+			});
+		}
+		// 事实冲突重生成期间继续缓冲(与首轮同等处理),避免半成品流出。
+		const groundingRetrying = Boolean(current.groundingCorrectionInstruction);
 		// 高风险回答先缓冲，等正确性检查通过后再交给界面；普通问题继续直接流式输出。
 		// 引用契约生效时(候选目标非空)同样缓冲:标记必须先经程序转换,
 		// 不能把 {{ref:...}} 直接流给学生。
 		const streamImmediately = !current.correctnessCheckRequired
 			&& !hasReferenceTargets
-			&& current.answerRetryCount === 0;
+			&& current.answerRetryCount === 0
+			&& !groundingRetrying;
 		const completion = await this._services.model.complete(messages, {
 			label: 'answer',
 			temperature: current.problemIdentification?.evidence.includes(
@@ -1457,6 +1484,8 @@ export class ClassMateGraphRunner {
 			answerBlockSources: blockSources.length > 0 ? blockSources : undefined,
 			answerOutcome: answer ? 'answered' : current.answerOutcome,
 			answerRetryCount: current.answerRetryCount + 1,
+			// 消费一次性事实纠正指令:重生成完成后清除,grounding_check 复核。
+			groundingCorrectionInstruction: undefined,
 			answerDelivered: current.answerDelivered
 				|| Boolean(streamImmediately && this._services.onAnswerToken && answer),
 		});
@@ -1605,6 +1634,57 @@ export class ClassMateGraphRunner {
 	 * 只为高风险回答调用一次短检查器；若发现问题，最多触发一次 Answer 重写。
 	 * 第二次仍未通过时，优先采用检查器给出的完整修正版，否则明确说明无法确认。
 	 */
+	/**
+	 * 7.7 结构事实核对:模型回答中"只有注释/是空的/有N行/已写完"类声明
+	 * 与冻结工作区的 Tree-sitter 事实确定性比对。冲突且未流出 → 带本地
+	 * 事实重生成一次;已流出或重试用尽 → 记录核对结果(不静默改写已见内容)。
+	 */
+	private async _groundingCheck(state: WrappedState): Promise<WrappedState> {
+		const current = state.value;
+		const symbols = current.workspaceSymbols?.symbols ?? [];
+		const result = symbols.length > 0
+			? checkAnswerGrounding(current.answer ?? '', symbols)
+			: { claims: [], conflicts: [], passed: true };
+		const groundingCheck = {
+			claims: result.claims,
+			conflicts: result.conflicts,
+			passed: result.passed,
+		};
+		if (result.passed) {
+			return nextState(state, { groundingCheck });
+		}
+		this._services.onDebug?.('grounding_conflict', {
+			conflicts: result.conflicts.map((claim) => ({
+				kind: claim.kind,
+				targetId: claim.targetId,
+				statedFact: claim.statedFact,
+				actualFact: claim.actualFact,
+			})),
+			answerDelivered: current.answerDelivered,
+			retryUsed: current.groundingRetryCount > 0,
+		});
+		// 已流出的内容不静默替换;缓冲路径下重生成一次,仍冲突交付本地事实提示。
+		if (current.answerDelivered || current.groundingRetryCount > 0) {
+			if (current.answerDelivered) {
+				return nextState(state, { groundingCheck });
+			}
+			return nextState(state, {
+				groundingCheck,
+				answer: buildGroundedLocalHint(result.conflicts, symbols),
+				answerOutcome: 'grounded_local_hint',
+				answerValidation: { valid: true, problems: [], shouldRegenerate: false },
+			});
+		}
+		return nextState(state, {
+			groundingCheck,
+			groundingRetryCount: current.groundingRetryCount + 1,
+			groundingCorrectionInstruction: buildGroundingRetryInstruction(
+				result.conflicts,
+				symbols
+			),
+		});
+	}
+
 	private async _correctnessCheck(state: WrappedState): Promise<WrappedState> {
 		const current = state.value;
 		if (!current.correctnessCheckRequired) {

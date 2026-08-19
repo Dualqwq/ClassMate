@@ -478,6 +478,7 @@ describe('ClassMate LangGraph runner', () => {
 				'answer',
 				'validate',
 				'verify_workspace',
+				'grounding_check',
 				'correctness_check',
 			]
 		);
@@ -1083,5 +1084,116 @@ describe('ClassMate LangGraph runner', () => {
 		assert.ok(!delivered.includes('可以继续向后找'));
 		assert.strictEqual(delivered, result.answer);
 		assert.strictEqual(result.state.correctnessVerification?.passed, true);
+	});
+});
+
+describe('grounding_check (7.7 结构事实核对)', () => {
+	const MONSTER_ACTIVE = [
+		'#pragma once',
+		'class Monster {',
+		'public:',
+		'    void takeTurn()',
+		'    {',
+		'        std::cout << "turn";',
+		'        doWork();',
+		'    }',
+		'};',
+	].join('\n');
+
+	function groundingServices(model: GraphModelClient): ClassMateGraphServices {
+		const services = createServices(model, {
+			catalog: {
+				files: [{
+					path: 'monster.h',
+					uri: 'file:///monster.h',
+					kind: 'code',
+					size: 10,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+				activeEditor: {
+					fileName: 'monster.h',
+					uri: 'file:///monster.h',
+					languageId: 'cpp',
+				},
+			},
+		}, async () => [{
+			path: 'monster.h',
+			kind: 'code' as const,
+			content: MONSTER_ACTIVE,
+			contentHash: 'hash-active',
+			reason: 'test',
+		}]);
+		return services;
+	}
+
+	function groundingModel(plannedAnswers: string[]): GraphModelClient {
+		let answerIndex = 0;
+		return {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return {
+						content: mergedPlan('concept_explanation', [{
+							target: 'monster.h',
+							section: null,
+							required: true,
+							reason: '读取目标文件',
+						}]),
+					};
+				}
+				// Answer 提示里也含 "Constraints" 标题:必须先按 Answer 专属
+				// 标题识别 answer 调用,再判其余 mode。
+				if (text.includes('ClassMate Answer Mode')) {
+					const answer = plannedAnswers[Math.min(answerIndex, plannedAnswers.length - 1)];
+					answerIndex++;
+					return { content: answer };
+				}
+				if (text.includes('ClassMate Correctness Check Mode')) {
+					return { content: JSON.stringify({ p: true, s: 'none', i: [] }) };
+				}
+				if (text.includes('ClassMate Problem Constraint Mode')) {
+					return { content: JSON.stringify({ h: [], o: [], l: [], e: [], u: [] }) };
+				}
+				return { content: '' };
+			},
+		};
+	}
+
+	it('T5: regenerates once with local facts when the answer contradicts active code', async () => {
+		const model = groundingModel([
+			'明白了，你是把 `takeTurn` 里的代码注释掉了，函数体只剩注释。请恢复它们。',
+			'抱歉说错了：`takeTurn` 当前已有实际代码（第 4–8 行）。我们直接看它的输出逻辑。',
+		]);
+		const result = await new ClassMateGraphRunner(groundingServices(model)).run({
+			requestId: 'grounding-t5',
+			conversationId: 'conversation-grounding-t5',
+			userText: '保存了呀只是注释了而已',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+		assert.ok(!result.answer.includes('只剩注释'), '错误事实不得直达');
+		assert.ok(result.answer.includes('已有实际代码'), '最终交付以事实为准');
+		assert.strictEqual(result.state.groundingCheck?.passed, true, '重生成后复核通过');
+		assert.strictEqual(result.state.groundingRetryCount, 1);
+		assert.strictEqual(result.state.answerOutcome, 'answered');
+	});
+
+	it('falls back to the grounded local hint when regeneration still conflicts', async () => {
+		const model = groundingModel([
+			'`takeTurn` 函数体是空的，什么都没做。',
+			'是的，`takeTurn` 只有注释，是空的。',
+		]);
+		const result = await new ClassMateGraphRunner(groundingServices(model)).run({
+			requestId: 'grounding-hint',
+			conversationId: 'conversation-grounding-hint',
+			userText: 'takeTurn 现在怎么样了',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+		assert.strictEqual(result.state.answerOutcome, 'grounded_local_hint');
+		assert.ok(result.answer.includes('抱歉'), '本地事实提示须含道歉措辞');
+		assert.ok(result.answer.includes('monster.h'), '提示须指向具体文件');
+		assert.ok(!/(Frozen workspace data|清单|信封|校验)/.test(result.answer), '不得出现内部术语');
 	});
 });

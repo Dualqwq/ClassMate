@@ -262,6 +262,24 @@ export interface ClassMateGraphState {
 	workspaceSymbols?: import('../parser/cppWorkspaceIndex').CppWorkspaceIndex;
 	/** 因工作区漂移已经重建上下文并重生成的次数。 */
 	workspaceDriftRetryCount: number;
+	/** 7.7 结构事实核对:冲突时重生成一次的计数。 */
+	groundingRetryCount: number;
+	/** 重生成时随 answer 提示下发的本地事实纠正指令(瞬时,由 _answer 消费)。 */
+	groundingCorrectionInstruction?: string;
+	/** grounding_check 的核对结果(证词:定位到的声明与冲突)。 */
+	groundingCheck?: {
+		claims: Array<{
+			kind: string;
+			targetId: string;
+			symbolName: string;
+			statedFact: string;
+			actualFact: string;
+			sentence: string;
+			statedCount?: number;
+		}>;
+		conflicts: Array<unknown>;
+		passed: boolean;
+	};
 	/** verify_workspace 本步刚完成重载、下一步应重建回答的瞬时标记。 */
 	workspaceDriftRegenerate: boolean;
 	conversationWorkspaceContext?: ConversationWorkspaceContext;
