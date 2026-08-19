@@ -57,6 +57,13 @@ export interface Bug1EvalResult {
 		modelMarkedLinks: number;
 		inferredLinks: number;
 	};
+	/** 程序侧块来源证词(不渲染):栅栏代码块的确定性溯源结果。 */
+	answerBlockSources?: Array<{
+		blockIndex: number;
+		status: 'unique' | 'unique-file' | 'ambiguous' | 'none';
+		file?: string;
+		targetId?: string;
+	}>;
 	error?: string;
 	startedAt: string;
 	firstTokenMs?: number;
@@ -200,6 +207,12 @@ const evalResultSchema = z.object({
 		modelMarkedLinks: z.number().nonnegative(),
 		inferredLinks: z.number().nonnegative(),
 	}).optional(),
+	answerBlockSources: z.array(z.object({
+		blockIndex: z.number().nonnegative(),
+		status: z.enum(['unique', 'unique-file', 'ambiguous', 'none']),
+		file: z.string().optional(),
+		targetId: z.string().optional(),
+	})).optional(),
 	error: z.string().optional(),
 	startedAt: z.string().min(1),
 	firstTokenMs: z.number().nonnegative().optional(),
@@ -286,6 +299,7 @@ function caseIdentity(result: Bug1EvalResult): unknown {
 		mutations: result.mutations,
 		workspaceEvidence: result.workspaceEvidence,
 		answerReferenceStats: result.answerReferenceStats,
+		answerBlockSources: result.answerBlockSources,
 	};
 }
 

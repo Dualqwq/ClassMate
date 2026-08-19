@@ -161,7 +161,7 @@
 				<div class="meta-key">活动文件</div><div>${escapeHtml(item.activeFile ?? '无')}</div>
 				<div class="meta-key">预期 / 实际 intent</div><div>${escapeHtml(item.expectedIntent)} / ${escapeHtml(item.actualRequestType ?? '无')}</div>
 				<div class="meta-key">运行</div><div>${escapeHtml(item.status)} · outcome ${escapeHtml(item.deliveryOutcome)} · ${item.totalDurationMs} ms · retry ${escapeHtml(item.answerRetryCount ?? 0)}</div>
-				<div class="meta-key">引用分层</div><div>${item.answerReferenceStats ? `标记链接 ${item.answerReferenceStats.modelMarkedLinks} · 补链 ${item.answerReferenceStats.inferredLinks} · 清单 ${item.answerReferenceStats.references}` : '无记录'}</div>
+				<div class="meta-key">引用分层</div><div>${item.answerReferenceStats ? `标记链接 ${item.answerReferenceStats.modelMarkedLinks} · 补链 ${item.answerReferenceStats.inferredLinks} · 清单 ${item.answerReferenceStats.references}` : '无记录'}${item.answerBlockSources?.length ? ` · 块来源 ${item.answerBlockSources.map((b) => b.status === 'unique' ? `${b.file}→${(b.targetId ?? '').split(':').pop()}` : b.status === 'unique-file' ? b.file : b.status).join(' / ')}` : ''}</div>
 				<div class="meta-key">模型</div><div>${escapeHtml(state.session.bundle.source.provider)} / ${escapeHtml(state.session.bundle.source.model)}</div>
 				<div class="meta-key">snapshot</div><div>${escapeHtml(item.workspaceEvidence?.snapshotId ?? '缺失')}</div>
 				${item.error ? `<div class="meta-key">错误</div><div class="error">${escapeHtml(item.error)}</div>` : ''}

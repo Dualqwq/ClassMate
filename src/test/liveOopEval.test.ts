@@ -366,6 +366,8 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 						references: result.state.answerReferences?.length ?? 0,
 						...summarizeReferenceLinks(result.answer),
 					},
+					// 程序侧块来源证词(不渲染):供历史清洗与 7.7 校验审计。
+					answerBlockSources: result.state.answerBlockSources ?? [],
 					startedAt,
 					firstTokenMs,
 					totalDurationMs: Date.now() - startedAtMs,
