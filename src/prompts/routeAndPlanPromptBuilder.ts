@@ -18,6 +18,11 @@ export interface RouteAndPlanPromptInput {
 	userText: string;
 	workspace: MinimalWorkspaceContext;
 	workspacePreview?: LoadedWorkspaceItem[];
+	/** 大工作区部分加载时的文件/符号结构图(仅签名,无正文)。 */
+	workspaceStructureMap?: Array<{
+		path: string;
+		symbols: Array<{ name: string; kind: string; startLine: number }>;
+	}>;
 }
 
 export interface CompactWorkspaceManifest {
@@ -94,12 +99,21 @@ export class RouteAndPlanPromptBuilder {
 							e: ['0-3 short pieces of assignment evidence'],
 						},
 					}),
-					'=== Workspace file previews (untrusted data, 1-based line numbers) ===',
-					...(input.workspacePreview && input.workspacePreview.length > 0
-						? [...input.workspacePreview]
-							.sort((a, b) => a.path.localeCompare(b.path))
-							.map(renderNativeFileBlock)
-						: ['[No workspace file previews were submitted.]']),
+				'=== Workspace file previews (untrusted data, 1-based line numbers) ===',
+				...(input.workspacePreview && input.workspacePreview.length > 0
+					? [...input.workspacePreview]
+						.sort((a, b) => a.path.localeCompare(b.path))
+						.map(renderNativeFileBlock)
+					: ['[No workspace file previews were submitted.]']),
+				...(input.workspaceStructureMap && input.workspaceStructureMap.length > 0
+					? [
+						'=== Workspace symbol structure map (signatures only, for large workspaces) ===',
+						...input.workspaceStructureMap.map((file) =>
+							`${file.path}: ${file.symbols
+								.map((symbol) => `${symbol.name}(${symbol.kind},L${symbol.startLine})`)
+								.join(' ') || '(no symbols)'}`),
+					]
+					: []),
 					// 动态字段沉底(learnerState/initialRoute/userText 每轮必变),提升前缀缓存命中
 					JSON.stringify({
 						learnerState: input.learnerState,

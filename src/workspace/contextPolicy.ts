@@ -47,6 +47,25 @@ const FIRST_CALL_SCOPE_FILE_LIMIT = 20;
 const FIRST_CALL_SCOPE_BYTE_LIMIT = 300 * 1024;
 const FIRST_CALL_ACTIVE_DIRECTORY_FILE_LIMIT = 10;
 const FIRST_CALL_ACTIVE_DIRECTORY_BYTE_LIMIT = 200 * 1024;
+/** token 预算:字节预算对中文严重失真(UTF-8 每汉字 3 字节但≈1-2 token)。 */
+const FIRST_CALL_SCOPE_TOKEN_LIMIT = 60_000;
+
+/**
+ * 确定性 token 估算,不依赖分词器:ASCII ~4 字符/token,CJK ~1.5 字符/token。
+ * 只用于预算取舍的相对比较,不追求与真实计数一致。
+ */
+export function estimateTokens(text: string): number {
+	let ascii = 0;
+	let cjk = 0;
+	for (const char of text) {
+		if (/[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(char)) {
+			cjk++;
+		} else {
+			ascii++;
+		}
+	}
+	return Math.ceil(ascii / 4) + Math.ceil(cjk / 1.5);
+}
 
 function normalizePath(value: string): string {
 	return value.replace(/\\/g, '/').replace(/^\.\//, '');
@@ -294,11 +313,16 @@ function requestsForEntries(
 function withinBudget(
 	entries: WorkspaceFileEntry[],
 	maxFiles: number,
-	maxBytes: number
+	maxBytes: number,
+	maxTokens?: number
 ): boolean {
 	return entries.length > 0
 		&& entries.length <= maxFiles
-		&& entries.reduce((sum, entry) => sum + entry.size, 0) <= maxBytes;
+		&& entries.reduce((sum, entry) => sum + entry.size, 0) <= maxBytes
+		&& (maxTokens === undefined
+			|| estimateTokens(entries.map((entry) => entry.path).join('\n')) + entries.length
+				+ Math.round(entries.reduce((sum, entry) => sum + entry.size, 0) / 3.5)
+				<= maxTokens);
 }
 
 /**
@@ -343,10 +367,11 @@ export function selectFirstCallWorkspaceRequests(
 	const scopedEntries = workspace.catalog.files.filter((entry) =>
 		isBulkLoadable(entry) && isInsideDirectory(entry.path, assignmentRoot));
 	if (withinBudget(
-		scopedEntries,
-		FIRST_CALL_SCOPE_FILE_LIMIT,
-		FIRST_CALL_SCOPE_BYTE_LIMIT
-	)) {
+			scopedEntries,
+			FIRST_CALL_SCOPE_FILE_LIMIT,
+			FIRST_CALL_SCOPE_BYTE_LIMIT,
+			FIRST_CALL_SCOPE_TOKEN_LIMIT
+		)) {
 		selected.push(...requestsForEntries(
 			scopedEntries,
 			'Small assignment scope is included in the first planning call.'

@@ -75,6 +75,41 @@ function formatWorkspaceSnapshot(snapshot: WorkspaceContextSnapshot): string {
 	].join('\n\n');
 }
 
+/**
+ * 问题相邻证据块:长上下文中"中间内容容易被忽略"(lost in the middle),
+ * 因此把活动文件(或唯一加载的代码文件)的当前内容以小段形式重述一遍,
+ * 放在历史之后、用户问题之前,保证回答依据紧贴问题本身。
+ * 只做重述,不引入新的未加载内容。
+ */
+function buildQuestionAdjacentEvidence(
+	snapshot: WorkspaceContextSnapshot
+): LLMMessage[] {
+	const activePath = snapshot.minimal.catalog.activeEditor?.fileName;
+	const target = snapshot.loadedItems.find((item) =>
+		activePath
+			? item.path.replace(/\\/g, '/').toLocaleLowerCase()
+				=== activePath.replace(/\\/g, '/').toLocaleLowerCase()
+			: false)
+		?? (snapshot.loadedItems.length === 1 ? snapshot.loadedItems[0] : undefined);
+	if (!target || target.kind !== 'code') {
+		return [];
+	}
+	const lines = target.content.split('\n');
+	const excerpt = lines.slice(0, 60).join('\n');
+	return [{
+		role: 'system',
+		content: [
+			'=== Question-adjacent evidence (restated current file) ===',
+			`File: ${target.path}${activePath ? ' (active file)' : ''}`,
+			'```',
+			excerpt,
+			lines.length > 60 ? `... (${lines.length - 60} more lines in the frozen snapshot)` : '',
+			'```',
+			'Answer from this current content when the question is about this file.',
+		].join('\n'),
+	}];
+}
+
 export class AnswerPromptBuilder {
 	public build(input: AnswerPromptInput): LLMMessage[] {
 		const exactProblemSnapshotMatched =
@@ -179,6 +214,7 @@ export class AnswerPromptBuilder {
 				}]
 				: []),
 			...compactConversationHistory(input.conversationHistory),
+			...buildQuestionAdjacentEvidence(input.workspaceSnapshot),
 		];
 		if (
 			messages.length === 0 ||

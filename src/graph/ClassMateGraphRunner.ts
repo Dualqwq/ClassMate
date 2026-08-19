@@ -25,6 +25,7 @@ import {
 	buildWorkspaceVersionIndex,
 	diffWorkspaceVersions,
 } from '../workspace/workspaceVersionIndex';
+import { buildWorkspaceStructureMap } from '../workspace/workspaceStructureMap';
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
 import type {
 	LoadedWorkspaceItem,
@@ -487,6 +488,36 @@ export class ClassMateGraphRunner {
 				);
 			}
 		}
+		// 部分加载的大工作区:正文没进 preview 的代码文件以符号结构图形式
+		// 提交给 Route,让模型能按符号点名文件而不是按文件名猜。
+		let workspaceStructureMap: Awaited<ReturnType<typeof buildWorkspaceStructureMap>> | undefined;
+		const previewPaths = new Set(workspacePreview.map((item) =>
+			item.path.replace(/\\/g, '/').toLocaleLowerCase()));
+		const unloadedCode = workspace.catalog.files.filter((entry) =>
+			entry.kind === 'code'
+			&& !previewPaths.has(entry.path.replace(/\\/g, '/').toLocaleLowerCase()));
+		if (unloadedCode.length > 0 && unloadedCode.length <= 80) {
+			try {
+				const structureFiles = await Promise.all(unloadedCode.map(async (entry) => ({
+					path: entry.path,
+					kind: entry.kind,
+					content: (await this._services.workspaceLoader.load(workspace.catalog, [{
+						source: 'workspace',
+						target: entry.path,
+						required: false,
+						reason: 'Structure map parsing.',
+					}]))[0]?.content ?? '',
+				})));
+				workspaceStructureMap = await buildWorkspaceStructureMap(
+					structureFiles.filter((file) => file.content.length > 0)
+				);
+			} catch (error) {
+				this._services.onDebug?.(
+					'route_and_plan_structure_map_degraded',
+					String(error)
+				);
+			}
+		}
 		let skillGraph;
 		try {
 			skillGraph = await this._services.skillGraphLoader.load();
@@ -506,6 +537,7 @@ export class ClassMateGraphRunner {
 			userText: current.request.userText,
 			workspace,
 			workspacePreview,
+			workspaceStructureMap,
 		});
 
 		let result: RouteAndPlanResult = {
