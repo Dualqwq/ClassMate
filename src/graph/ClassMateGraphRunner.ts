@@ -684,16 +684,44 @@ export class ClassMateGraphRunner {
 					request.target.replace(/\\/g, '/').toLocaleLowerCase()
 				));
 		if (canReusePreview) {
-			loadedWorkspaceItems = [...new Set(
-				workspaceRequests.map((request) =>
-					previewByPath.get(
-						request.target.replace(/\\/g, '/').toLocaleLowerCase()
-					)!)
-			)];
-			this._services.onDebug?.(
-				'workspace_context_reused_route_and_plan_preview',
-				loadedWorkspaceItems.map((item) => item.path)
-			);
+			// Route 调用期间学生可能继续编辑(尤其未保存缓冲区)。缓冲区加载的
+			// preview 带 bufferVersion,复用前对比当前文档 version,version 变化
+			// 就放弃复用改为重新加载;磁盘加载的 preview 保持原复用行为(磁盘
+			// 变更由 catalog 的 modifiedAt/size 指纹反映)。
+			const staleTargets = workspaceRequests
+				.map((request) => previewByPath.get(
+					request.target.replace(/\\/g, '/').toLocaleLowerCase()
+				))
+				.filter((item): item is NonNullable<typeof item> => item !== undefined)
+				.filter((item) => !this._services.workspaceLoader.isItemFresh(
+					current.minimalWorkspaceContext!.catalog,
+					item
+				));
+			if (staleTargets.length === 0) {
+				loadedWorkspaceItems = [...new Set(
+					workspaceRequests.map((request) =>
+						previewByPath.get(
+							request.target.replace(/\\/g, '/').toLocaleLowerCase()
+						)!)
+				)];
+				this._services.onDebug?.(
+					'workspace_context_reused_route_and_plan_preview',
+					loadedWorkspaceItems.map((item) => item.path)
+				);
+			} else {
+				try {
+					loadedWorkspaceItems = await this._services.workspaceLoader.load(
+						current.minimalWorkspaceContext!.catalog,
+						requests
+					);
+					this._services.onDebug?.(
+						'workspace_context_preview_stale_reloaded',
+						loadedWorkspaceItems.map((item) => item.path)
+					);
+				} catch (error) {
+					this._services.onDebug?.('workspace_context_degraded', String(error));
+				}
+			}
 		} else {
 			try {
 				loadedWorkspaceItems = await this._services.workspaceLoader.load(

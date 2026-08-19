@@ -10,13 +10,19 @@ export function buildWorkspaceSnapshot(
 	loadedItems: LoadedWorkspaceItem[]
 ): WorkspaceContextSnapshot {
 	const createdAt = Date.now();
+	// snapshotId 只由内容决定:同一份工作区两次捕获必须得到同一 ID,
+	// 否则"内容未变"也会被误判为新版本(createdAt/mtime 不进指纹)。
 	const fingerprint = JSON.stringify({
-		createdAt,
 		catalog: minimal.catalog.files.map((file) => ({
 			path: file.path,
 			size: file.size,
-			modifiedAt: file.modifiedAt,
 		})),
+		activeEditor: minimal.catalog.activeEditor
+			? {
+				fileName: minimal.catalog.activeEditor.fileName,
+				selection: minimal.catalog.activeEditor.selection,
+			}
+			: undefined,
 		loadedItems: loadedItems.map((item) => ({
 			path: item.path,
 			contentHash: item.contentHash,

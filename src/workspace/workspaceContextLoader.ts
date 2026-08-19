@@ -63,7 +63,29 @@ function selectSection(content: string, entry: WorkspaceFileEntry, section?: str
 	throw new Error(`Sections are unsupported for this file type: ${entry.path}`);
 }
 
-export class WorkspaceContextLoader {
+	export class WorkspaceContextLoader {
+	/**
+	 * 之前加载的条目当前是否仍然新鲜。缓冲区加载的条目对比打开文档的
+	 * version(每次编辑/撤销/重做单调递增);磁盘加载的条目默认新鲜,
+	 * 磁盘变更由 catalog 指纹反映。
+	 */
+	public isItemFresh(catalog: WorkspaceCatalog, item: LoadedWorkspaceItem): boolean {
+		if (item.bufferVersion === undefined) {
+			return true;
+		}
+		const entry = selectCatalogEntry(catalog, item.path);
+		if (!entry) {
+			return false;
+		}
+		const document = vscode.workspace.textDocuments.find((candidate) =>
+			candidate.uri.toString().toLocaleLowerCase() === entry.uri.toLocaleLowerCase()
+		);
+		if (!document) {
+			return true;
+		}
+		return document.version === item.bufferVersion;
+	}
+
 	constructor(private readonly _limits: WorkspaceLoadLimits = DEFAULT_LIMITS) {}
 
 	public async load(
@@ -107,14 +129,25 @@ export class WorkspaceContextLoader {
 
 			const uri = vscode.Uri.parse(entry.uri);
 			let content: string;
+			let bufferVersion: number | undefined;
 			if (entry.kind === 'pdf') {
 				content = formatPdfExtraction(await extractPdfUri(uri));
 			} else {
-				const bytes = await vscode.workspace.fs.readFile(uri);
-				if (bytes.byteLength > this._limits.maxFileBytes) {
-					throw new Error(`Workspace file exceeds size limit after reading: ${entry.path}`);
+				// 已打开的文档优先读取编辑器缓冲区:学生常在未保存状态下提问,
+				// 只读磁盘会让模型看到旧代码(bug1 类事实冲突的直接来源之一)。
+				const openDocument = vscode.workspace.textDocuments.find((document) =>
+					document.uri.toString().toLocaleLowerCase() === entry.uri.toLocaleLowerCase()
+				);
+				if (openDocument) {
+					content = openDocument.getText();
+					bufferVersion = openDocument.version;
+				} else {
+					const bytes = await vscode.workspace.fs.readFile(uri);
+					if (bytes.byteLength > this._limits.maxFileBytes) {
+						throw new Error(`Workspace file exceeds size limit after reading: ${entry.path}`);
+					}
+					content = Buffer.from(bytes).toString('utf8');
 				}
-				content = Buffer.from(bytes).toString('utf8');
 			}
 			content = selectSection(content, entry, request.section);
 			const contentBytes = Buffer.byteLength(content, 'utf8');
@@ -137,6 +170,7 @@ export class WorkspaceContextLoader {
 				content,
 				contentHash: hashContent(content),
 				reason: request.reason,
+				bufferVersion,
 			});
 		}
 

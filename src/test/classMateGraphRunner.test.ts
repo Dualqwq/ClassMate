@@ -69,8 +69,9 @@ function createServices(
 			getMinimalContext: async () => minimal,
 		} as ClassMateGraphServices['workspaceProvider'],
 		workspaceLoader: {
-			load: async (_catalog, requests) => onLoad(requests),
-		} as ClassMateGraphServices['workspaceLoader'],
+			load: async (_catalog: unknown, requests: Array<{ target: string }>) => onLoad(requests),
+			isItemFresh: () => true,
+		} as unknown as ClassMateGraphServices['workspaceLoader'],
 		skillContentLoader: {
 			loadText: async (file: string) => `content of ${file}`,
 		} as ClassMateGraphServices['skillContentLoader'],
@@ -123,6 +124,83 @@ describe('ClassMate LangGraph runner', () => {
 		assert.deepStrictEqual(requests.map((request) => request.target), ['src/task_list.cpp']);
 		assert.strictEqual(requests[0].source, 'workspace');
 		assert.strictEqual(requests[0].required, true);
+	});
+
+	it('reloads the workspace instead of reusing a stale route preview', async () => {
+		const debugEvents: Array<{ event: string; data: unknown }> = [];
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return {
+						content: mergedPlan('concept_explanation', [{
+							target: 'note.md',
+							section: null,
+							required: true,
+							reason: '读取用户笔记',
+						}]),
+					};
+				}
+				return { content: '基于最新缓冲区的回答。' };
+			},
+		};
+		const minimal: MinimalWorkspaceContext = {
+			catalog: {
+				files: [{
+					path: 'note.md',
+					uri: 'file:///note.md',
+					kind: 'text',
+					size: 20,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+				activeEditor: {
+					fileName: 'note.md',
+					uri: 'file:///note.md',
+					languageId: 'markdown',
+				},
+			},
+		};
+		// Route preview 阶段返回的条目在复核时已经不新鲜(模拟 Route 调用期间
+		// 学生继续编辑未保存缓冲区):isItemFresh 对 preview 条目返回 false。
+		let previewItem: { path: string; contentHash: string } | undefined;
+		let loadCalls = 0;
+		const services = createServices(model, minimal, async () => {
+			loadCalls++;
+			const item = {
+				path: 'note.md',
+				kind: 'text' as const,
+				content: `笔记内容(第 ${loadCalls} 次读取)`,
+				contentHash: `hash-${loadCalls}`,
+				reason: 'test',
+			};
+			// Route 阶段(第 1 次)返回的条目视为"之后已被编辑"。
+			if (loadCalls === 1) {
+				previewItem = item;
+			}
+			return [item];
+		});
+		(services.workspaceLoader as unknown as {
+			isItemFresh: (
+				catalog: unknown,
+				item: { path: string; contentHash: string }
+			) => boolean;
+		}).isItemFresh = (_catalog, item) => item !== previewItem;
+		services.onDebug = (event, data) => debugEvents.push({ event, data });
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'stale-preview',
+			conversationId: 'conversation-stale-preview',
+			userText: '什么是指针？',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(result.answer, '基于最新缓冲区的回答。');
+		assert.ok(loadCalls >= 2, 'stale preview must trigger a reload');
+		assert.ok(debugEvents.some((item) =>
+			item.event === 'workspace_context_preview_stale_reloaded'
+		));
 	});
 
 	it('plans once, loads context once, retrieves selected Skill, and answers', async () => {

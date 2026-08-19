@@ -50,6 +50,12 @@ export interface LoadedWorkspaceItem {
     content: string;
     contentHash: string;
     reason: string;
+    /**
+     * 内容来源为已打开编辑器缓冲区时的 document.version。
+     * 每次编辑(含撤销/重做)单调递增;复用旧加载结果前对比它,
+     * 可以不重读文件就发现缓冲区已经变化。
+     */
+    bufferVersion?: number;
 }
 
 export interface WorkspaceContextSnapshot {
