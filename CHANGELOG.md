@@ -4,6 +4,8 @@ ClassMate 的重要变更记录在这里。
 
 ## [Unreleased]
 
+- 引用提取截断修复(2026-08-20 真实会话"概述每个文件都有哪些方法"取证:回答正常但引用率归零,诊断导出显示 extract_references 响应 usage 恰为 600 token、JSON 在第 1505 字符条目中间被硬截断,解析失败又被空 catch 静默吞掉,`reference_extraction_failed` 从未触发):①提取调用 maxTokens 600→2000(全文件枚举型回答的提取响应可达 ~1.5k 字符);②新增 `salvageTruncatedReferences` 截断抢救——字符串感知的括号配平扫描找 r 数组内最后一个完整对象边界,闭合后重解析,截断前已完整的条目全部可用,截在半条的丢弃,逐条按 wire schema 校验、超 20 截断(与 schema 上限一致);③提取器的空 catch 移除,模型调用/解析失败上抛,由 ChatSession 现有 catch 记 `reference_extraction_failed`(含错误与回答上下文)后安全降级——回答不受影响,但失败不再静默归零。单测覆盖:截断抢救 6 条(含转义引号/花括号干扰、非法条目丢弃、20 条上限)+ extractor 4 条(maxTokens 断言、截断响应端到端出引用、不可抢救上抛、粗筛短路)。
+
 - 引用标记竖线笔误兼容与防泄漏加固(7.9 run14 取证:bug1-single-27/34 两轮模型把标记写成 `{{ref|targetId|name}}`(ref 后是竖线非冒号),全链路只认冒号形态导致原始标记直达学生):①finalizer 的 MARKER/UNCLOSED 正则放宽为 `{{ref[:|]`,竖线标记与冒号形态走同一 targetId 校验/降级链——合法目标产出链接(契约指标是链接 recall,分隔符笔误不让学生失去可点击引用),坏目标照旧降级行内代码,流中断半截标记封口;②validateStudentAnswer/validateCorrectedAnswer 泄漏检查补"任何 `{{ref` 开头未转换标记即 invalid 触发重生成"兜底——将来再出现新语法变体最坏结果是重生成而非泄漏,普通花括号教学内容不误伤;③stripContractNotation 历史清洗同步剥竖线形态,防止已落盘回答进模型历史造成模仿扩散。run14 single-27 原始回答内联为回归锚点(零标记残留+引用清单产出)。
 
 - 正确性检查修正版采用校验修复(7.9 run13 取证):correctness_check 拒绝候选回答后给出的修正版常是"多文件要点清单/纯文字指导"形态,此前用 `validateStudentAnswer` 的 code_edit 格式规则(恰好一个完整替换块、≤18 行)复核,把好的修正版二次否决成通用兜底(run13 全库 117 轮 3 例,占非 answered 的全部)。新增 `validateCorrectedAnswer` 只做结构底线检查(非空、不泄内部标签、不越提示层级代码量),修正版经底线检查即被采用为 answered;测试用 run13 两例真实修正版原文做回归锚点(严格校验确实拒绝/底线校验放行)。

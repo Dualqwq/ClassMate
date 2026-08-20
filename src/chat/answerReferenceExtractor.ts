@@ -3,7 +3,11 @@ import type { ChatReference } from './types';
 import type { LoadedWorkspaceItem } from '../workspace/types';
 import type { GraphModelClient } from '../graph/modelClient';
 import { AnswerReferencePromptBuilder } from '../prompts/answerReferencePromptBuilder';
-import { answerReferencesWireSchema, parseJsonObject } from './answerReferenceSchema';
+import {
+	answerReferencesWireSchema,
+	parseJsonObject,
+	salvageTruncatedReferences,
+} from './answerReferenceSchema';
 import {
 	buildReferenceExtractionInput,
 	sanitizeAnswerReferences,
@@ -58,8 +62,29 @@ export interface ExtractAnswerReferencesOptions {
 }
 
 /**
+ * 解析提取响应:整体解析失败时对截断 JSON 做括号配平抢救,截断前
+ * 已完整的条目仍然可用。两种都失败时上抛(由 ChatSession 记
+ * reference_extraction_failed),不再静默归零。
+ */
+export function parseReferenceCandidates(content: string): ExtractedReference[] {
+	try {
+		return answerReferencesWireSchema.parse(parseJsonObject(content)).r;
+	} catch {
+		const salvaged = salvageTruncatedReferences(content);
+		if (!salvaged) {
+			throw new Error(
+				`extract_references 响应无法解析且无法抢救: ${content.slice(0, 200)}`
+			);
+		}
+		return salvaged.r;
+	}
+}
+
+/**
  * 回答完成后的引用提取:粗筛短路 → jsonMode 小调用 → 确定性校验 → 预过滤。
- * 任何一步失败都安全降级为空(不产生链接,不阻断回答)。
+ * 粗筛短路命中时静默返回空;模型调用/解析的失败上抛,由调用方
+ * (ChatSession)记录 reference_extraction_failed 后安全降级
+ * (回答不受影响,只是没有链接)。
  */
 export async function extractAnswerReferences(
 	answer: string,
@@ -72,20 +97,17 @@ export async function extractAnswerReferences(
 	}
 	const files = buildReferenceExtractionInput(codeItems, answer);
 	const messages = new AnswerReferencePromptBuilder().build({ answer, files });
-	let candidates: ExtractedReference[] = [];
-	try {
-		const completion = await options.model.complete(messages, {
-			label: 'extract_references',
-			temperature: 0,
-			maxTokens: 600,
-			jsonMode: true,
-			thinkingMode: 'disabled',
-			signal: options.signal,
-		});
-		candidates = answerReferencesWireSchema.parse(parseJsonObject(completion.content)).r;
-	} catch {
-		return [];
-	}
+	const completion = await options.model.complete(messages, {
+		label: 'extract_references',
+		temperature: 0,
+		// 全文件枚举型回答的提取响应可达 ~1.5k 字符,600 会把 JSON
+		// 截断在条目中间(诊断取证 2026-08-20)。
+		maxTokens: 2000,
+		jsonMode: true,
+		thinkingMode: 'disabled',
+		signal: options.signal,
+	});
+	const candidates = parseReferenceCandidates(completion.content);
 	const sanitized = sanitizeAnswerReferences(candidates, codeItems);
 	const references: ChatReference[] = [];
 	for (const ref of sanitized) {

@@ -15,4 +15,65 @@ export const answerReferencesWireSchema = z.object({
 	r: z.array(answerReferenceWireSchema).max(20).default([]),
 }).strict();
 
+/**
+ * 截断抢救(诊断取证 2026-08-20:600 token 上限把全文件枚举型回答的
+ * 提取响应在条目中间硬截断,此前整包丢弃导致引用静默归零)。
+ * 扫描 r 数组找最后一个完整对象的边界,闭合括号后重解析:截断前
+ * 已完整的条目全部可用,截在半条的丢弃;逐条按 wire schema 校验,
+ * 超上限(20)取前 20,与 answerReferencesWireSchema 的上限一致。
+ * 抢救不出任何完整条目时返回 undefined(由调用方决定上抛)。
+ */
+export function salvageTruncatedReferences(
+	raw: string
+): { r: Array<z.infer<typeof answerReferenceWireSchema>> } | undefined {
+	const arrayStart = raw.indexOf('[');
+	if (arrayStart < 0) {
+		return undefined;
+	}
+	let inString = false;
+	let escaped = false;
+	let depth = 0;
+	let lastCompleteObjectEnd = -1;
+	for (let index = arrayStart; index < raw.length; index++) {
+		const char = raw[index];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === '\\') {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+		if (char === '"') {
+			inString = true;
+		} else if (char === '{') {
+			depth++;
+		} else if (char === '}') {
+			depth--;
+			if (depth === 0) {
+				// 顶层(数组内)对象完整闭合:记录候选边界。
+				lastCompleteObjectEnd = index;
+			}
+		}
+	}
+	if (lastCompleteObjectEnd < 0) {
+		return undefined;
+	}
+	const body = raw.slice(arrayStart + 1, lastCompleteObjectEnd + 1).replace(/,\s*$/, '');
+	let items: unknown[];
+	try {
+		items = JSON.parse(`[${body}]`) as unknown[];
+	} catch {
+		return undefined;
+	}
+	const valid = items
+		.map((item) => answerReferenceWireSchema.safeParse(item))
+		.filter((result) => result.success)
+		.map((result) => result.data)
+		.slice(0, 20);
+	return valid.length > 0 ? { r: valid } : undefined;
+}
+
 export { parseJsonObject };
