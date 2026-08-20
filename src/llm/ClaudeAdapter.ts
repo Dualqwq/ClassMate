@@ -70,7 +70,11 @@ export class ClaudeAdapter implements LLMAdapter {
 		return body;
 	}
 
-	public streamResponse(request: unknown, callbacks: LLMStreamCallbacks): void {
+	public streamResponse(
+		request: unknown,
+		callbacks: LLMStreamCallbacks,
+		signal?: AbortSignal
+	): void {
 		const Anthropic = this._loadSDK();
 		const client = new Anthropic({
 			apiKey: this._apiKey,
@@ -78,9 +82,11 @@ export class ClaudeAdapter implements LLMAdapter {
 		});
 
 		// The Anthropic SDK can accept the raw request body for streaming.
-		const stream = client.messages.create(request as Record<string, unknown>);
+		const stream = client.messages.create(request as Record<string, unknown>, {
+			signal,
+		});
 
-		this._consumeStream(stream, callbacks);
+		this._consumeStream(stream, callbacks, signal);
 	}
 
 	public async complete(req: LLMRequest): Promise<LLMCompletionResult> {
@@ -91,7 +97,9 @@ export class ClaudeAdapter implements LLMAdapter {
 		});
 
 		const requestBody = { ...(this.buildRequest(req) as Record<string, unknown>), stream: false };
-		const response = await client.messages.create(requestBody);
+		const response = await client.messages.create(requestBody, {
+			signal: req.signal,
+		});
 
 		const content = response.content;
 		const text = Array.isArray(content) && content.length > 0 ? content[0].text ?? '' : '';
@@ -113,7 +121,8 @@ export class ClaudeAdapter implements LLMAdapter {
 
 	private async _consumeStream(
 		stream: Promise<AsyncIterable<any>>,
-		callbacks: LLMStreamCallbacks
+		callbacks: LLMStreamCallbacks,
+		signal?: AbortSignal
 	): Promise<void> {
 		try {
 			for await (const event of await stream) {
@@ -123,6 +132,12 @@ export class ClaudeAdapter implements LLMAdapter {
 			}
 			callbacks.onComplete?.();
 		} catch (error) {
+			// signal 由 SDK 拆断:统一按取消上抛,避免旧 SDK 版本把
+			// abort 包装成普通错误混入 provider 失败统计。
+			if (signal?.aborted) {
+				callbacks.onError?.(new Error('ClassMate request was cancelled.'));
+				return;
+			}
 			callbacks.onError?.(error instanceof Error ? error : new Error(String(error)));
 		}
 	}

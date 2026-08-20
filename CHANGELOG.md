@@ -4,6 +4,8 @@ ClassMate 的重要变更记录在这里。
 
 ## [Unreleased]
 
+- LLM 调用取消传导修复(run17 取证:一轮取消后挂起 700 秒才结束,被误分类为 provider_error):①`LLMRequest` 与 `streamResponse` 契约新增 signal,OpenAI/DeepSeek/Claude 三适配器把它传给 SDK `create(body, {signal})`——此前所有 HTTP 调用都不吃 signal,abort 后挂起的请求拦不断,只能等服务端超时;②`AdapterGraphModelClient` 非流式路径此前根本没把 signal 放进 LLMRequest(外层 aborted 检查只拦下一次调用,拦不住挂起中的请求),流式包装器也只 reject 自己的 Promise 而不拆底层流,现两条路径都把 signal 下沉到适配器;③SDK 拆断的 abort 在适配器流循环里统一归一为取消错误,不再被包装成 provider 失败(避免误触发 7.8 重试/备用 provider);④eval 取消分类同时认 AbortError 与"ClassMate request was cancelled"消息,取消不再混入 provider_error 统计。单测 5 条:非流式/流式/退化流式三条路径的 signal 传导与挂起请求秒级拆断 + 适配器级 SDK 二参断言(signal 不进请求体)。
+
 - 引用提取截断修复(2026-08-20 真实会话"概述每个文件都有哪些方法"取证:回答正常但引用率归零,诊断导出显示 extract_references 响应 usage 恰为 600 token、JSON 在第 1505 字符条目中间被硬截断,解析失败又被空 catch 静默吞掉,`reference_extraction_failed` 从未触发):①提取调用 maxTokens 600→2000(全文件枚举型回答的提取响应可达 ~1.5k 字符);②新增 `salvageTruncatedReferences` 截断抢救——字符串感知的括号配平扫描找 r 数组内最后一个完整对象边界,闭合后重解析,截断前已完整的条目全部可用,截在半条的丢弃,逐条按 wire schema 校验、超 20 截断(与 schema 上限一致);③提取器的空 catch 移除,模型调用/解析失败上抛,由 ChatSession 现有 catch 记 `reference_extraction_failed`(含错误与回答上下文)后安全降级——回答不受影响,但失败不再静默归零。单测覆盖:截断抢救 6 条(含转义引号/花括号干扰、非法条目丢弃、20 条上限)+ extractor 4 条(maxTokens 断言、截断响应端到端出引用、不可抢救上抛、粗筛短路)。
 
 - 引用标记竖线笔误兼容与防泄漏加固(7.9 run14 取证:bug1-single-27/34 两轮模型把标记写成 `{{ref|targetId|name}}`(ref 后是竖线非冒号),全链路只认冒号形态导致原始标记直达学生):①finalizer 的 MARKER/UNCLOSED 正则放宽为 `{{ref[:|]`,竖线标记与冒号形态走同一 targetId 校验/降级链——合法目标产出链接(契约指标是链接 recall,分隔符笔误不让学生失去可点击引用),坏目标照旧降级行内代码,流中断半截标记封口;②validateStudentAnswer/validateCorrectedAnswer 泄漏检查补"任何 `{{ref` 开头未转换标记即 invalid 触发重生成"兜底——将来再出现新语法变体最坏结果是重生成而非泄漏,普通花括号教学内容不误伤;③stripContractNotation 历史清洗同步剥竖线形态,防止已落盘回答进模型历史造成模仿扩散。run14 single-27 原始回答内联为回归锚点(零标记残留+引用清单产出)。

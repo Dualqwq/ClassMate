@@ -187,6 +187,85 @@ describe('AdapterGraphModelClient streaming', () => {
 	});
 });
 
+describe('AdapterGraphModelClient signal 取消传导(run17 取证回归)', () => {
+	it('非流式路径把 signal 传进 LLMRequest,挂起中的请求随 abort 及时失败', async () => {
+		const controller = new AbortController();
+		let seenSignal: AbortSignal | undefined;
+		let completeEntered = 0;
+		const adapter: LLMAdapter = {
+			name: 'test',
+			buildRequest: (request) => request,
+			streamResponse: () => undefined,
+			complete: async (request: LLMRequest) => {
+				completeEntered++;
+				seenSignal = request.signal;
+				// 模拟挂起的 HTTP:abort 前永不 resolve。
+				return new Promise<LLMCompletionResult>((_resolve, reject) => {
+					request.signal?.addEventListener('abort', () => {
+						reject(new Error('ClassMate request was cancelled.'));
+					}, { once: true });
+				});
+			},
+		};
+		const client = new AdapterGraphModelClient(adapter);
+		const pending = client.complete(
+			[{ role: 'user', content: 'plan' }],
+			{ label: 'route_and_plan', signal: controller.signal }
+		);
+		setTimeout(() => controller.abort(), 10);
+		await assert.rejects(() => pending, /cancelled/);
+		assert.strictEqual(completeEntered, 1);
+		assert.strictEqual(seenSignal, controller.signal, 'signal 必须传入适配器请求');
+	});
+
+	it('流式路径把 signal 作为第三参传给 streamResponse', async () => {
+		const controller = new AbortController();
+		let seenSignal: AbortSignal | undefined;
+		const adapter: LLMAdapter = {
+			name: 'test',
+			buildRequest: (request) => request,
+			streamResponse: (_request, _callbacks, signal) => {
+				seenSignal = signal;
+				// 模拟 SDK:收到 abort 才结束流。
+				signal?.addEventListener('abort', () => {
+					_callbacks.onError?.(new Error('ClassMate request was cancelled.'));
+				}, { once: true });
+			},
+		};
+		const client = new AdapterGraphModelClient(adapter);
+		const pending = client.complete(
+			[{ role: 'user', content: 'answer' }],
+			{ label: 'answer', signal: controller.signal, onToken: () => undefined }
+		);
+		setTimeout(() => controller.abort(), 10);
+		await assert.rejects(() => pending, /cancelled/);
+		assert.strictEqual(seenSignal, controller.signal, 'streamResponse 第三参必须是 signal');
+	});
+
+	it('adapter 无 complete 时退化的流式路径同样收到 signal', async () => {
+		const controller = new AbortController();
+		let seenSignal: AbortSignal | undefined;
+		const adapter: LLMAdapter = {
+			name: 'test',
+			buildRequest: (request) => request,
+			streamResponse: (_request, _callbacks, signal) => {
+				seenSignal = signal;
+				signal?.addEventListener('abort', () => {
+					_callbacks.onError?.(new Error('ClassMate request was cancelled.'));
+				}, { once: true });
+			},
+		};
+		const client = new AdapterGraphModelClient(adapter);
+		const pending = client.complete(
+			[{ role: 'user', content: 'answer' }],
+			{ label: 'answer', signal: controller.signal }
+		);
+		setTimeout(() => controller.abort(), 10);
+		await assert.rejects(() => pending, /cancelled/);
+		assert.strictEqual(seenSignal, controller.signal);
+	});
+});
+
 describe('FallbackGraphModelClient (7.8 备用 provider 切换)', () => {
 	function client(result: string, failTimes = 0): {
 		client: import('../graph/modelClient').GraphModelClient;

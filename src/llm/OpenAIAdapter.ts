@@ -51,14 +51,23 @@ export class OpenAIAdapter implements LLMAdapter {
 		};
 	}
 
-	public streamResponse(request: unknown, callbacks: LLMStreamCallbacks): void {
+	public streamResponse(
+		request: unknown,
+		callbacks: LLMStreamCallbacks,
+		signal?: AbortSignal
+	): void {
 		const OpenAI = this._loadSDK();
 		const client = new OpenAI({
 			apiKey: this._apiKey,
 			baseURL: this._baseURL,
 		});
 
-		void this._doStream(client, request as Record<string, unknown>, callbacks);
+		void this._doStream(
+			client,
+			request as Record<string, unknown>,
+			callbacks,
+			signal
+		);
 	}
 
 	public async complete(req: LLMRequest): Promise<LLMCompletionResult> {
@@ -73,7 +82,9 @@ export class OpenAIAdapter implements LLMAdapter {
 			stream: false,
 		};
 		delete requestBody.stream_options;
-		const response = await client.chat.completions.create(requestBody);
+		const response = await client.chat.completions.create(requestBody, {
+			signal: req.signal,
+		});
 
 		const message = response.choices?.[0]?.message;
 		const text = typeof message?.content === 'string' ? message.content : '';
@@ -92,10 +103,13 @@ export class OpenAIAdapter implements LLMAdapter {
 	private async _doStream(
 		client: any,
 		requestBody: Record<string, unknown>,
-		callbacks: LLMStreamCallbacks
+		callbacks: LLMStreamCallbacks,
+		signal?: AbortSignal
 	): Promise<void> {
 		try {
-			const stream = await client.chat.completions.create(requestBody);
+			const stream = await client.chat.completions.create(requestBody, {
+				signal,
+			});
 			for await (const chunk of stream) {
 				const delta = chunk.choices?.[0]?.delta?.content;
 				if (delta) {
@@ -108,6 +122,12 @@ export class OpenAIAdapter implements LLMAdapter {
 			}
 			callbacks.onComplete?.();
 		} catch (error) {
+			// signal 由 SDK 拆断:统一按取消上抛,避免 abort 被包装成
+			// provider 错误触发重试/备用 provider。
+			if (signal?.aborted) {
+				callbacks.onError?.(new Error('ClassMate request was cancelled.'));
+				return;
+			}
 			callbacks.onError?.(error instanceof Error ? error : new Error(String(error)));
 		}
 	}

@@ -90,6 +90,10 @@ export class AdapterGraphModelClient implements GraphModelClient {
 			maxTokens: options.maxTokens,
 			jsonMode: options.jsonMode,
 			thinkingMode: options.thinkingMode,
+			// 非流式路径同样随 abort 拆断底层 HTTP:外层的 aborted
+			// 检查只拦"下一次调用",拦不住挂起中的请求(run17 取证:
+			// 一轮取消后挂了 700 秒才被服务端断流)。
+			signal: options.signal,
 		};
 		const startedAt = Date.now();
 		const callId = `${options.label ?? 'unknown'}-${++this._callSequence}`;
@@ -159,23 +163,29 @@ export class AdapterGraphModelClient implements GraphModelClient {
 			let usage: LLMTokenUsage | undefined;
 			const onAbort = () => reject(new Error('ClassMate request was cancelled.'));
 			signal?.addEventListener('abort', onAbort, { once: true });
-			this._adapter.streamResponse(this._adapter.buildRequest(request), {
-				onToken: (token) => {
-					if (!signal?.aborted) {
-						content += token;
-						onToken?.(token);
-					}
+			this._adapter.streamResponse(
+				this._adapter.buildRequest(request),
+				{
+					onToken: (token) => {
+						if (!signal?.aborted) {
+							content += token;
+							onToken?.(token);
+						}
+					},
+					onUsage: (value) => { usage = value; },
+					onError: (error) => {
+						signal?.removeEventListener('abort', onAbort);
+						reject(error);
+					},
+					onComplete: () => {
+						signal?.removeEventListener('abort', onAbort);
+						resolve({ content, usage });
+					},
 				},
-				onUsage: (value) => { usage = value; },
-				onError: (error) => {
-					signal?.removeEventListener('abort', onAbort);
-					reject(error);
-				},
-				onComplete: () => {
-					signal?.removeEventListener('abort', onAbort);
-					resolve({ content, usage });
-				},
-			});
+				// 传给适配器:SDK 收到 signal 才会拆断挂起的 HTTP 流,
+				// 否则 abort 只 reject 这层 Promise,底层请求继续跑到超时。
+				signal
+			);
 		});
 	}
 }

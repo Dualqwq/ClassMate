@@ -29,8 +29,12 @@ export class DeepSeekAdapter implements LLMAdapter {
 		return this._adapter.buildRequest(req);
 	}
 
-	public streamResponse(request: unknown, callbacks: LLMStreamCallbacks): void {
-		return this._adapter.streamResponse(request, callbacks);
+	public streamResponse(
+		request: unknown,
+		callbacks: LLMStreamCallbacks,
+		signal?: AbortSignal
+	): void {
+		return this._adapter.streamResponse(request, callbacks, signal);
 	}
 
 	public async complete(req: LLMRequest): Promise<LLMCompletionResult> {

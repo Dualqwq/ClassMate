@@ -3,6 +3,82 @@ import { describe, it } from 'mocha';
 import { DeepSeekAdapter } from '../llm/DeepSeekAdapter';
 import { normalizeOpenAIUsage, OpenAIAdapter } from '../llm/OpenAIAdapter';
 
+describe('OpenAIAdapter signal 取消传导(run17 取证回归)', () => {
+	function installFakeOpenAI(calls: Array<Record<string, unknown>>): () => void {
+		const resolved = require.resolve('openai');
+		// openai v4 的 CJS 导出形态是 module.exports = Class(自挂 .default),
+		// `require('openai')` 直接可构造,假模块必须复刻这个形态。
+		const FakeOpenAI = class {
+			public readonly chat = {
+				completions: {
+					create: async (body: Record<string, unknown>, opts?: Record<string, unknown>) => {
+						calls.push({ ...body, __options: opts });
+						if (body.stream) {
+							return (async function* () {
+								yield { choices: [{ delta: { content: 'ok' } }] };
+							})();
+						}
+						return {
+							choices: [{ message: { content: 'ok' } }],
+							usage: { prompt_tokens: 1, completion_tokens: 1 },
+						};
+					},
+				},
+			};
+			constructor(_config: unknown) { void _config; }
+		};
+		(FakeOpenAI as unknown as { default: unknown }).default = FakeOpenAI;
+		const previous = require.cache[resolved];
+		require.cache[resolved] = { exports: FakeOpenAI } as unknown as NodeJS.Module;
+		return () => {
+			if (previous) {
+				require.cache[resolved] = previous;
+			} else {
+				delete require.cache[resolved];
+			}
+		};
+	}
+
+	it('非流式 complete 把 signal 作为 SDK create 的第二参传入,且不进请求体', async () => {
+		const calls: Array<Record<string, unknown>> = [];
+		const restore = installFakeOpenAI(calls);
+		try {
+			const adapter = new OpenAIAdapter({ apiKey: 'test', model: 'm' });
+			const controller = new AbortController();
+			const result = await adapter.complete({
+				messages: [{ role: 'user', content: 'q' }],
+				signal: controller.signal,
+			});
+			assert.strictEqual(result.content, 'ok');
+			assert.strictEqual(calls.length, 1);
+			assert.deepStrictEqual(calls[0].__options, { signal: controller.signal });
+			assert.strictEqual(calls[0].signal, undefined, 'signal 不能序列化进请求体');
+		} finally {
+			restore();
+		}
+	});
+
+	it('流式 streamResponse 把 signal 作为 SDK create 的第二参传入', async () => {
+		const calls: Array<Record<string, unknown>> = [];
+		const restore = installFakeOpenAI(calls);
+		try {
+			const adapter = new OpenAIAdapter({ apiKey: 'test', model: 'm' });
+			const controller = new AbortController();
+			await new Promise<void>((resolve) => {
+				adapter.streamResponse(
+					adapter.buildRequest({ messages: [{ role: 'user', content: 'q' }] }),
+					{ onToken: () => undefined, onComplete: () => resolve() },
+					controller.signal
+				);
+			});
+			assert.strictEqual(calls.length, 1);
+			assert.deepStrictEqual(calls[0].__options, { signal: controller.signal });
+		} finally {
+			restore();
+		}
+	});
+});
+
 describe('OpenAI-compatible cache usage', () => {
 	it('requests usage in streaming responses', () => {
 		const adapter = new OpenAIAdapter({ apiKey: 'test', model: 'test-model' });

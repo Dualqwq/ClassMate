@@ -450,7 +450,12 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					appliedMutations,
 					answer: '',
 					status: 'failed',
-					deliveryOutcome: error instanceof Error && error.name === 'AbortError'
+					// 图内取消是普通 Error("ClassMate request was cancelled."),
+					// 适配器/SDK 层才叫 AbortError;两类都算 cancelled,
+					// 不混入 provider_error(run17 取证:取消曾被误分类)。
+					deliveryOutcome: error instanceof Error
+						&& (error.name === 'AbortError'
+							|| error.message.includes('ClassMate request was cancelled'))
 						? 'cancelled'
 						: 'provider_error',
 					error: error instanceof Error ? error.message : String(error),
