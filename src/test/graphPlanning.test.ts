@@ -99,3 +99,32 @@ describe('validateCorrectedAnswer (7.9 修正版采用校验)', () => {
 		assert.strictEqual(validateCorrectedAnswer(bigCode, plan).valid, false);
 	});
 });
+
+describe('unconverted marker leak guard (run14 竖线笔误防泄漏)', () => {
+	const plan = buildDefaultAnswerPlan('concept_explanation', ['函数']);
+
+	it('rejects any unconverted marker form, colon or pipe', () => {
+		assert.strictEqual(
+			validateStudentAnswer('{{ref:sym:monster.h:Monster:takeTurn|takeTurn}} 在这', plan).valid,
+			false,
+			'冒号形态残标记触发重生成'
+		);
+		assert.strictEqual(
+			validateStudentAnswer('{{ref|sym:monster.h:Monster:takeTurn|takeTurn}} 在这', plan).valid,
+			false,
+			'竖线笔误形态同样触发重生成(run14 取证形态)'
+		);
+		assert.strictEqual(
+			validateCorrectedAnswer('{{ref|sym:x|y}}', plan).valid,
+			false,
+			'修正版同样受保护'
+		);
+	});
+
+	it('does not flag ordinary braces in normal teaching text', () => {
+		assert.strictEqual(
+			validateStudentAnswer('初始化列表写在 { } 里,别漏了分号;数组是 {1, 2, 3}。', plan).valid,
+			true
+		);
+	});
+});

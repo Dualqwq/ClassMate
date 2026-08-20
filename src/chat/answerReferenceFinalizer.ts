@@ -45,9 +45,15 @@ export function buildReferenceTargetCatalog(
 	};
 }
 
-const MARKER_PATTERN = /\{\{ref:([^|}]+)\|([^}]+)\}\}/g;
-/** 残缺标记:有 {{ref: 开头但未在合理长度内闭合,按普通文本处理。 */
-const UNCLOSED_MARKER_PATTERN = /\{\{ref:[^}]{0,120}$/;
+/**
+ * 引用标记:标准形态 {{ref:targetId|name}},兼容模型笔误的竖线开头
+ * {{ref|targetId|name}}(run14 single-27/34 实测形态)。模型意图明确、
+ * targetId 合法即产出链接(契约验收指标是链接 recall,分隔符笔误
+ * 不应让学生失去可点击引用);targetId 校验/降级链对两种形态一致。
+ */
+const MARKER_PATTERN = /\{\{ref[:|]([^|}]+)\|([^}]+)\}\}/g;
+/** 残缺标记:有 {{ref: 或 {{ref| 开头但未在合理长度内闭合,按普通文本处理。 */
+const UNCLOSED_MARKER_PATTERN = /\{\{ref[:|][^}]{0,120}$/;
 /** 代码块闭合栅栏后一行内的来源标记(标准位置)。 */
 const REFBLOCK_PATTERN = /(```[ \t]*\n)\{\{refblock:([^}\s]+)\}\}/g;
 /** 散置形态:独立成行但与栅栏隔了空行/其他内容的来源标记,就地转来源行。 */
@@ -188,7 +194,7 @@ export function finalizeAnswerReferences(
 			return index < context.references.length ? match : codeSpan(label);
 		})
 		// 4) 残缺(未闭合)标记不得进入渲染文本
-		.replace(UNCLOSED_MARKER_PATTERN, (match) => match.replace('{{ref:', '`').concat('`'))
+		.replace(UNCLOSED_MARKER_PATTERN, (match) => `\`${match.replace(/\{\{ref[:|]/, '')}\``)
 		.replace(MALFORMED_REFBLOCK_PATTERN, '');
 
 	return { markdown, references: context.references, issues: context.issues };

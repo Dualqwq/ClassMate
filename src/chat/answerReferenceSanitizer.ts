@@ -277,13 +277,14 @@ export function buildReferenceExtractionInput(
  */
 /**
  * 旧提取路径防御:回退提取只应看到"自然行文正文"。引用契约的
- * {{ref:targetId|name}} / {{refblock:...}} 标记、[`x`](classmate-ref://N[?i])
+ * {{ref:targetId|name}} / {{ref|targetId|name}}(竖线笔误形态) /
+ * {{refblock:...}} 标记、[`x`](classmate-ref://N[?i])
  * 链接尾巴与来源行不是学生的自然提及,剥掉后再做符号匹配,避免链接尾巴
  * 被当成行号信号或把标记语法本身当成提及。
  */
 export function stripContractNotation(answer: string): string {
 	return answer
-		.replace(/\{\{ref:([^|}]+)\|([^}]+)\}\}/g, (_match, _targetId: string, label: string) =>
+		.replace(/\{\{ref[:|]([^|}]+)\|([^}]+)\}\}/g, (_match, _targetId: string, label: string) =>
 			`\`${label}\``)
 		.replace(/\{\{refblock:[^}\s]*\}\}\n?/g, '')
 		.replace(/^\*来源:.*$\n?/gm, '')

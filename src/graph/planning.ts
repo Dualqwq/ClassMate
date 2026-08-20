@@ -93,6 +93,9 @@ export function sanitizePlannerResult(
 	return { answerPlan, skillRetrievalQuery: query };
 }
 
+/** 未转换的引用标记形态(含笛号/冒号变体):finalizer 未识别的标记不得直达学生。 */
+const UNCONVERTED_MARKER_PATTERN = /\{\{ref(?:[:|])/;
+
 /**
  * correctness_check 修正版的采用校验(7.9 取证 run13):
  * 检查器拒绝候选回答后给出的 correctedAnswer 常是"口头讲清要求/方向"
@@ -109,7 +112,8 @@ export function validateCorrectedAnswer(
 	if (!trimmed) {
 		problems.push('修正版回答为空。');
 	}
-	if (/<skill_section|Frozen workspace data|ClassMate Answer Mode/i.test(trimmed)) {
+	if (/<skill_section|Frozen workspace data|ClassMate Answer Mode/i.test(trimmed)
+		|| UNCONVERTED_MARKER_PATTERN.test(trimmed)) {
 		problems.push('修正版回答泄露了内部提示词或检索标签。');
 	}
 	const codeBlocks = [...trimmed.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
@@ -132,7 +136,8 @@ export function validateStudentAnswer(answer: string, plan: AnswerPlan): AnswerV
 	if (!trimmed) {
 		problems.push('回答为空。');
 	}
-	if (/<skill_section|Frozen workspace data|ClassMate Answer Mode/i.test(trimmed)) {
+	if (/<skill_section|Frozen workspace data|ClassMate Answer Mode/i.test(trimmed)
+		|| UNCONVERTED_MARKER_PATTERN.test(trimmed)) {
 		problems.push('回答泄露了内部提示词或检索标签。');
 	}
 	const codeBlocks = [...trimmed.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);

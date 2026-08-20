@@ -282,3 +282,14 @@ describe('contract marker defense (旧提取路径防御)', () => {
 		assert.ok(!cleaned.includes('classmate-ref://'));
 		assert.ok(cleaned.includes('正文 `takeTurn` 保留。'));
 	});
+
+describe('stripContractNotation pipe-form markers (run14 竖线笔误)', () => {
+	it('strips pipe-form markers so old extraction sees natural text', () => {
+		const cleaned = stripContractNotation(
+			'看 {{ref|sym:card.h:Card:use|use}} 函数,再 {{ref:sym:card.h:Card|Card}} 一起说。'
+		);
+		assert.ok(!cleaned.includes('{{ref'), '两种形态都剥净');
+		assert.ok(cleaned.includes('`use`'));
+		assert.ok(cleaned.includes('`Card`'));
+	});
+});

@@ -229,3 +229,91 @@ describe('refblock placement tolerance (散置形态与防泄漏)', () => {
 		assert.ok(!result.markdown.includes('classmate-ref://'), '残缺目标不生成链接');
 	});
 });
+
+describe('marker syntax variants (run14 single-27/34 竖线笔误兼容)', () => {
+	it('converts pipe-form markers into links like the colon form', () => {
+		// run14 取证:模型写成 {{ref|targetId|name}},此前全链路只认 {{ref:...}} 而直达学生。
+		const result = finalizeAnswerReferences(
+			'{{ref|sym:monster.h:Monster:takeTurn|takeDamage 相关}} 看这里',
+			SYMBOLS,
+			new Map([['monster.h', 'hash-a']]),
+			{ workspaceRootUri: 'file:///c%3A/Users/dev/ws' }
+		);
+		assert.ok(
+			result.markdown.includes('[`takeDamage 相关`](classmate-ref://0)'),
+			'竖线形态应产出与冒号形态一致的链接'
+		);
+		assert.ok(!result.markdown.includes('{{ref'), '原始标记不得残留');
+		assert.strictEqual(result.references.length, 1);
+	});
+
+	it('degrades pipe-form markers with unknown targets to inline code', () => {
+		const result = finalizeAnswerReferences(
+			'{{ref|sym:nope.h::ghost|ghost}}',
+			SYMBOLS,
+			new Map([['monster.h', 'hash-a']]),
+			{ workspaceRootUri: 'file:///c%3A/Users/dev/ws' }
+		);
+		assert.ok(result.markdown.includes('`ghost`'), '坏 targetId 降级为行内代码');
+		assert.ok(!result.markdown.includes('classmate-ref://'), '不产链接');
+		assert.deepStrictEqual(result.issues.map((issue) => issue.kind), ['unknown_target']);
+	});
+
+	it('seals an unclosed pipe-form marker at stream cut', () => {
+		const result = finalizeAnswerReferences(
+			'文字{{ref|sym:monster.h:Monster:takeTurn|take',
+			SYMBOLS,
+			new Map([['monster.h', 'hash-a']]),
+			{ workspaceRootUri: 'file:///c%3A/Users/dev/ws' }
+		);
+		assert.ok(!result.markdown.includes('{{ref'), '半截竖线标记不得泄漏');
+	});
+
+	it('runs the full run14 single-27 answer through the finalizer without leaks', () => {
+		const { RUN14_SINGLE27_ANSWER } = require('./fixtures-run14-single27');
+		const symbols: CppSymbol[] = SYMBOLS.concat([{
+			targetId: 'sym:creature.h:Creature:takeDamage',
+			file: 'creature.h',
+			name: 'takeDamage',
+			kind: 'method',
+			container: 'Creature',
+			startLine: 29,
+			endLine: 36,
+		}, {
+			targetId: 'sym:creature.h:Creature',
+			file: 'creature.h',
+			name: 'Creature',
+			kind: 'class',
+			startLine: 8,
+			endLine: 94,
+		}, {
+			targetId: 'sym:player.h:Player',
+			file: 'player.h',
+			name: 'Player',
+			kind: 'class',
+			startLine: 11,
+			endLine: 105,
+		}, {
+			targetId: 'sym:monster.h:Monster',
+			file: 'monster.h',
+			name: 'Monster',
+			kind: 'class',
+			startLine: 10,
+			endLine: 37,
+		}]);
+		const hashes = new Map([
+			['monster.h', 'hash-a'],
+			['creature.h', 'hash-c'],
+			['player.h', 'hash-p'],
+		]);
+		const result = finalizeAnswerReferences(
+			RUN14_SINGLE27_ANSWER,
+			symbols,
+			hashes,
+			{ workspaceRootUri: 'file:///c%3A/Users/dev/ws' }
+		);
+		assert.ok(!result.markdown.includes('{{ref'), 'run14 原始回答零标记残留');
+		assert.ok(result.references.length >= 4, '合法 targetId 全部进引用清单');
+		assert.ok(result.markdown.includes('classmate-ref://'));
+	});
+});
