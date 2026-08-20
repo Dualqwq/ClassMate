@@ -890,12 +890,29 @@ export class ChatSession {
 		this._broadcast({ type: 'stateSync', state: this._state });
 	}
 
+	/** 记录该轮回答依据的冻结快照 hash(7.8 历史精确绑定)。 */
+	private _setMessageBasisFileHashes(
+		messageId: string,
+		fileHashes: Record<string, string>
+	): void {
+		if (Object.keys(fileHashes).length === 0) {
+			return;
+		}
+		this._state = {
+			...this._state,
+			messages: this._state.messages.map((message) =>
+				message.id === messageId
+					? { ...message, basisFileHashes: fileHashes }
+					: message
+			),
+		};
+	}
+
 	private _setMessageContextSummary(
 		messageId: string,
 		workspaceFiles: string[],
 		codeFiles?: string[]
-	): void {
-		const uniqueFiles = [...new Set(workspaceFiles)].sort((left, right) =>
+	): void {		const uniqueFiles = [...new Set(workspaceFiles)].sort((left, right) =>
 			left.localeCompare(right, 'zh-CN')
 		);
 		const uniqueCodeFiles = codeFiles
@@ -1283,8 +1300,8 @@ export class ChatSession {
 					content: message.content,
 					images: message.images,
 					attachments: message.attachments,
-					// 引用契约:该轮回答实际链接的文件 + 程序侧块来源实证文件,
-					// 供历史裁剪精确绑定(模型不标记时块溯源仍生效)。
+				// 引用契约:该轮回答实际链接的文件 + 程序侧块来源实证文件,
+				// 供历史裁剪精确绑定(模型不标记时块溯源仍生效)。
 					referenceFiles: [
 						...(message.references
 							?.map((reference) => path.basename(reference.uri))
@@ -1293,6 +1310,8 @@ export class ChatSession {
 							?.map((block) => block.file)
 							.filter((file): file is string => Boolean(file)) ?? []),
 					].filter((file, index, all) => all.indexOf(file) === index),
+					// 7.8:该轮依据的冻结 hash,逐轮精确绑定历史清洗。
+					basisFileHashes: message.basisFileHashes,
 				}));
 			const activeEditor = vscode.window.activeTextEditor;
 			this._recordDiagnostic('turn_started', {
@@ -1519,6 +1538,12 @@ export class ChatSession {
 					result.state.loadedWorkspaceItems
 						.filter((item) => item.kind === 'code')
 						.map((item) => item.path)
+				);
+				this._setMessageBasisFileHashes(
+					assistantMessage.id,
+					Object.fromEntries(result.state.loadedWorkspaceItems.map((item) => [
+						item.path, item.contentHash,
+					]))
 				);
 				if (result.state.answerReferences
 					&& result.state.answerReferences.length > 0) {

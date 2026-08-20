@@ -212,3 +212,50 @@ describe('history stale-state pattern fixes (2026-08-20 startTurn 回归)', () =
 		assert.ok(!visible[1].content.includes('已经改好了'));
 	});
 });
+
+describe('basis file hashes binding (7.8 逐轮依据 hash 绑定)', () => {
+	const STALE_TURN = [
+		{ role: 'user' as const, content: 'takeTurn 现在怎么样' },
+		{
+			role: 'assistant' as const,
+			content: 'takeTurn 现在是空的,函数体只有注释,你还没写完。',
+			basisFileHashes: { 'monster.h': 'hash-old' },
+		},
+	];
+
+	it('cleans a turn whose basis file changed even without markers or block sources', () => {
+		const visible = buildModelVisibleHistory({
+			history: STALE_TURN,
+			currentFileHashes: new Map([['monster.h', 'hash-new']]),
+			previousFileHashes: new Map([['monster.h', 'hash-old']]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		const assistant = visible.find((message) => message.role === 'assistant');
+		assert.ok(assistant, 'assistant 轮保留');
+		assert.ok(
+			assistant!.content.includes('此前讨论'),
+			'依据文件变化后,状态声明必须被占位说明替换'
+		);
+		assert.ok(!assistant!.content.includes('还没写完'));
+	});
+
+	it('keeps a turn intact when its basis hash still matches, even if other files changed', () => {
+		const visible = buildModelVisibleHistory({
+			history: STALE_TURN,
+			currentFileHashes: new Map([
+				['monster.h', 'hash-old'],
+				['player.h', 'hash-new'],
+			]),
+			previousFileHashes: new Map([
+				['monster.h', 'hash-old'],
+				['player.h', 'hash-older'],
+			]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		const assistant = visible.find((message) => message.role === 'assistant');
+		assert.ok(
+			assistant!.content.includes('还没写完'),
+			'依据 hash 未变时历史一字不动(其他文件变化不误伤)'
+		);
+	});
+});

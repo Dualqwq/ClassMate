@@ -231,6 +231,8 @@ export interface ClassMateRequest {
 		attachments?: LLMAttachment[];
 		/** 引用契约:该轮回答实际链接的文件(精确历史裁剪用)。 */
 		referenceFiles?: string[];
+		/** 7.8:该轮回答依据的冻结快照 hash(逐轮精确绑定)。 */
+		basisFileHashes?: Record<string, string>;
 	}>;
 	previousWorkspaceContext?: ConversationWorkspaceContext;
 }

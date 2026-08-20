@@ -17,6 +17,8 @@ export interface ModelHistoryInput {
 		role: 'user' | 'assistant';
 		content: string;
 		referenceFiles?: string[];
+		/** 7.8:该轮回答依据的冻结快照 hash(path→hash)。 */
+		basisFileHashes?: Record<string, string>;
 	}>;
 	currentFileHashes: Map<string, string>;
 	previousFileHashes: Map<string, string>;
@@ -106,9 +108,14 @@ export function buildModelVisibleHistory(input: ModelHistoryInput): Array<{
 			.join('\n');
 	};
 	// 精确绑定(优先):引用契约下 assistant 轮带 referenceFiles(实际链接的
-	// 文件)。这些文件中任一 hash 变化 → 该轮按旧版本清洗。
+	// 文件)或 basisFileHashes(该轮依据的冻结快照)。这些文件中任一 hash
+	// 变化 → 该轮按旧版本清洗。
 	const turnReferences = (index: number): string[] | undefined =>
 		input.history[index - (index % 2 === 0 ? 0 : 1) + 1]?.referenceFiles;
+	const turnBasisFiles = (index: number): string[] | undefined => {
+		const basis = input.history[index - (index % 2 === 0 ? 0 : 1) + 1]?.basisFileHashes;
+		return basis ? Object.keys(basis) : undefined;
+	};
 	const cleaned = input.history.map((message, index) => {
 		if (message.role !== 'assistant') {
 			return message;
@@ -118,7 +125,7 @@ export function buildModelVisibleHistory(input: ModelHistoryInput): Array<{
 			const sanitized = stripContractArtifacts(message.content);
 			return sanitized === message.content ? message : { ...message, content: sanitized };
 		}
-		// 精确绑定:referenceFiles 里任一文件 hash 变化才清洗。
+		// 精确绑定:referenceFiles/basisFileHashes 里任一文件 hash 变化才清洗。
 		const preciseFiles = turnReferences(index);
 		if (preciseFiles !== undefined) {
 			const changed = preciseFiles.some((file) =>
@@ -128,7 +135,23 @@ export function buildModelVisibleHistory(input: ModelHistoryInput): Array<{
 			if (!changed) {
 				return message;
 			}
-		} else if (!anyReferencedFileChanged(input, turnScope(index))) {
+		}
+		// 依据 hash 绑定(7.8):模型没打标记、块溯源也判 none 时,该轮
+		// 依据过的文件(冻结快照全体)变化后同样触发清洗。
+		const basisFiles = turnBasisFiles(index);
+		if (basisFiles !== undefined && preciseFiles === undefined) {
+			const changed = basisFiles.some((file) =>
+				input.currentFileHashes.get(comparablePath(file))
+					!== input.previousFileHashes.get(comparablePath(file))
+			);
+			if (!changed) {
+				return message;
+			}
+		} else if (
+			preciseFiles === undefined
+			&& basisFiles === undefined
+			&& !anyReferencedFileChanged(input, turnScope(index))
+		) {
 			// 兜底(7.6 后仅在旧会话无引用元数据时走到)。
 			return message;
 		}

@@ -39,10 +39,26 @@ export interface AnswerPromptInput {
 		content: string;
 		images?: LLMImage[];
 		attachments?: LLMAttachment[];
+		/** 7.8:该轮回答依据的冻结快照 hash(历史精确绑定)。 */
+		basisFileHashes?: Record<string, string>;
 	}>;
 }
 
 const MAX_HISTORY_MESSAGES = 8;
+
+/** 验证当前状态类问题的措辞(几行/写没写完/存不存在/是不是只有注释)。 */
+export const STATE_VERIFICATION_QUESTION_PATTERN =
+	/几行|几条|多少行|写(完|好)(了|没|没有)?|实现(了|没|没有)?|存(在|不存在)|是不是|现在(呢|怎么样|什么样|的状态)|还有没有|空(的|吗|么)|注释(掉?了|状态)?(吗|么|没有)?/;
+
+/**
+ * 验证类问题下的历史证据声明:相邻轮次的自我事实污染防护(计划 7.8)。
+ * 即使文件未变,上一轮回答中关于代码状态的错误声明也会被下一轮原样
+ * 复述——显式声明历史陈述不是证据,一律以冻结工作区为准。
+ */
+export const HISTORY_NOT_EVIDENCE_STATEMENT = [
+	'The student is asking about the CURRENT state of the code.',
+	'Statements in the conversation history about code state (line counts, empty/full bodies, done/not-done, comment status) are NOT evidence; verify them against the Frozen workspace data below and answer from what the files actually contain now.',
+].join(' ');
 
 function compactConversationHistory(
 	history: AnswerPromptInput['conversationHistory'],
@@ -56,6 +72,7 @@ function compactConversationHistory(
 			history: history.map((message) => ({
 				role: message.role,
 				content: message.content,
+				basisFileHashes: message.basisFileHashes,
 			})),
 			previousFileHashes: new Map(
 				Object.entries(previousFileHashes ?? {})
@@ -263,6 +280,13 @@ export class AnswerPromptBuilder {
 				))
 			),
 			...buildQuestionAdjacentEvidence(input.workspaceSnapshot),
+			// 验证类问题:历史状态声明不作证据(自我事实污染防护,7.8)。
+			...(STATE_VERIFICATION_QUESTION_PATTERN.test(input.userText)
+				? [{
+					role: 'system' as const,
+					content: HISTORY_NOT_EVIDENCE_STATEMENT,
+				}]
+				: []),
 			...(input.referenceTargets && input.referenceTargets.length > 0
 				? [{
 					role: 'system' as const,

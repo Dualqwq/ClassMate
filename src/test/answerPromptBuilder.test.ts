@@ -330,3 +330,54 @@ describe('Answer prompt reference-target contract block', () => {
 		assert.doesNotMatch(prompt, /classmate-ref:\/\//, '提示词不得暴露成品链接协议');
 	});
 });
+
+describe('state-verification history guard (7.8 验证类问题历史不作证据)', () => {
+	function buildPrompt(userText: string) {
+		const messages = new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'code_explanation',
+				depthLevel: 2,
+				responsePattern: ['explain'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'code_explanation',
+					concepts: ['functions'],
+					purposes: ['debug'],
+					learnerLevel: 'beginner',
+					hintLevel: 2,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'functions',
+			workspaceSnapshot: {
+				snapshotId: 'snapshot',
+				createdAt: 1,
+				minimal: { catalog: { files: [], questionFiles: [] } },
+				loadedItems: [],
+			} as never,
+			userText,
+			conversationHistory: [],
+		});
+		return messages.map((message) => message.content).join('\n');
+	}
+
+	it('adds the not-evidence statement for verification questions', () => {
+		for (const question of ['takeTurn 现在有几行', '写完了吗', '现在呢']) {
+			const prompt = buildPrompt(question);
+			assert.ok(
+				prompt.includes('NOT evidence'),
+				`验证类问题"${question}"必须声明历史状态陈述不是证据`
+			);
+		}
+	});
+
+	it('stays silent for ordinary questions', () => {
+		const prompt = buildPrompt('帮我讲讲循环的写法');
+		assert.ok(!prompt.includes('NOT evidence'), '普通问题不加声明');
+	});
+});

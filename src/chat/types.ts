@@ -48,6 +48,12 @@ export interface ChatMessage {
 	}>;
 	images?: ChatImage[];
 	attachments?: ChatAttachment[];
+	/**
+	 * 本轮回答依据的冻结快照文件 hash(7.8):path→contentHash。
+	 * 历史裁剪用它做逐轮精确绑定——即使模型没打引用标记、块溯源判
+	 * none,该轮依据过的文件变化后同样触发旧状态清洗。
+	 */
+	basisFileHashes?: Record<string, string>;
 	proposedEdit?: ProposedCodeEdit;
 	/** 只展示本轮实际使用的工作区文件，不暴露内部 Skill 或知识卡片。 */
 	contextSummary?: ChatContextSummary;
