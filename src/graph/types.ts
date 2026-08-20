@@ -174,6 +174,7 @@ export interface AnswerValidationResult {
 export type AnswerOutcome =
 	| 'answered'
 	| 'grounded_local_hint'
+	| 'recovery_fallback'
 	| 'generic_fallback';
 
 /**
@@ -264,6 +265,13 @@ export interface ClassMateGraphState {
 	workspaceDriftRetryCount: number;
 	/** 7.7 结构事实核对:冲突时重生成一次的计数。 */
 	groundingRetryCount: number;
+	/** 7.8 恢复通道:answer 节点模型调用失败(非取消)已发生的次数。 */
+	modelFailureCount: number;
+	/**
+	 * 模型调用失败待重试的瞬时标记(answer 条件边据此路由回自身,
+	 * 重试成功或转入兜底时清除)。
+	 */
+	recoveryAttempt?: { stage: string; message: string };
 	/** 重生成时随 answer 提示下发的本地事实纠正指令(瞬时,由 _answer 消费)。 */
 	groundingCorrectionInstruction?: string;
 	/** grounding_check 的核对结果(证词:定位到的声明与冲突)。 */

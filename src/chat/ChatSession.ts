@@ -1421,6 +1421,17 @@ export class ChatSession {
 						requestId: graphRequestId,
 						characters: result.answer.length,
 					});
+				} else if (
+					// 流式中途断流:半截内容已上屏,图内转入了本地事实兜底。
+					// 兜底提示不能替换已见内容,只在其后追加,保证学生拿到
+					// 确定性事实而不是一条裸错误。
+					hasAnswerToken
+					&& result.state.answerOutcome === 'recovery_fallback'
+				) {
+					this.appendToken(
+						assistantMessage.id,
+						`\n\n${result.answer}`
+					);
 				}
 				this._setMessageContextSummary(
 					assistantMessage.id,

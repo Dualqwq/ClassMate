@@ -6,6 +6,7 @@ export type Bug1ReviewVerdict = 'pass' | 'fail' | 'unjudgeable' | 'skip';
 export type Bug1DeliveryOutcome =
 	| 'answered'
 	| 'grounded_local_hint'
+	| 'recovery_fallback'
 	| 'generic_fallback'
 	| 'provider_error'
 	| 'cancelled';
@@ -203,13 +204,14 @@ const evalResultSchema = z.object({
 	})).optional(),
 	answer: z.string(),
 	status: z.enum(['success', 'failed']),
-	deliveryOutcome: z.enum([
-		'answered',
-		'grounded_local_hint',
-		'generic_fallback',
-		'provider_error',
-		'cancelled',
-	]),
+		deliveryOutcome: z.enum([
+			'answered',
+			'grounded_local_hint',
+			'recovery_fallback',
+			'generic_fallback',
+			'provider_error',
+			'cancelled',
+		]),
 	answerReferenceStats: z.object({
 		references: z.number().nonnegative(),
 		modelMarkedLinks: z.number().nonnegative(),

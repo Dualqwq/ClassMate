@@ -1197,3 +1197,127 @@ describe('grounding_check (7.7 结构事实核对)', () => {
 		assert.ok(!/(Frozen workspace data|清单|信封|校验)/.test(result.answer), '不得出现内部术语');
 	});
 });
+
+describe('answer recovery (7.8 模型调用失败恢复)', () => {
+	const MONSTER_ACTIVE = [
+		'#pragma once',
+		'class Monster {',
+		'public:',
+		'    void takeTurn()',
+		'    {',
+		'        std::cout << "turn";',
+		'        doWork();',
+		'    }',
+		'};',
+	].join('\n');
+
+	function recoveryServices(model: GraphModelClient): ClassMateGraphServices {
+		const services = createServices(model, {
+			catalog: {
+				files: [{
+					path: 'monster.h',
+					uri: 'file:///monster.h',
+					kind: 'code',
+					size: 10,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+				activeEditor: {
+					fileName: 'monster.h',
+					uri: 'file:///monster.h',
+					languageId: 'cpp',
+				},
+			},
+		}, async () => [{
+			path: 'monster.h',
+			kind: 'code' as const,
+			content: MONSTER_ACTIVE,
+			contentHash: 'hash-active',
+			reason: 'test',
+		}]);
+		return services;
+	}
+
+	/** answer 调用先失败 failTimes 次,之后返回 fixedAnswer;其余节点正常。 */
+	function flakyModel(failTimes: number, fixedAnswer: string): {
+		model: GraphModelClient;
+		answerCalls: () => number;
+	} {
+		let answerCalls = 0;
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return {
+						content: mergedPlan('concept_explanation', [{
+							target: 'monster.h',
+							section: null,
+							required: true,
+							reason: '读取目标文件',
+						}]),
+					};
+				}
+				if (text.includes('ClassMate Answer Mode')) {
+					answerCalls++;
+					if (answerCalls <= failTimes) {
+						throw new Error('simulated network failure');
+					}
+					return { content: fixedAnswer };
+				}
+				if (text.includes('ClassMate Correctness Check Mode')) {
+					return { content: JSON.stringify({ p: true, s: 'none', i: [] }) };
+				}
+				if (text.includes('ClassMate Problem Constraint Mode')) {
+					return { content: JSON.stringify({ h: [], o: [], l: [], e: [], u: [] }) };
+				}
+				return { content: '' };
+			},
+		};
+		return { model, answerCalls: () => answerCalls };
+	}
+
+	it('retries the answer call once when the model call fails, then answers normally', async () => {
+		const { model, answerCalls } = flakyModel(1, '`takeTurn` 已有实际代码，我们直接看它的逻辑。');
+		const debugEvents: Array<{ event: string; data: unknown }> = [];
+		const services = {
+			...recoveryServices(model),
+			onDebug: (event: string, data: unknown) => {
+				debugEvents.push({ event, data });
+			},
+		};
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'recovery-retry',
+			conversationId: 'conversation-recovery-retry',
+			userText: 'takeTurn 现在怎么样了',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+		assert.strictEqual(answerCalls(), 2, '失败一次后应重试一次');
+		assert.strictEqual(result.state.modelFailureCount, 1);
+		assert.strictEqual(result.state.answerOutcome, 'answered');
+		assert.ok(result.answer.includes('已有实际代码'));
+		assert.ok(!result.answer.includes('[Error'), '不得把裸错误甩给学生');
+		assert.ok(debugEvents.some((entry) => entry.event === 'answer_model_failed'));
+	});
+
+	it('delivers the recovery local hint after the retry fails again', async () => {
+		const { model, answerCalls } = flakyModel(99, 'never reached');
+		const result = await new ClassMateGraphRunner(recoveryServices(model)).run({
+			requestId: 'recovery-fallback',
+			conversationId: 'conversation-recovery-fallback',
+			userText: 'takeTurn 现在怎么样了',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+		assert.strictEqual(answerCalls(), 2, '图内最多重试一次');
+		assert.strictEqual(result.state.answerOutcome, 'recovery_fallback');
+		assert.ok(result.answer.includes('抱歉'), '兜底提示须含道歉措辞');
+		assert.ok(result.answer.includes('monster.h'), '兜底提示须指向具体文件');
+		assert.ok(
+			result.answer.includes('已有实际代码'),
+			'兜底提示陈述符号真实状态(激活)'
+		);
+		assert.ok(!result.answer.includes('[Error'), '不得泄漏内部错误信息');
+		assert.ok(!/(Frozen workspace data|清单|信封|校验)/.test(result.answer), '不得出现内部术语');
+	});
+});

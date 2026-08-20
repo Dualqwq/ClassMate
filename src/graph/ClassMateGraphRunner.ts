@@ -33,6 +33,7 @@ import {
 	buildGroundingRetryInstruction,
 	checkAnswerGrounding,
 } from '../chat/answerGroundingValidator';
+import { buildRecoveryLocalHint } from '../chat/answerRecoveryHint';
 import {
 	buildReferenceTargetCatalog,
 	finalizeAnswerReferences,
@@ -255,7 +256,26 @@ function pathIsUnsafe(value: string): boolean {
 }
 
 export class ClassMateGraphRunner {
-	constructor(private readonly _services: ClassMateGraphServices) {}
+	constructor(services: ClassMateGraphServices) {
+		// 7.8 恢复通道:流式失败可能在异常抛出前已把半截内容交给界面。
+		// 包装 onAnswerToken 记录"本轮是否已有任何 token 流出",供失败
+		// 分支判断能否安全重试(重试会从头再流一遍,只能对零流出进行)。
+		const onAnswerToken = services.onAnswerToken;
+		this._services = onAnswerToken
+			? {
+				...services,
+				onAnswerToken: (token: string) => {
+					if (token.length > 0) {
+						this._answerStreamedOut = true;
+					}
+					onAnswerToken(token);
+				},
+			}
+			: services;
+	}
+
+	private readonly _services: ClassMateGraphServices;
+	private _answerStreamedOut = false;
 
 	private _emitNodeTrace(trace: GraphNodeTrace): void {
 		try {
@@ -287,6 +307,7 @@ export class ClassMateGraphRunner {
 			answerRetryCount: 0,
 			workspaceDriftRetryCount: 0,
 			groundingRetryCount: 0,
+			modelFailureCount: 0,
 			workspaceDriftRegenerate: false,
 			answerDelivered: false,
 			nodeTimings: [],
@@ -335,14 +356,20 @@ export class ClassMateGraphRunner {
 			.addEdge('extract_constraints', 'build_answer_prompt')
 			.addEdge('build_answer_prompt', 'answer')
 			.addEdge('answer', 'validate')
-			.addConditionalEdges('validate', (state) =>
-				state.value.answerValidation?.shouldRegenerate
+			.addConditionalEdges('validate', (state) => {
+				// 7.8 恢复通道:answer 模型调用失败(非取消)且未重试过,
+				// 回到 answer 用同一提示重试一次。recoveryAttempt 是 answer
+				// 失败分支设置的瞬时标记,重试成功或转兜底时清除。
+				if (state.value.recoveryAttempt && state.value.modelFailureCount <= 1) {
+					return 'answer';
+				}
+				return state.value.answerValidation?.shouldRegenerate
 					// 已经显示到界面的回答不能静默替换；仍在缓冲区的高风险回答可以重试。
 					&& !state.value.answerDelivered
 					&& state.value.answerRetryCount <= MAX_ANSWER_RETRIES
 					? 'answer'
-					: 'verify_workspace'
-			)
+					: 'verify_workspace';
+			})
 			.addConditionalEdges('verify_workspace', (state) =>
 				// 复核发现漂移且回答未流出:已重建快照,按新工作区重生成一次。
 				// workspaceDriftRegenerate 是本步刚重载的瞬时标记,
@@ -1429,29 +1456,72 @@ export class ClassMateGraphRunner {
 			&& !hasReferenceTargets
 			&& current.answerRetryCount === 0
 			&& !groundingRetrying;
-		const completion = await this._services.model.complete(messages, {
-			label: 'answer',
-			temperature: current.problemIdentification?.evidence.includes(
-				'Exact indexed content hash matched.'
-			)
-				? 0
-				: 0.2,
-			maxTokens: current.answerPlan?.requestType === 'problem_hint'
-				&& current.answerPlan.depthLevel === 1
-				? 700
-				: 2200,
-			// Final answers must spend the output budget on student-visible text.
-			// Some OpenAI-compatible reasoning models otherwise consume maxTokens
-			// entirely as hidden reasoning and finish with an empty content stream.
-			thinkingMode: 'disabled',
-			signal: this._services.signal,
-			// If the first streamed attempt returned no text, retry through the
-			// adapter's non-streaming completion path. Nothing was shown to the user,
-			// and this avoids repeating a provider-specific empty-stream failure.
-			onToken: streamImmediately
-				? this._services.onAnswerToken
-				: undefined,
-		});
+		let completion: Awaited<ReturnType<ClassMateGraphServices['model']['complete']>>;
+		try {
+			completion = await this._services.model.complete(messages, {
+				label: 'answer',
+				temperature: current.problemIdentification?.evidence.includes(
+					'Exact indexed content hash matched.'
+				)
+					? 0
+					: 0.2,
+				maxTokens: current.answerPlan?.requestType === 'problem_hint'
+					&& current.answerPlan.depthLevel === 1
+					? 700
+					: 2200,
+				// Final answers must spend the output budget on student-visible text.
+				// Some OpenAI-compatible reasoning models otherwise consume maxTokens
+				// entirely as hidden reasoning and finish with an empty content stream.
+				thinkingMode: 'disabled',
+				signal: this._services.signal,
+				// If the first streamed attempt returned no text, retry through the
+				// adapter's non-streaming completion path. Nothing was shown to the user,
+				// and this avoids repeating a provider-specific empty-stream failure.
+				onToken: streamImmediately
+					? this._services.onAnswerToken
+					: undefined,
+			});
+		} catch (error) {
+			// 取消不是失败:照旧上抛,保持"已停止生成"行为。
+			if (this._services.signal?.aborted) {
+				throw error;
+			}
+			// 流式失败可能已经把半截内容交给界面(主 provider 断流)。
+			// 重试只对"一个字都没流出"的情况安全;已流出则转入兜底,
+			// 不能让第二份回答从头再流一遍。
+			const streamedOut = this._answerStreamedOut;
+			const failureCount = current.modelFailureCount + 1;
+			const message = error instanceof Error ? error.message : String(error);
+			this._services.onDebug?.('answer_model_failed', {
+				stage: 'answer',
+				attempt: failureCount,
+				streamedOut,
+				error: message,
+			});
+			// 兜底:本地事实提示,确定性生成、含道歉措辞、无内部术语。
+			// 已流出半截内容时不清屏,只在其后追加,事实提示仍可交付。
+			const hint = buildRecoveryLocalHint({
+				symbols: current.workspaceSymbols?.symbols,
+				activeFile: current.minimalWorkspaceContext?.catalog.activeEditor
+					?.fileName,
+			});
+			const retryable = failureCount <= 1 && !streamedOut;
+			return nextState(state, {
+				answer: retryable ? current.answer : hint,
+				answerOutcome: retryable ? current.answerOutcome : 'recovery_fallback',
+				answerValidation: retryable ? current.answerValidation : {
+					valid: true,
+					problems: [],
+					shouldRegenerate: false,
+				},
+				modelFailureCount: failureCount,
+				recoveryAttempt: retryable
+					? { stage: 'answer', message }
+					: undefined,
+				// answerDelivered 保持 current 值:流式半截时界面已有内容,
+				// 兜底提示由 ChatSession 的 answer_fallback_flushed 逻辑补上。
+			});
+		}
 		const answer = completion.content.trim();
 		// 引用契约:标记 → 链接/引用清单。无标记时结果与原文一致。
 		const finalized = current.workspaceSymbols
@@ -1486,6 +1556,8 @@ export class ClassMateGraphRunner {
 			answerRetryCount: current.answerRetryCount + 1,
 			// 消费一次性事实纠正指令:重生成完成后清除,grounding_check 复核。
 			groundingCorrectionInstruction: undefined,
+			// 消费恢复重试标记(成功即清除,防止 validate 边再次路由回来)。
+			recoveryAttempt: undefined,
 			answerDelivered: current.answerDelivered
 				|| Boolean(streamImmediately && this._services.onAnswerToken && answer),
 		});
@@ -1493,6 +1565,12 @@ export class ClassMateGraphRunner {
 
 	private async _validate(state: WrappedState): Promise<WrappedState> {
 		const current = state.value;
+		// 7.8 恢复兜底是程序生成的本地事实提示,不是候选教学回答:
+		// 结构校验(提示层级/代码量)对它不适用,复核只会把流程重新推回
+		// 已失败的模型调用,形成循环。
+		if (current.answerOutcome === 'recovery_fallback') {
+			return state;
+		}
 		let answer = current.answer ?? '';
 		let answerValidation = validateStudentAnswer(answer, current.answerPlan!);
 		let answerOutcome = current.answerOutcome;
@@ -1641,6 +1719,10 @@ export class ClassMateGraphRunner {
 	 */
 	private async _groundingCheck(state: WrappedState): Promise<WrappedState> {
 		const current = state.value;
+		// 恢复兜底提示本身由本地事实生成,再过一遍事实核对是纯绕圈。
+		if (current.answerOutcome === 'recovery_fallback') {
+			return state;
+		}
 		const symbols = current.workspaceSymbols?.symbols ?? [];
 		const result = symbols.length > 0
 			? checkAnswerGrounding(current.answer ?? '', symbols)
@@ -1687,7 +1769,12 @@ export class ClassMateGraphRunner {
 
 	private async _correctnessCheck(state: WrappedState): Promise<WrappedState> {
 		const current = state.value;
-		if (!current.correctnessCheckRequired) {
+		if (
+			!current.correctnessCheckRequired
+			// 恢复兜底提示不是候选教学回答,没有可复核的算法/约束内容;
+			// 再调一次模型复核只会重复刚才失败的调用。
+			|| current.answerOutcome === 'recovery_fallback'
+		) {
 			return state;
 		}
 		const candidateAnswer = current.answer ?? '';

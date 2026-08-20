@@ -200,6 +200,25 @@ const FACT_TEXT: Record<GroundingFact, string> = {
 	done: '已完成',
 };
 
+/**
+ * 符号当前状态的事实句(依据 Tree-sitter 行范围与函数体事实)。
+ * 7.8 恢复兜底与 7.7 冲突提示共用同一事实口径。
+ */
+export function symbolStateSentence(symbol: CppSymbol): string {
+	const location = `（${symbol.file} 第 ${symbol.startLine}–${symbol.endLine} 行）`;
+	const body = symbol.body;
+	if (!body) {
+		return `\`${symbol.name}\`${location}当前定义在文件中`;
+	}
+	if (body.empty) {
+		return `\`${symbol.name}\`${location}当前函数体为空`;
+	}
+	if (body.commentOnly) {
+		return `\`${symbol.name}\`${location}当前只有注释,没有实际代码`;
+	}
+	return `\`${symbol.name}\`${location}当前已有实际代码,非空语句 ${body.nonEmptyStatementCount} 句`;
+}
+
 /** 单条冲突的事实句:目标符号 + 实际状态(依据 Tree-sitter 行范围)。 */
 function conflictFactSentence(
 	claim: GroundingClaim,
