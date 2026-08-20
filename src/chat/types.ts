@@ -5,6 +5,12 @@ export interface LLMConfig {
 	model: string;
 	apiKeySet: boolean;
 	apiUrl?: string;
+	/** 7.8 恢复通道:显式配置的备用 provider(设置面板回显用);未配置为 undefined。 */
+	fallback?: {
+		provider: LLMProvider;
+		model: string;
+		apiKeySet: boolean;
+	};
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system';
@@ -136,6 +142,16 @@ export type WebviewToExtensionMessage =
 	| { type: 'requestContainerToggle' }
 	| { type: 'requestLLMConfig' }
 	| { type: 'saveLLMConfig'; provider: LLMProvider; model: string; apiKey?: string; apiUrl?: string }
+	| {
+		type: 'saveFallbackLLMConfig';
+		/** null 表示清除备用配置;对象表示保存(留空字段沿用已存值)。 */
+		input: {
+			provider: LLMProvider;
+			model: string;
+			apiKey?: string;
+			apiUrl?: string;
+		} | null;
+	}
 	| { type: 'newConversation' }
 	| { type: 'switchConversation'; conversationId: string }
 	| { type: 'deleteConversation'; conversationId: string }

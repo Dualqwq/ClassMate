@@ -13,7 +13,7 @@ import type { ChatReference, LLMConfig, MessageIntent, PersistedChatData } from 
 import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
-import { getLLMConfig, saveLLMConfig } from './config/llmConfig';
+import { getLLMConfig, saveLLMConfig, getFallbackLLMConfig, saveFallbackLLMConfig, getFallbackApiKey } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { checkGppAvailability, spawnGpp } from './compiler/compilerService';
 import { registerCompileOutputProvider, showCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
@@ -954,6 +954,24 @@ export function activate(
 
 	// Seed initial LLM config into the session for placeholder debugging.
 	void getLLMConfig(context).then((config) => chatSession.setLLMConfig(config));
+
+	// 7.8 恢复通道:显式配置的备用 provider。未配置时恢复通道只做图内重试,
+	// 不存在隐式默认备用。
+	void refreshFallbackLLMConfig();
+
+	function refreshFallbackLLMConfig(): Promise<void> {
+		return getFallbackLLMConfig(context).then((config) => {
+			chatSession.setFallbackLLMConfig(
+				config,
+				config ? () => getFallbackApiKey(context) : undefined
+			);
+		});
+	}
+
+	// Save fallback LLM config from webview (undefined input = clear).
+	chatSession.setOnSaveFallbackLLMConfig((input) => {
+		void saveFallbackLLMConfig(context, input).then(() => refreshFallbackLLMConfig());
+	});
 
 	// Provide API key to ChatSession for LLM calls.
 	chatSession.setOnGetApiKey(() => getApiKey(context));

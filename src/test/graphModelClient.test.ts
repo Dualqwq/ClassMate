@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { AdapterGraphModelClient } from '../graph/modelClient';
+import { AdapterGraphModelClient, FallbackGraphModelClient } from '../graph/modelClient';
 import type {
 	LLMAdapter,
 	LLMCompletionResult,
@@ -184,5 +184,80 @@ describe('AdapterGraphModelClient streaming', () => {
 		} finally {
 			console.warn = originalWarn;
 		}
+	});
+});
+
+describe('FallbackGraphModelClient (7.8 备用 provider 切换)', () => {
+	function client(result: string, failTimes = 0): {
+		client: import('../graph/modelClient').GraphModelClient;
+		calls: () => number;
+	} {
+		let calls = 0;
+		return {
+			client: {
+				async complete() {
+					calls++;
+					if (calls <= failTimes) {
+						throw new Error('primary down');
+					}
+					return { content: result };
+				},
+			},
+			calls: () => calls,
+		};
+	}
+
+	it('does not touch the fallback when the primary succeeds', async () => {
+		const primary = client('ok');
+		const fallback = client('fallback');
+		const wrapped = new FallbackGraphModelClient({
+			primary: primary.client,
+			fallback: fallback.client,
+		});
+		const result = await wrapped.complete([{ role: 'user', content: 'q' }]);
+		assert.strictEqual(result.content, 'ok');
+		assert.strictEqual(primary.calls(), 1);
+		assert.strictEqual(fallback.calls(), 0);
+	});
+
+	it('switches to the fallback once when the primary throws, and reports usage of it', async () => {
+		const primary = client('never', 99);
+		const fallback = client('rescued');
+		const used: Array<{ label?: string; attempt: number }> = [];
+		const wrapped = new FallbackGraphModelClient({
+			primary: primary.client,
+			fallback: fallback.client,
+			onFallbackUsed: (info) => used.push(info),
+		});
+		const first = await wrapped.complete(
+			[{ role: 'user', content: 'q' }],
+			{ label: 'answer' }
+		);
+		assert.strictEqual(first.content, 'rescued');
+		assert.strictEqual(used.length, 1);
+		assert.strictEqual(used[0].label, 'answer');
+		assert.strictEqual(used[0].attempt, 1);
+	});
+
+	it('stops switching after the configured budget is exhausted', async () => {
+		const primary = client('never', 99);
+		const fallback = client('rescued', 1);
+		const wrapped = new FallbackGraphModelClient({
+			primary: primary.client,
+			fallback: fallback.client,
+			maxFallbackCalls: 1,
+		});
+		// 第一次:主败→备用败,异常上抛(此时备用预算已用掉)。
+		await assert.rejects(
+			() => wrapped.complete([{ role: 'user', content: 'q' }]),
+			/fallback down|primary down/
+		);
+		const before = fallback.calls();
+		// 第二次:主败,但备用预算耗尽,直接上抛主错误,不再打备用。
+		await assert.rejects(
+			() => wrapped.complete([{ role: 'user', content: 'q2' }]),
+			/primary down/
+		);
+		assert.strictEqual(fallback.calls(), before, '备用不再被调用');
 	});
 });

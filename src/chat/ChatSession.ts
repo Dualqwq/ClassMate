@@ -4,7 +4,7 @@ import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { mkdir } from 'fs/promises';
-import type { ChatAttachment, ChatImage, ChatMessage, ChatReference, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent, PersistedChatConversation, PersistedChatData, ProposedCodeEdit, WebviewPresenter, WebviewToExtensionMessage } from './types';
+import type { ChatAttachment, ChatImage, ChatMessage, ChatReference, ChatState, ExtensionToWebviewMessage, LLMConfig, LLMProvider, MessageIntent, PersistedChatConversation, PersistedChatData, ProposedCodeEdit, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks, LLMTokenUsage } from '../llm/types';
 import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
 import { buildJourneySummary, type JourneySummary } from '../debug/debugJourneySummary';
@@ -23,7 +23,7 @@ import {
 	type ClassMateGraphServices,
 } from '../graph/ClassMateGraphRunner';
 import type { ConversationWorkspaceContext } from '../graph/types';
-import { AdapterGraphModelClient } from '../graph/modelClient';
+import { AdapterGraphModelClient, FallbackGraphModelClient } from '../graph/modelClient';
 import type { GraphModelClient } from '../graph/modelClient';
 import type { GraphModelTrace } from '../graph/modelClient';
 import { addTokenUsage } from '../llm/tokenUsage';
@@ -74,9 +74,18 @@ export class ChatSession {
 	private _onIntent?: (intent: MessageIntent) => void;
 	private _onRequestLLMConfig?: () => Promise<LLMConfig>;
 	private _onSaveLLMConfig?: (provider: string, model: string, apiKey?: string, apiUrl?: string) => void;
+	private _onSaveFallbackLLMConfig?: (input: {
+		provider: LLMProvider;
+		model: string;
+		apiKey?: string;
+		apiUrl?: string;
+	} | null) => void;
 	private _onGetApiKey?: () => Promise<string | undefined>;
 	private _llmConfig?: LLMConfig;
 	private _currentAdapter?: LLMAdapter;
+	/** 7.8 恢复通道:显式配置的备用 provider;未配置时为 undefined。 */
+	private _fallbackLLMConfig?: LLMConfig;
+	private _onGetFallbackApiKey?: () => Promise<string | undefined>;
 	private _promptBuilder?: SystemPromptBuilder;
 	private _graphServices?: Omit<ClassMateGraphServices, 'model' | 'signal'>;
 	private _onPerformanceTrace?: (event: string, data: unknown) => void;
@@ -583,6 +592,15 @@ export class ChatSession {
 		this._onSaveLLMConfig = callback;
 	}
 
+	public setOnSaveFallbackLLMConfig(callback: (input: {
+		provider: LLMProvider;
+		model: string;
+		apiKey?: string;
+		apiUrl?: string;
+	} | null) => void): void {
+		this._onSaveFallbackLLMConfig = callback;
+	}
+
 	public setPromptBuilder(builder: SystemPromptBuilder): void {
 		this._promptBuilder = builder;
 	}
@@ -604,6 +622,15 @@ export class ChatSession {
 	public setLLMConfig(config: LLMConfig): void {
 		this._llmConfig = config;
 		this._broadcast({ type: 'llmConfig', config });
+	}
+
+	/** 备用 provider 配置(7.8 恢复通道);undefined 表示未配置。 */
+	public setFallbackLLMConfig(
+		config: LLMConfig | undefined,
+		onGetApiKey?: () => Promise<string | undefined>
+	): void {
+		this._fallbackLLMConfig = config;
+		this._onGetFallbackApiKey = onGetApiKey;
 	}
 
 	public static resetInstance(): void {
@@ -1081,6 +1108,15 @@ export class ChatSession {
 			case 'saveLLMConfig':
 				this._onSaveLLMConfig?.(message.provider, message.model, message.apiKey, message.apiUrl);
 				break;
+			case 'saveFallbackLLMConfig':
+				// input 为 null 表示清除备用配置。
+				this._onSaveFallbackLLMConfig?.(message.input ? {
+					provider: message.input.provider,
+					model: message.input.model,
+					apiKey: message.input.apiKey,
+					apiUrl: message.input.apiUrl,
+				} : null);
+				break;
 			case 'newConversation':
 				this.newConversation();
 				break;
@@ -1304,7 +1340,7 @@ export class ChatSession {
 				graphUsage = addTokenUsage(graphUsage, usage);
 				const usageLabel = label ?? 'unknown';
 				graphUsageByNode[usageLabel] = addTokenUsage(
-					graphUsageByNode[usageLabel],
+					graphUsageByNode[usageLabel] ?? { inputTokens: 0, outputTokens: 0 },
 					usage
 				);
 				this._setMessageUsage(assistantMessage.id, graphUsage);
@@ -1326,12 +1362,56 @@ export class ChatSession {
 					requestId: graphRequestId,
 				}, trace);
 			});
+			// 7.8 恢复通道:显式配置了备用 provider 且 key 可用时,主 client
+			// 失败自动切备用重发一次(每轮最多一次);成功路径不受影响。
+			let graphModel: GraphModelClient = model;
+			if (this._fallbackLLMConfig) {
+				const fallbackApiKey = await this._onGetFallbackApiKey?.();
+				const fallbackAdapter = fallbackApiKey || this._fallbackLLMConfig.apiKeySet
+					? this._createAdapter(this._fallbackLLMConfig, fallbackApiKey)
+					: undefined;
+				if (fallbackAdapter) {
+					graphModel = new FallbackGraphModelClient({
+						primary: model,
+						fallback: new AdapterGraphModelClient(
+							fallbackAdapter,
+							this._fallbackLLMConfig.model,
+							(usage, label) => {
+								graphUsage = addTokenUsage(graphUsage, usage);
+								graphUsageByNode[`${label ?? 'unknown'}.fallback`] =
+									addTokenUsage(
+										graphUsageByNode[`${label ?? 'unknown'}.fallback`]
+											?? { inputTokens: 0, outputTokens: 0 },
+										usage
+									);
+							}
+						),
+						onFallbackUsed: (info) => {
+							console.warn(
+								`[ClassMate] primary model call failed (${info.label ?? 'unknown'}), retrying on fallback provider ${this._fallbackLLMConfig!.provider}: ${info.error}`
+							);
+							this._recordDiagnostic('model_fallback_provider_used', {
+								conversationId: graphConversationId,
+								requestId: graphRequestId,
+							}, {
+								...info,
+								fallbackProvider: this._fallbackLLMConfig!.provider,
+								fallbackModel: this._fallbackLLMConfig!.model,
+							});
+							this._onPerformanceTrace?.('model_fallback_provider_used', {
+								requestId: graphRequestId,
+								...info,
+							});
+						},
+					});
+				}
+			}
 			const runner = new ClassMateGraphRunner({
 				...this._graphServices,
 				// 引用契约需要真实根路径生成可点击 URI;每轮求值,
 				// 避免记住激活时刻的旧根目录。
 				workspaceRootUri: vscode.workspace.workspaceFolders?.[0]?.uri.toString(),
-				model,
+				model: graphModel,
 				signal: controller.signal,
 				onAnswerToken: (token) => {
 					if (!hasAnswerToken && token.length > 0) {

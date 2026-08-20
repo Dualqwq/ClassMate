@@ -13,6 +13,7 @@ export type ConversationDiagnosticEventType =
 	| 'reference_extraction_completed'
 	| 'reference_extraction_failed'
 	| 'reference_link_opened'
+	| 'model_fallback_provider_used'
 	| 'turn_completed'
 	| 'turn_failed'
 	| 'turn_cancelled';
