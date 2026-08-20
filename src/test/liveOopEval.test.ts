@@ -336,9 +336,9 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 							console.warn(`[live-eval] ${event}:`, JSON.stringify(data));
 						}
 					},
-					onAnswerToken: () => {
-						firstTokenMs ??= Date.now() - startedAtMs;
-					},
+				onAnswerToken: () => {
+					firstTokenMs ??= Date.now() - startedAtMs;
+				},
 				}).run({
 					requestId: `${item.id}-${turn.turn}-${Date.now()}`,
 					conversationId: item.id,
@@ -388,6 +388,10 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					answerBlockSources: result.state.answerBlockSources ?? [],
 					startedAt,
 					firstTokenMs,
+				// 首字可见延迟:流式轮取真实首 token;引用契约等缓冲交付轮
+				// 在图完成时才对用户可见,取整轮时长(统计模块据此分桶)。
+				firstVisibleMs: firstTokenMs
+					?? (result.state.answer?.trim() ? Date.now() - startedAtMs : undefined),
 					totalDurationMs: Date.now() - startedAtMs,
 					graphDurationMs: result.totalDurationMs,
 					usage,

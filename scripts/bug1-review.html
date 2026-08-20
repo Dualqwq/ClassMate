@@ -114,9 +114,30 @@
 
 	function renderStats() {
 		const s = state.session.summary;
+		// 用量/延迟汇总(7.9 扩大测试):直接从逐轮记录聚合。
+		const all = items();
+		let inputTokens = 0, outputTokens = 0, cacheHitTokens = 0, usageTurns = 0;
+		const firstTokens = [];
+		for (const item of all) {
+			const nodes = Object.values(item.usageByNode ?? {});
+			const inTk = nodes.reduce((sum, n) => sum + (n?.inputTokens ?? 0), 0);
+			const outTk = nodes.reduce((sum, n) => sum + (n?.outputTokens ?? 0), 0);
+			inputTokens += inTk; outputTokens += outTk;
+			cacheHitTokens += nodes.reduce((sum, n) => sum + (n?.cacheHitTokens ?? 0), 0);
+			if (inTk > 0 || outTk > 0) usageTurns++;
+			if (typeof item.firstTokenMs === 'number') firstTokens.push(item.firstTokenMs);
+		}
+		firstTokens.sort((a, b) => a - b);
+		const ftAvg = firstTokens.length ? Math.round(firstTokens.reduce((s2, v) => s2 + v, 0) / firstTokens.length) : null;
+		const ftP95 = firstTokens.length ? firstTokens[Math.min(firstTokens.length - 1, Math.ceil(firstTokens.length * 0.95) - 1)] : null;
+		const fmt = (v) => v >= 10000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+		const ratio = inputTokens > 0 ? ((cacheHitTokens / inputTokens) * 100).toFixed(1) : '0';
 		$('stats').innerHTML = [
 			`总计 ${s.total}`, `已判 ${s.reviewed}`, `未判 ${s.unreviewed}`,
-			`正确 ${s.verdicts.pass}`, `错误 ${s.verdicts.fail}`, `过期 ${s.stale}`
+			`正确 ${s.verdicts.pass}`, `错误 ${s.verdicts.fail}`, `过期 ${s.stale}`,
+			`输入 ${fmt(inputTokens)} tk(缓存 ${ratio}%)`, `输出 ${fmt(outputTokens)} tk`,
+			ftAvg !== null ? `首字 avg ${(ftAvg / 1000).toFixed(1)}s · p95 ${(ftP95 / 1000).toFixed(1)}s` : '首字无记录',
+			`有模型用量 ${usageTurns}/${all.length} 轮`
 		].map((text) => `<span class="stat">${text}</span>`).join('');
 	}
 
@@ -161,6 +182,23 @@
 				<div class="meta-key">活动文件</div><div>${escapeHtml(item.activeFile ?? '无')}</div>
 				<div class="meta-key">预期 / 实际 intent</div><div>${escapeHtml(item.expectedIntent)} / ${escapeHtml(item.actualRequestType ?? '无')}</div>
 				<div class="meta-key">运行</div><div>${escapeHtml(item.status)} · outcome ${escapeHtml(item.deliveryOutcome)} · ${item.totalDurationMs} ms · retry ${escapeHtml(item.answerRetryCount ?? 0)}</div>
+				<div class="meta-key">用量/延迟</div><div>${(() => {
+					const nodes = Object.entries(item.usageByNode ?? {});
+					const inTk = nodes.reduce((sum, [, n]) => sum + (n?.inputTokens ?? 0), 0);
+					const outTk = nodes.reduce((sum, [, n]) => sum + (n?.outputTokens ?? 0), 0);
+					const cache = nodes.reduce((sum, [, n]) => sum + (n?.cacheHitTokens ?? 0), 0);
+					const parts = [
+						`输入 ${inTk} tk${inTk > 0 ? `(缓存命中 ${((cache / inTk) * 100).toFixed(1)}%)` : ''}`,
+						`输出 ${outTk} tk`,
+						`首字可见 ${typeof item.firstVisibleMs === 'number' ? `${(item.firstVisibleMs / 1000).toFixed(2)}s` : typeof item.firstTokenMs === 'number' ? `${(item.firstTokenMs / 1000).toFixed(2)}s(流式)` : '—'}`,
+						`图 ${((item.graphDurationMs ?? 0) / 1000).toFixed(1)}s`
+					];
+					const nodeDetail = nodes
+						.sort((a, b) => (b[1]?.inputTokens ?? 0) - (a[1]?.inputTokens ?? 0))
+						.map(([node, n]) => `${node} ${n?.inputTokens ?? 0}/${n?.outputTokens ?? 0}`)
+						.join(' · ');
+					return `${parts.join(' · ')}${nodeDetail ? `<details style="margin-top:4px"><summary>逐节点 输入/输出 token</summary>${escapeHtml(nodeDetail)}</details>` : ' · 无模型调用(兜底轮)'}`;
+				})()}</div>
 				<div class="meta-key">引用分层</div><div>${item.answerReferenceStats ? `标记链接 ${item.answerReferenceStats.modelMarkedLinks} · 补链 ${item.answerReferenceStats.inferredLinks} · 清单 ${item.answerReferenceStats.references}` : '无记录'}${item.answerBlockSources?.length ? ` · 块来源 ${item.answerBlockSources.map((b) => b.status === 'unique' ? `${b.file}→${(b.targetId ?? '').split(':').pop()}` : b.status === 'unique-file' ? b.file : b.status).join(' / ')}` : ''}</div>
 				<div class="meta-key">事实核对</div><div>${item.groundingCheck ? `${item.groundingCheck.passed ? '通过' : `冲突 ${item.groundingCheck.conflicts.length} 处（重生成 ${item.groundingCheck.retryCount} 次）`}` : '未运行'}</div>
 				<div class="meta-key">模型</div><div>${escapeHtml(state.session.bundle.source.provider)} / ${escapeHtml(state.session.bundle.source.model)}</div>

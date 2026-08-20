@@ -232,6 +232,8 @@ const evalResultSchema = z.object({
 	error: z.string().optional(),
 	startedAt: z.string().min(1),
 	firstTokenMs: z.number().nonnegative().optional(),
+	/** 首字可见延迟:流式轮=真实首 token,缓冲交付轮=图完成时刻。 */
+	firstVisibleMs: z.number().nonnegative().optional(),
 	totalDurationMs: z.number().nonnegative(),
 	graphDurationMs: z.number().nonnegative().optional(),
 	usageByNode: z.record(z.unknown()),
