@@ -159,3 +159,42 @@ describe('model history contract-notation hygiene (防模仿与多行块清洗)'
 		assert.ok(content.includes('旧版本'), '状态声明被替换为占位说明');
 	});
 });
+
+describe('history stale-state pattern fixes (2026-08-20 startTurn 回归)', () => {
+	it('replaces "✅ 已实现" status-table rows when their file changed', () => {
+		const source = [
+			{ role: 'user' as const, content: '你概述一下现在每份代码里都有哪些方法(重点 player.h)' },
+			{
+				role: 'assistant' as const,
+				content: [
+					'好的，我按文件给你梳理一遍当前代码里的方法。',
+					'| `startTurn()` | 开始回合，能量回满 | ✅ 已实现 |',
+					'| `printStatus()` | 输出状态 | ⚠️ TODO，空实现 |',
+				].join('\n'),
+			},
+		];
+		const visible = buildModelVisibleHistory({
+			history: source,
+			currentFileHashes: new Map([['player.h', 'h2']]),
+			previousFileHashes: new Map([['player.h', 'h1']]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		const content = visible[1].content;
+		assert.ok(!content.includes('✅ 已实现'), '过期状态表须被替换');
+		assert.ok(content.includes('旧版本'), '替换为占位说明');
+	});
+
+	it('replaces "已经改好了/改好了" stale claims', () => {
+		const source = [
+			{ role: 'user' as const, content: 'player.h 改的怎么样' },
+			{ role: 'assistant' as const, content: '`startTurn()` 已经改好了，不需要再动。' },
+		];
+		const visible = buildModelVisibleHistory({
+			history: source,
+			currentFileHashes: new Map([['player.h', 'h2']]),
+			previousFileHashes: new Map([['player.h', 'h1']]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		assert.ok(!visible[1].content.includes('已经改好了'));
+	});
+});

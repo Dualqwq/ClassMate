@@ -188,3 +188,55 @@ describe('grounding claim phrasing from run7 (真实措辞回归)', () => {
 		const occurrences = hint.split('takeTurn`（monster.h 第 26–31 行）').length - 1;
 		assert.strictEqual(occurrences, 1, '同一符号只陈述一次事实');
 	});
+
+describe('grounding fixes from 2026-08-20 real session (startTurn 翻车回归)', () => {
+	const EMPTY_START_TURN: CppSymbol = {
+		targetId: 'sym:player.h:Player:startTurn',
+		file: 'player.h',
+		name: 'startTurn',
+		kind: 'method',
+		container: 'Player',
+		startLine: 40,
+		endLine: 45,
+		body: { empty: true, commentOnly: true, nonEmptyStatementCount: 0, calledNames: [] },
+	};
+
+	it('binds symbols written with parentheses or parameter lists in inline code', () => {
+		// 真实形态:`startTurn()`、`takeTurn(Player &player)` 都要能绑定
+		const result = checkAnswerGrounding(
+			'1. **`startTurn()`** — ✅ 已实现，能量恢复、格挡清零、输出回合信息都正确。',
+			[EMPTY_START_TURN]
+		);
+		assert.strictEqual(result.claims.length, 1, '带括号形态必须绑定并检出完成性声明');
+		assert.strictEqual(result.passed, false);
+		assert.strictEqual(result.conflicts[0].symbolName, 'startTurn');
+	});
+
+	it('binds qualified call forms like `Player::startTurn()`', () => {
+		const result = checkAnswerGrounding(
+			'`Player::startTurn()` 已经改好了，不需要再动。',
+			[EMPTY_START_TURN]
+		);
+		assert.strictEqual(result.passed, false);
+	});
+
+	it('recognizes "✅ 已实现 / 已实现 / 改好了" as completion claims', () => {
+		for (const sentence of [
+			'`startTurn` ✅ 已实现，功能正确。',
+			'`startTurn` 已实现，不需要再动。',
+			'`startTurn` 改好了。',
+			'`startTurn` 已经改好了。',
+		]) {
+			const result = checkAnswerGrounding(sentence, [EMPTY_START_TURN]);
+			assert.strictEqual(result.passed, false, `应拦截: ${sentence}`);
+		}
+		// 对照:实现态符号上这些话是对的,不得误伤
+		for (const sentence of ['`startTurn` ✅ 已实现。', '`startTurn` 改好了。']) {
+			const result = checkAnswerGrounding(sentence, [{
+				...EMPTY_START_TURN,
+				body: { empty: false, commentOnly: false, nonEmptyStatementCount: 3, calledNames: [] },
+			}]);
+			assert.strictEqual(result.passed, true, `不应误伤: ${sentence}`);
+		}
+	});
+});

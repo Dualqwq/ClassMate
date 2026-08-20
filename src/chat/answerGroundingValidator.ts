@@ -52,9 +52,15 @@ function factOf(symbol: CppSymbol): GroundingFact {
 	return 'active';
 }
 
-/** 句内行内代码 `` `name` `` → 唯一同名符号;多目标/无命中返回 undefined。 */
+/**
+ * 句内行内代码 `` `name` `` → 唯一同名符号;多目标/无命中返回 undefined。
+ * 模型惯用带调用形态的行内代码(`startTurn()`、`takeTurn(Player &player)`、
+ * 限定名 `Player::startTurn()`),取括号前的标识符参与绑定。
+ */
 function locateSymbol(sentence: string, symbols: CppSymbol[]): CppSymbol | undefined {
-	const names = [...sentence.matchAll(/`([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)`/g)]
+	const names = [...sentence.matchAll(
+		/`([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)(?:\s*\([^`]*\))?`/g
+	)]
 		.map((match) => match[1].split('::').pop()!);
 	const unique = new Set<string>();
 	const byName = new Map<string, CppSymbol>();
@@ -96,7 +102,7 @@ const CLAIM_PATTERNS: ClaimPattern[] = [
 	{
 		kind: 'completion',
 		statedFact: 'done',
-		pattern: /已经(写|补|改|实现)(完|好)了?|不需要再(改|动|写)|(可以|不用)再改了|算是完成了/,
+		pattern: /已经(写|补|改|实现)(完|好)了?|不需要再(改|动|写)|(可以|不用)再改了|算是完成了|(✅\s*)?(?<![未没])已实现|(已|都)?改好了/,
 	},
 ];
 
