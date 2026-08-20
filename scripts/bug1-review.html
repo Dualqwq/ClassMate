@@ -162,11 +162,17 @@
 				<div class="meta-key">预期 / 实际 intent</div><div>${escapeHtml(item.expectedIntent)} / ${escapeHtml(item.actualRequestType ?? '无')}</div>
 				<div class="meta-key">运行</div><div>${escapeHtml(item.status)} · outcome ${escapeHtml(item.deliveryOutcome)} · ${item.totalDurationMs} ms · retry ${escapeHtml(item.answerRetryCount ?? 0)}</div>
 				<div class="meta-key">引用分层</div><div>${item.answerReferenceStats ? `标记链接 ${item.answerReferenceStats.modelMarkedLinks} · 补链 ${item.answerReferenceStats.inferredLinks} · 清单 ${item.answerReferenceStats.references}` : '无记录'}${item.answerBlockSources?.length ? ` · 块来源 ${item.answerBlockSources.map((b) => b.status === 'unique' ? `${b.file}→${(b.targetId ?? '').split(':').pop()}` : b.status === 'unique-file' ? b.file : b.status).join(' / ')}` : ''}</div>
+				<div class="meta-key">事实核对</div><div>${item.groundingCheck ? `${item.groundingCheck.passed ? '通过' : `冲突 ${item.groundingCheck.conflicts.length} 处（重生成 ${item.groundingCheck.retryCount} 次）`}` : '未运行'}</div>
 				<div class="meta-key">模型</div><div>${escapeHtml(state.session.bundle.source.provider)} / ${escapeHtml(state.session.bundle.source.model)}</div>
 				<div class="meta-key">snapshot</div><div>${escapeHtml(item.workspaceEvidence?.snapshotId ?? '缺失')}</div>
 				${item.error ? `<div class="meta-key">错误</div><div class="error">${escapeHtml(item.error)}</div>` : ''}
 			</div></section>
 			${mutations.length ? `<section class="panel"><h2>本轮工作区修改</h2>${mutations.map((m) => `<div class="panel-body"><strong>${escapeHtml(m.file)}</strong><div class="mutation"><div><div class="mutation-label">修改前 · ${escapeHtml(m.beforeHash)}</div><pre>${escapeHtml(m.beforeContent)}</pre></div><div><div class="mutation-label">修改后 · ${escapeHtml(m.afterHash)}</div><pre>${escapeHtml(m.afterContent)}</pre></div></div></div>`).join('')}</section>` : ''}
+			<section class="panel"><h2>模型收到的引用目标清单（Tree-sitter）</h2>
+				${item.referenceTargetsReceived?.length
+					? `<div class="panel-body"><div class="meta-grid"><div class="meta-key">数量</div><div>${item.referenceTargetsReceived.length}</div></div><details><summary>展开全部 targetId</summary><pre>${escapeHtml(item.referenceTargetsReceived.join('\n'))}</pre></details></div>`
+					: '<div class="panel-body">本轮未下发引用目标(无符号索引或加载为空)</div>'}
+			</section>
 			<section class="panel"><h2>模型实际看到的工作区文件</h2>
 				<div class="file-tabs">${files.map((f) => `<button data-file="${escapeHtml(f.path)}" class="${f.path === state.selectedFile ? 'active' : ''}">${escapeHtml(f.path)}</button>`).join('') || '没有记录文件证据'}</div>
 				${selected ? `<div class="meta-grid panel-body"><div class="meta-key">hash</div><div>${escapeHtml(selected.contentHash)}</div><div class="meta-key">加载原因</div><div>${escapeHtml(selected.reason)}</div></div><pre>${escapeHtml(selected.content)}</pre>` : ''}

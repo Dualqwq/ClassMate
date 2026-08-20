@@ -25,7 +25,7 @@ export interface ModelHistoryInput {
 
 /** 与旧文件版本绑定的实现状态措辞;只匹配"旧轮回答断言代码状态"的形态。 */
 const STALE_STATE_PATTERN =
-	/(现在是?空的|函数体(里)?只有注释|还没写完|已经写(完|好)了|不需要再改|有\s*\d+\s*行(实际)?代码|只有\s*\d+\s*行)/;
+	/(现在是?空的|函数体(里)?只有注释|还没写完|已经写(完|好)了|不需要再改|有\s*\d+\s*行(实际)?代码|只有\s*\d+\s*行|(✅\s*)?(?<![未没])已(实现|写好|写完|完成|改好)|(已|都)?改好了|(?:⚠️?)?\s*TODO)/;
 
 function basenameOf(file: string): string {
 	return file.replace(/\\/g, '/').split('/').pop() ?? file;

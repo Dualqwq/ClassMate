@@ -366,6 +366,19 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 						references: result.state.answerReferences?.length ?? 0,
 						...summarizeReferenceLinks(result.answer),
 					},
+					// 模型实际收到的 Tree-sitter 引用目标清单(审计:标记率低时
+					// 可判别是目录没下发还是模型没用)。
+					referenceTargetsReceived: result.state.workspaceSymbols?.symbols.map(
+						(symbol) => symbol.targetId
+					) ?? [],
+					// 7.7 结构事实核对:定位到的声明与冲突(证词,人工判卷复核)。
+					groundingCheck: result.state.groundingCheck
+						? {
+							passed: result.state.groundingCheck.passed,
+							retryCount: result.state.groundingRetryCount,
+							conflicts: result.state.groundingCheck.conflicts as Array<Record<string, unknown>>,
+						}
+						: undefined,
 					// 程序侧块来源证词(不渲染):供历史清洗与 7.7 校验审计。
 					answerBlockSources: result.state.answerBlockSources ?? [],
 					startedAt,
