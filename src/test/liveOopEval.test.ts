@@ -331,6 +331,11 @@ liveDescribe('ClassMate OOP real API evaluation', function () {
 					problemCardFactsLoader: new ProblemCardFactsLoader(skillContentLoader),
 					model: liveModel.client,
 					signal: abortController.signal,
+					onDebug: (event, data) => {
+						if (event === 'answer_model_failed' || event === 'evidence_backfill') {
+							console.warn(`[live-eval] ${event}:`, JSON.stringify(data));
+						}
+					},
 					onAnswerToken: () => {
 						firstTokenMs ??= Date.now() - startedAtMs;
 					},
