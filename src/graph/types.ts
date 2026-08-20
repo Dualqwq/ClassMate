@@ -263,6 +263,13 @@ export interface ClassMateGraphState {
 	workspaceSymbols?: import('../parser/cppWorkspaceIndex').CppWorkspaceIndex;
 	/** 因工作区漂移已经重建上下文并重生成的次数。 */
 	workspaceDriftRetryCount: number;
+	/** 7.8 恢复通道:缺证据补读已完成的轮数(上限 2)。 */
+	evidenceBackfillCount: number;
+	/**
+	 * 补读刚完成、下一步应回 freeze_context 重建快照的瞬时标记
+	 * (由 load_evidence_backfill 设置,freeze_context 消费清除)。
+	 */
+	evidenceBackfillPending?: ContextRequest[];
 	/** 7.7 结构事实核对:冲突时重生成一次的计数。 */
 	groundingRetryCount: number;
 	/** 7.8 恢复通道:answer 节点模型调用失败(非取消)已发生的次数。 */

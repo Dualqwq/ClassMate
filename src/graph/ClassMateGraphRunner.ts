@@ -39,6 +39,7 @@ import {
 	finalizeAnswerReferences,
 } from '../chat/answerReferenceFinalizer';
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
+import { planEvidenceBackfill } from '../workspace/evidenceBackfill';
 import type {
 	LoadedWorkspaceItem,
 	MinimalWorkspaceContext,
@@ -148,6 +149,7 @@ const NODE_PROGRESS_MESSAGES: Readonly<Record<string, string>> = {
 	load_problem_card: '正在读取相关题目提示…',
 	retrieve_skill: '正在查找相关知识…',
 	freeze_context: '正在整理回答所需内容…',
+	load_evidence_backfill: '正在补读缺失的代码文件…',
 	build_answer_prompt: '正在组织回答材料…',
 	answer: '正在等待模型生成回答…',
 	validate: '正在检查回答…',
@@ -308,6 +310,7 @@ export class ClassMateGraphRunner {
 			workspaceDriftRetryCount: 0,
 			groundingRetryCount: 0,
 			modelFailureCount: 0,
+			evidenceBackfillCount: 0,
 			workspaceDriftRegenerate: false,
 			answerDelivered: false,
 			nodeTimings: [],
@@ -330,6 +333,8 @@ export class ClassMateGraphRunner {
 				this._measureNode('retrieve_skill', state, () => this._retrieveSkill(state)))
 			.addNode('freeze_context', (state) =>
 				this._measureNode('freeze_context', state, () => this._freezeContext(state)))
+			.addNode('load_evidence_backfill', (state) =>
+				this._measureNode('load_evidence_backfill', state, () => this._loadEvidenceBackfill(state)))
 			.addNode('extract_constraints', (state) =>
 				this._measureNode('extract_constraints', state, () => this._extractConstraints(state)))
 			.addNode('build_answer_prompt', (state) =>
@@ -352,7 +357,12 @@ export class ClassMateGraphRunner {
 			.addEdge('identify_problem', 'load_problem_card')
 			.addEdge('load_problem_card', 'retrieve_skill')
 			.addEdge('retrieve_skill', 'freeze_context')
-			.addEdge('freeze_context', 'extract_constraints')
+			.addEdge('freeze_context', 'load_evidence_backfill')
+			.addConditionalEdges('load_evidence_backfill', (state) =>
+				// 7.8 缺证据补读:判定缺代码证据且配额未用尽时,补读后回
+				// freeze_context 重建快照/符号索引,再走约束提取与回答构建。
+				state.value.evidenceBackfillPending ? 'freeze_context' : 'extract_constraints'
+			)
 			.addEdge('extract_constraints', 'build_answer_prompt')
 			.addEdge('build_answer_prompt', 'answer')
 			.addEdge('answer', 'validate')
@@ -1314,7 +1324,71 @@ export class ClassMateGraphRunner {
 			),
 			workspaceSymbols,
 			answerContextFrozen: true,
+			// 消费补读回环标记:快照已按补读后的条目重建,
+			// 再次经过 load_evidence_backfill 不会再因旧标记回环。
+			evidenceBackfillPending: undefined,
 		});
+	}
+
+	/**
+	 * 7.8 缺证据补读(程序侧确定性判定,最多两轮):
+	 * 用户点名了未加载的代码文件,或代码类问题一个代码文件都没加载时,
+	 * 从 catalog 生成补读请求加载目标,回 freeze_context 重建快照与
+	 * 符号索引。找不到可补目标/配额用尽/加载失败时静默继续原链路。
+	 */
+	private async _loadEvidenceBackfill(state: WrappedState): Promise<WrappedState> {
+		const current = state.value;
+		const processedTargets = new Set(
+			current.processedContextRequestKeys
+				.filter((key) => key.startsWith('workspace|'))
+				.map((key) => key.slice('workspace|'.length).split('|')[0])
+		);
+		const plan = planEvidenceBackfill({
+			userText: current.request.userText,
+			requestType: current.requestType ?? current.answerPlan?.requestType,
+			minimal: current.minimalWorkspaceContext!,
+			loadedItems: current.loadedWorkspaceItems,
+			processedTargets,
+			backfillCount: current.evidenceBackfillCount,
+		});
+		if (!plan) {
+			return nextState(state, { evidenceBackfillPending: undefined });
+		}
+		try {
+			this._assertNotCancelled();
+			const loaded = await this._services.workspaceLoader.load(
+				current.minimalWorkspaceContext!.catalog,
+				plan.requests
+			);
+			const byPath = new Map(current.loadedWorkspaceItems.map((item) => [
+				item.path.replace(/\\/g, '/').toLocaleLowerCase(),
+				item,
+			] as const));
+			for (const item of loaded) {
+				byPath.set(item.path.replace(/\\/g, '/').toLocaleLowerCase(), item);
+			}
+			this._services.onDebug?.('evidence_backfill', {
+				round: current.evidenceBackfillCount + 1,
+				reason: plan.reason,
+				targets: plan.requests.map((request) => request.target),
+				loaded: loaded.map((item) => item.path),
+			});
+			return nextState(state, {
+				loadedWorkspaceItems: [...byPath.values()],
+				processedContextRequestKeys: [
+					...new Set([
+						...current.processedContextRequestKeys,
+						...plan.requests.map(contextRequestKey),
+					]),
+				],
+				evidenceBackfillCount: current.evidenceBackfillCount + 1,
+				// 瞬时标记:freeze_context 重建完快照后清除。
+				evidenceBackfillPending: plan.requests,
+			});
+		} catch (error) {
+			this._services.onDebug?.('evidence_backfill_degraded', String(error));
+			return nextState(state, { evidenceBackfillPending: undefined });
+		}
 	}
 
 	/**

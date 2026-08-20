@@ -29,7 +29,7 @@ function createGraph(): SkillGraph {
 }
 
 function mergedPlan(
-	requestType: 'concept_explanation' | 'runtime_error_help' | 'problem_hint' | 'code_edit',
+	requestType: 'concept_explanation' | 'code_explanation' | 'runtime_error_help' | 'problem_hint' | 'code_edit',
 	workspaceRequests: Array<{
 		target: string;
 		section?: string | null;
@@ -473,6 +473,7 @@ describe('ClassMate LangGraph runner', () => {
 				'load_problem_card',
 				'retrieve_skill',
 				'freeze_context',
+				'load_evidence_backfill',
 				'extract_constraints',
 				'build_answer_prompt',
 				'answer',
@@ -1319,5 +1320,146 @@ describe('answer recovery (7.8 模型调用失败恢复)', () => {
 		);
 		assert.ok(!result.answer.includes('[Error'), '不得泄漏内部错误信息');
 		assert.ok(!/(Frozen workspace data|清单|信封|校验)/.test(result.answer), '不得出现内部术语');
+	});
+});
+
+describe('load_evidence_backfill (7.8 缺证据补读)', () => {
+	const PLAYER_CONTENT = 'class Player {\npublic:\n    void heal() { health_ += 1; }\n};\n';
+
+	/**
+	 * 大工作区场景:catalog 文件数超过 first-call 全量预算(20 个),
+	 * route 预览只加载活动文件;用户以词干("Player 类",不带扩展名)点名
+	 * 远处目录的代码文件——显式完整文件名路径与小工作区全量加载都
+	 * 覆盖不到,这正是补读通道的价值场景。
+	 */
+	function largeCatalog(active: string, named: string) {
+		const files: Array<{
+			path: string;
+			uri: string;
+			kind: 'code';
+			size: number;
+			modifiedAt: number;
+		}> = [
+			{
+				path: active,
+				uri: `file:///${active}`,
+				kind: 'code',
+				size: 10,
+				modifiedAt: 1,
+			},
+			{
+				path: named,
+				uri: `file:///${named}`,
+				kind: 'code',
+				size: 10,
+				modifiedAt: 1,
+			},
+		];
+		for (let index = 0; index < 22; index++) {
+			const filler = `src/filler${index}.cpp`;
+			files.push({
+				path: filler,
+				uri: `file:///${filler}`,
+				kind: 'code',
+				size: 10,
+				modifiedAt: 1,
+			});
+		}
+		return {
+			files,
+			questionFiles: [],
+			activeEditor: {
+				fileName: active,
+				uri: `file:///${active}`,
+				languageId: 'cpp',
+			},
+		};
+	}
+
+	it('backfills a stem-named code file in a large workspace, and the answer prompt sees it', async () => {
+		let answerPrompt = '';
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					// 大工作区下规划器只点了活动文件。
+					return {
+						content: mergedPlan('code_explanation', [{
+							target: 'main.cpp',
+							section: null,
+							required: true,
+							reason: '读取活动文件',
+						}]),
+					};
+				}
+				if (text.includes('ClassMate Answer Mode')) {
+					answerPrompt = text;
+					return { content: '`heal` 每次回复 1 点生命,没问题。' };
+				}
+				return { content: '' };
+			},
+		};
+		const debugEvents: string[] = [];
+		const services = createServices(model, {
+			catalog: largeCatalog('main.cpp', 'entities/player.h'),
+		}, async (requests) => requests
+			.filter((request) => request.target === 'main.cpp' || request.target === 'entities/player.h')
+			.map((request) => ({
+				path: request.target,
+				kind: 'code' as const,
+				content: request.target === 'entities/player.h'
+					? PLAYER_CONTENT
+					: 'int main() { return 0; }',
+				contentHash: `hash-${request.target}`,
+				reason: 'test',
+			})));
+		services.onDebug = (event: string) => {
+			debugEvents.push(event);
+		};
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'backfill-named',
+			conversationId: 'conversation-backfill-named',
+			userText: '帮我看看 Player 类里的 heal 写得对不对',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+		assert.ok(
+			answerPrompt.includes('void heal()'),
+			'补读后回答提示词必须包含点名文件的正文'
+		);
+		assert.strictEqual(result.state.evidenceBackfillCount, 1);
+		assert.ok(debugEvents.includes('evidence_backfill'));
+		assert.ok(result.state.loadedWorkspaceItems
+			.some((item) => item.path === 'entities/player.h'));
+	});
+
+	it('does not loop when nothing can be backfilled', async () => {
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return { content: mergedPlan('concept_explanation', []) };
+				}
+				if (text.includes('ClassMate Answer Mode')) {
+					return { content: '指针保存一个内存地址。' };
+				}
+				return { content: '' };
+			},
+		};
+		const services = createServices(model, {
+			catalog: {
+				files: [],
+				questionFiles: [],
+			},
+		}, async () => []);
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'backfill-none',
+			conversationId: 'conversation-backfill-none',
+			userText: '什么是指针',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+		assert.strictEqual(result.state.evidenceBackfillCount, 0);
+		assert.strictEqual(result.state.answerOutcome, 'answered');
 	});
 });
