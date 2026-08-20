@@ -184,6 +184,20 @@ describe('history stale-state pattern fixes (2026-08-20 startTurn 回归)', () =
 		assert.ok(content.includes('旧版本'), '替换为占位说明');
 	});
 
+	it('replaces "✅ 已写好" table rows (run10 真实形态)', () => {
+		const source = [
+			{ role: 'user' as const, content: '概述 player.h 方法' },
+			{ role: 'assistant' as const, content: '| `startTurn()` | 开始回合 | ✅ 已写好 |\n| `playCard()` | 出牌 | ⚠️ TODO |' },
+		];
+		const visible = buildModelVisibleHistory({
+			history: source,
+			currentFileHashes: new Map([['player.h', 'h2']]),
+			previousFileHashes: new Map([['player.h', 'h1']]),
+			tokenBudget: MODEL_HISTORY_TOKEN_BUDGET,
+		});
+		assert.ok(!visible[1].content.includes('已写好'), '已写好须被替换');
+	});
+
 	it('replaces "已经改好了/改好了" stale claims', () => {
 		const source = [
 			{ role: 'user' as const, content: 'player.h 改的怎么样' },

@@ -230,6 +230,11 @@ describe('grounding fixes from 2026-08-20 real session (startTurn 翻车回归)'
 			const result = checkAnswerGrounding(sentence, [EMPTY_START_TURN]);
 			assert.strictEqual(result.passed, false, `应拦截: ${sentence}`);
 		}
+		// run10 真实形态:"✅ 已写好"(无"经"无"了")也必须覆盖
+		for (const sentence of ['`startTurn()` ✅ 已写好。', '`startTurn` 已写好。', '`startTurn` 已完成。', '`startTurn` 已写完。']) {
+			const result = checkAnswerGrounding(sentence, [EMPTY_START_TURN]);
+			assert.strictEqual(result.passed, false, `应拦截: ${sentence}`);
+		}
 		// 对照:实现态符号上这些话是对的,不得误伤
 		for (const sentence of ['`startTurn` ✅ 已实现。', '`startTurn` 改好了。']) {
 			const result = checkAnswerGrounding(sentence, [{
