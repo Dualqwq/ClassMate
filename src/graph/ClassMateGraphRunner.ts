@@ -62,6 +62,7 @@ import {
 	fallbackPlan,
 	inferConcepts,
 	sanitizePlannerResult,
+	validateCorrectedAnswer,
 	validateStudentAnswer,
 } from './planning';
 import {
@@ -1919,8 +1920,11 @@ export class ClassMateGraphRunner {
 			}
 
 			const correctedAnswer = verification.correctedAnswer?.trim();
+			// 采用修正版时只做结构底线检查:检查器拒绝的是候选回答的
+			// 内容问题,修正版本身可能是多文件要点/纯文字指导,不该被
+			// code_edit 的"恰好一个替换块"格式规则二次否决(run13 取证)。
 			const correctedValidation = correctedAnswer
-				? validateStudentAnswer(correctedAnswer, current.answerPlan!)
+				? validateCorrectedAnswer(correctedAnswer, current.answerPlan!)
 				: undefined;
 			const finalAnswer = correctedAnswer && correctedValidation?.valid
 				? correctedAnswer

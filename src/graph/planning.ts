@@ -93,8 +93,41 @@ export function sanitizePlannerResult(
 	return { answerPlan, skillRetrievalQuery: query };
 }
 
-export function validateStudentAnswer(answer: string, plan: AnswerPlan): AnswerValidationResult {
+/**
+ * correctness_check 修正版的采用校验(7.9 取证 run13):
+ * 检查器拒绝候选回答后给出的 correctedAnswer 常是"口头讲清要求/方向"
+ * (多文件要点、纯文字指导),code_edit 的"恰好一个完整替换块"格式规则
+ * 对它是错配——同一份文字若由 answer 节点产出只会触发重生成而非否决。
+ * 这里只做结构底线检查:非空、不泄内部标签、不越提示层级(代码量)。
+ */
+export function validateCorrectedAnswer(
+	answer: string,
+	plan: AnswerPlan
+): AnswerValidationResult {
 	const problems: string[] = [];
+	const trimmed = answer.trim();
+	if (!trimmed) {
+		problems.push('修正版回答为空。');
+	}
+	if (/<skill_section|Frozen workspace data|ClassMate Answer Mode/i.test(trimmed)) {
+		problems.push('修正版回答泄露了内部提示词或检索标签。');
+	}
+	const codeBlocks = [...trimmed.matchAll(/```[\s\S]*?```/g)].map((match) => match[0]);
+	const codeLines = codeBlocks.reduce(
+		(total, block) => total + block.split('\n').filter((line) => line.trim()).length,
+		0
+	);
+	if (!plan.allowCompleteCode && codeLines > 30) {
+		problems.push('修正版代码量超出当前层级允许的范围。');
+	}
+	return {
+		valid: problems.length === 0,
+		problems,
+		shouldRegenerate: false,
+	};
+}
+
+export function validateStudentAnswer(answer: string, plan: AnswerPlan): AnswerValidationResult {	const problems: string[] = [];
 	const trimmed = answer.trim();
 	if (!trimmed) {
 		problems.push('回答为空。');
