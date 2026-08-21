@@ -2,15 +2,16 @@ import type { CppSymbol } from '../parser/cppWorkspaceIndex';
 
 /**
  * 7.7 回答事实接地校验(纯函数):模型回答中关于当前工作区代码结构事实的
- * 声明(注释态/空体/计数/完成性),交付前用 Tree-sitter body 事实确定性核对。
+ * 声明(注释态/空体/计数/完成性/存在性),交付前用 Tree-sitter body 事实确定性核对。
  *
  * 设计边界(与旧 bug1-regex 的本质区别):
  * - 中文/数字模式只负责**定位候选声明句**并绑定符号;真伪判定全部依据
  *   CppBodyFacts,不再用正则猜模型意思;
- * - 声明绑定不到唯一符号 → 跳过(宁缺毋滥,漏检无副作用);
+ * - 声明绑定不到唯一符号 → 跳过(宁缺毋滥,漏检无副作用);同名多符号
+ *   按限定容器/句内文件/行号范围消歧,仍不唯一则放弃;
  * - 不可核对的措辞不产生冲突;只有"声明 vs 事实"明确矛盾才判 conflict。
  */
-export type GroundingClaimKind = 'comment_only' | 'empty' | 'count' | 'completion';
+export type GroundingClaimKind = 'comment_only' | 'empty' | 'count' | 'completion' | 'existence';
 
 export type GroundingFact = 'active' | 'empty' | 'comment_only' | 'done';
 
@@ -53,32 +54,95 @@ function factOf(symbol: CppSymbol): GroundingFact {
 }
 
 /**
- * 句内行内代码 `` `name` `` → 唯一同名符号;多目标/无命中返回 undefined。
- * 模型惯用带调用形态的行内代码(`startTurn()`、`takeTurn(Player &player)`、
- * 限定名 `Player::startTurn()`),取括号前的标识符参与绑定。
+ * 句内符号绑定(2026-08-21 run17 审阅升级:裸名 + 消歧)。
+ * 行内代码(含带参/限定形态)与裸标识符都参与;同名多符号时按
+ * 限定容器 → 句内文件提及 → 行号范围重叠 逐级消歧,仍不唯一则放弃
+ * (宁缺毋滥)。只有函数类符号参与:类/字段没有可核对的函数体事实,
+ * 绑定它们只会产生误伤(例:"X 和 `Monster` 都重写了它"不应把空体
+ * 声明安到类符号头上)。
  */
-function locateSymbol(sentence: string, symbols: CppSymbol[]): CppSymbol | undefined {
-	const names = [...sentence.matchAll(
+const CLAIMABLE_KINDS = new Set<CppSymbol['kind']>([
+	'function', 'method', 'constructor', 'destructor', 'operator',
+]);
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+interface NameCandidate {
+	name: string;
+	/** 限定名形态(`Player::startTurn`)给出的容器名。 */
+	container?: string;
+}
+
+/** 句内文件提及(x.h / x.cpp)。 */
+function fileMentionsOf(sentence: string): string[] {
+	return [...sentence.matchAll(/\b([A-Za-z_]\w*\.(?:h|hpp|cpp|c|cc|cxx))\b/g)]
+		.map((match) => match[1]);
+}
+
+/** 句内行号范围提及(第 X 行 / 第 X-Y 行)。 */
+function lineRangesOf(sentence: string): Array<[number, number]> {
+	return [...sentence.matchAll(/第\s*(\d+)\s*(?:[-–—~至]\s*(\d+))?\s*行/g)]
+		.map((match) => [Number(match[1]), Number(match[2] ?? match[1])] as [number, number]);
+}
+
+function locateSymbols(sentence: string, symbols: CppSymbol[]): CppSymbol[] {
+	const candidates = new Map<string, NameCandidate>();
+	for (const match of sentence.matchAll(
 		/`([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)(?:\s*\([^`]*\))?`/g
-	)]
-		.map((match) => match[1].split('::').pop()!);
-	const unique = new Set<string>();
-	const byName = new Map<string, CppSymbol>();
+	)) {
+		const parts = match[1].split('::');
+		const name = parts.pop()!;
+		const container = parts.length > 0 ? parts[parts.length - 1] : undefined;
+		const existing = candidates.get(name);
+		if (!existing || (container && !existing.container)) {
+			candidates.set(name, { name, container });
+		}
+	}
+	// 裸标识符:仅当与真实符号名全词匹配时参与(claim 模式仍然把关,
+	// 因此普通行文里的偶现不会产生声明)。
 	for (const symbol of symbols) {
-		if (!names.includes(symbol.name)) {
+		if (!CLAIMABLE_KINDS.has(symbol.kind) || candidates.has(symbol.name)) {
 			continue;
 		}
-		if (byName.has(symbol.name)) {
-			unique.delete(symbol.name);
-			continue;
+		if (new RegExp(`\\b${escapeRegExp(symbol.name)}\\b`).test(sentence)) {
+			candidates.set(symbol.name, { name: symbol.name });
 		}
-		byName.set(symbol.name, symbol);
-		unique.add(symbol.name);
 	}
-	if (unique.size !== 1) {
-		return undefined;
+	const files = fileMentionsOf(sentence);
+	const ranges = lineRangesOf(sentence);
+	const resolved: CppSymbol[] = [];
+	for (const { name, container } of candidates.values()) {
+		let matches = symbols.filter(
+			(symbol) => CLAIMABLE_KINDS.has(symbol.kind) && symbol.name === name
+		);
+		if (matches.length > 1 && container) {
+			const byContainer = matches.filter((symbol) => symbol.container === container);
+			if (byContainer.length === 1) {
+				matches = byContainer;
+			}
+		}
+		if (matches.length > 1 && files.length > 0) {
+			const byFile = matches.filter((symbol) => files.includes(symbol.file));
+			if (byFile.length === 1) {
+				matches = byFile;
+			}
+		}
+		if (matches.length > 1 && ranges.length === 1) {
+			const [from, to] = ranges[0];
+			const byRange = matches.filter(
+				(symbol) => symbol.startLine <= to && symbol.endLine >= from
+			);
+			if (byRange.length === 1) {
+				matches = byRange;
+			}
+		}
+		if (matches.length === 1) {
+			resolved.push(matches[0]);
+		}
 	}
-	return byName.get([...unique][0]);
+	return resolved;
 }
 
 interface ClaimPattern {
@@ -104,10 +168,19 @@ const CLAIM_PATTERNS: ClaimPattern[] = [
 		statedFact: 'done',
 		pattern: /已经(写|补|改|实现)(完|好)了?|不需要再(改|动|写)|(可以|不用)再改了|算是完成了|(✅\s*)?(?<![未没])已(实现|写好|写完|完成|改好)|(已|都)?改好了/,
 	},
+	{
+		// 存在性声明(run17 取证:done-38 与 mut-comments-to-empty T2 两例
+		// "还没实现/需要补全"指向已有实现的函数,残留 TODO 注释误导所致)。
+		// 只收补全类动词(补全/补上/补完):"要实现两件事"这类描述句
+		// 不算存在性断言。
+		kind: 'existence',
+		statedFact: 'empty',
+		pattern: /(?:还)?没(?:有)?(?:实现|写好|写完|完成)|尚未(?:实现|写好|写完|完成)|未实现|待实现|待补全|需要(?:你)?(?:动手|去)?(?:补全|补上|补完)|要(?:你)?(?:去)?(?:补全|补上|补完)/,
+	},
 ];
 
 /** 否定/疑问措辞:不构成对当前状态的断言。 */
-const NEGATION_GUARD = /(不是|并非|不再?是|没有说|难道|吗[?？]$|是不?是)/;
+const NEGATION_GUARD = /(不是|并非|不再?是|没有说|难道|吗[?？]$|是不?是|是否)/;
 
 function countClaimOf(sentence: string): { statedCount: number } | undefined {
 	const match = /(?:有|只有|一共|共|就|只剩)\s*(\d+)\s*(?:行|条|句)/.exec(sentence)
@@ -139,53 +212,52 @@ export function checkAnswerGrounding(
 		if (NEGATION_GUARD.test(sentence)) {
 			continue;
 		}
-		const symbol = locateSymbol(sentence, symbols);
-		if (!symbol) {
-			continue;
-		}
-		const actual = factOf(symbol);
-		for (const { kind, statedFact, pattern } of CLAIM_PATTERNS) {
-			if (!pattern.test(sentence)) {
-				continue;
-			}
-			const claim: GroundingClaim = {
-				kind,
-				targetId: symbol.targetId,
-				symbolName: symbol.name,
-				statedFact,
-				actualFact: actual,
-				sentence,
-			};
-			claims.push(claim);
-			const contradicts = kind === 'comment_only'
-				? actual === 'active'
-				: kind === 'empty'
+		// 一句可谈论多个符号(枚举型回答的常态),逐个绑定核对。
+		for (const symbol of locateSymbols(sentence, symbols)) {
+			const actual = factOf(symbol);
+			for (const { kind, statedFact, pattern } of CLAIM_PATTERNS) {
+				if (!pattern.test(sentence)) {
+					continue;
+				}
+				const claim: GroundingClaim = {
+					kind,
+					targetId: symbol.targetId,
+					symbolName: symbol.name,
+					statedFact,
+					actualFact: actual,
+					sentence,
+				};
+				claims.push(claim);
+				// 注释态/空体/存在性(负向)声明与"实际有代码"矛盾;
+				// 完成性声明与"空/注释"矛盾。
+				const contradicts = kind === 'comment_only' || kind === 'empty' || kind === 'existence'
 					? actual === 'active'
 					: kind === 'completion'
 						? actual === 'empty' || actual === 'comment_only'
 						: false;
-			if (contradicts) {
-				conflicts.push(claim);
-			}
-		}
-		const count = countClaimOf(sentence);
-		if (count) {
-			const actualCount = actualCountOf(symbol);
-			if (actualCount !== undefined) {
-				const claim: GroundingClaim = {
-					kind: 'count',
-					targetId: symbol.targetId,
-					symbolName: symbol.name,
-					statedFact: 'active',
-					actualFact: actual,
-					sentence,
-					statedCount: count.statedCount,
-				};
-				claims.push(claim);
-				// 计数冲突:符号是空/注释态却称有 N 行,或数量对不上(允差 0)。
-				if ((actual === 'empty' || actual === 'comment_only')
-					|| count.statedCount !== actualCount) {
+				if (contradicts) {
 					conflicts.push(claim);
+				}
+			}
+			const count = countClaimOf(sentence);
+			if (count) {
+				const actualCount = actualCountOf(symbol);
+				if (actualCount !== undefined) {
+					const claim: GroundingClaim = {
+						kind: 'count',
+						targetId: symbol.targetId,
+						symbolName: symbol.name,
+						statedFact: 'active',
+						actualFact: actual,
+						sentence,
+						statedCount: count.statedCount,
+					};
+					claims.push(claim);
+					// 计数冲突:符号是空/注释态却称有 N 行,或数量对不上(允差 0)。
+					if ((actual === 'empty' || actual === 'comment_only')
+						|| count.statedCount !== actualCount) {
+						conflicts.push(claim);
+					}
 				}
 			}
 		}
