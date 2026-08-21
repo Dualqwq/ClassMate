@@ -1,6 +1,6 @@
 # ClassMate 事件 Schema 设计(#12 / #13 / #14 共用数据源)
 
-> 状态:草案,待用户拍板(拍板项见文末「开放问题」)。
+> 状态:已拍板(2026-08-21,拍板结果见文末「开放问题」决策记录)。
 > 依据:`0803后要干的事情.md` #12/#13/#14 原文、`plan-todo-priorities-20260820.md` §3.1
 > 已拍板表(#12/13/14 行、ADD3 行、grill R2-Q2 行)与 §四 预测 5。
 > 拍板口径:**先出事件 schema 设计文档,schema 定了再写码**;#14 错题本导出仅留
@@ -369,7 +369,21 @@ export interface AiAnswerOutcomeEvent extends EventEnvelope {   // 待定 Q5
    「清除本工作区调试记录」入口(视图需求,非 schema 变更)。字段级 16KB
    截断、2000 条环形天然限制单机留存总量。
 
-## 11. 开放问题(需用户拍板)
+## 11. 开放问题(2026-08-21 已拍板)
+
+### 决策记录(2026-08-21 用户拍板,全部生效)
+
+| # | 拍板结论 |
+| --- | --- |
+| Q1 | 选定 **A**:调试会话 episode 由 `errorLifecycle` 派生,不显式落盘 |
+| Q2 | 选定 **A**:`compile_error` 写时固化 `fingerprints`,读取侧 fallback 现算 |
+| Q3 | 选定 **A**:run 事件只存摘要 + `runRecordRef` 引用运行历史,不复制全文 |
+| Q4 | 选定 **A**:schema 只留 `problemKey` 字段,判定规则 #14 立项再定 |
+| Q5 | 选定 **A**:`ai_answer_outcome` 进 v2 |
+| Q6 | 选定 **A**:维持单 folder(`workspaceFolders[0].uri`)作 workspaceId hash 输入,不改拼接、不做迁移(用户推翻文档倾向的 B) |
+| Q7 | 选定 **A**:导出/分享时绝对路径转工作区相对路径 |
+
+### 原问题清单(存档)
 
 | # | 问题 | 候选 | 推荐 |
 | --- | --- | --- | --- |
