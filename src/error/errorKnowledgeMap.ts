@@ -239,6 +239,42 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
         wrongExample: "#include <myheader.h>\nint main() { return 0; }",
         correctExample: "#include \"myheader.h\"\nint main() { return 0; }",
     },
+    make_no_rule: {
+        tag: 'make_no_rule',
+        title: 'make 找不到构建规则',
+        summary: 'make 报 "No rule to make target"，说明 Makefile 里没有能生成某个目标的规则，常见于目标名拼写不一致或规则缺失。',
+        commonCauses: [
+            'Makefile 里目标名与源文件名拼写不一致',
+            '缺少从源文件生成目标文件的规则（如 .cpp → .o）',
+            '依赖的文件被删除或改名后规则没有更新',
+        ],
+        suggestedFixes: [
+            '核对报错中目标名的拼写与 Makefile 里的规则名是否一致',
+            '为缺失的目标补充规则（可使用 %.o: %.cpp 模式规则）',
+            '确认依赖的源文件/头文件真实存在于对应路径',
+        ],
+        checkMethod: '重新运行 make，确认 "No rule to make target" 消失。',
+        wrongExample: "app: main.o\n\tg++ main.o -o app\n# 缺少 main.o 的生成规则",
+        correctExample: "app: main.o\n\tg++ main.o -o app\nmain.o: main.cpp\n\tg++ -c main.cpp -o main.o",
+    },
+    make_missing_separator: {
+        tag: 'make_missing_separator',
+        title: 'Makefile 命令行缺少 Tab 缩进',
+        summary: 'make 报 "missing separator"，绝大多数情况是规则下的命令行用了空格而不是 Tab 开头。',
+        commonCauses: [
+            '规则下的命令行用空格缩进而非 Tab',
+            '从网页或文档复制 Makefile 时 Tab 被替换成了空格',
+            '在规则之外写了 make 无法识别的内容',
+        ],
+        suggestedFixes: [
+            '把报错行行首的空格替换为一个 Tab',
+            '开启编辑器“显示空白字符”确认行首是 Tab',
+            '检查报错行附近是否有误写的文字',
+        ],
+        checkMethod: '重新运行 make，确认 "missing separator" 消失。',
+        wrongExample: "app:\n    g++ main.cpp -o app\n# 行首是空格，make 无法识别",
+        correctExample: "app:\n\tg++ main.cpp -o app\n# 行首是一个 Tab",
+    },
 };
 
 const ERROR_PATTERNS: PatternEntry[] = [
@@ -313,6 +349,18 @@ const ERROR_PATTERNS: PatternEntry[] = [
         tag: 'missing_header',
         message: '找不到头文件或源文件',
         concept: CONCEPTS.missing_header,
+    },
+    {
+        pattern: /no rule to make target/,
+        tag: 'make_no_rule',
+        message: 'make 找不到生成目标的规则',
+        concept: CONCEPTS.make_no_rule,
+    },
+    {
+        pattern: /missing separator/,
+        tag: 'make_missing_separator',
+        message: 'Makefile 命令行缺少 Tab 缩进',
+        concept: CONCEPTS.make_missing_separator,
     },
 ];
 

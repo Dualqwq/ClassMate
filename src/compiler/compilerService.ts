@@ -93,6 +93,79 @@ export function checkGppAvailability(): boolean {
     return candidates.some((candidate) => tryCommand(candidate.command, candidate.args, { shell: candidate.shell }));
 }
 
+export type MakeTool = 'make' | 'mingw32-make';
+
+/**
+ * Probe for a make executable: try `make` first, then `mingw32-make`.
+ *
+ * Reuses the Windows shell-fallback strategy from checkGppAvailability.
+ * The command runner is injectable so the fallback order is unit-testable
+ * without a real make installation.
+ */
+export function detectMakeTool(
+    run: (command: string, args: string[], options?: { shell?: boolean }) => boolean = tryCommand
+): MakeTool | undefined {
+    for (const tool of ['make', 'mingw32-make'] as const) {
+        const candidates: { command: string; args: string[]; shell?: boolean }[] = [
+            { command: tool, args: ['--version'] },
+        ];
+
+        if (process.platform === 'win32') {
+            candidates.push(
+                { command: `${tool}.exe`, args: ['--version'] },
+                { command: tool, args: ['--version'], shell: true }
+            );
+        }
+
+        if (candidates.some((candidate) => run(candidate.command, candidate.args, { shell: candidate.shell }))) {
+            return tool;
+        }
+    }
+
+    return undefined;
+}
+
+const MAKEFILE_NAMES = new Set(['makefile', 'gnumakefile']);
+
+/**
+ * Find a Makefile placed directly at the workspace root (case-insensitive).
+ * Subdirectories are never searched — ClassMate only honors a root Makefile.
+ */
+export async function findRootMakefile(workspaceRoot: string): Promise<string | undefined> {
+    let entries;
+    try {
+        entries = await readdir(workspaceRoot, { withFileTypes: true });
+    } catch {
+        return undefined;
+    }
+
+    const hit = entries.find((entry) => entry.isFile() && MAKEFILE_NAMES.has(entry.name.toLowerCase()));
+    return hit ? path.join(workspaceRoot, hit.name) : undefined;
+}
+
+export interface MakeBuildResult {
+    exitCode: number | null;
+    stdout: string;
+    stderr: string;
+    durationMs: number;
+    tool: MakeTool;
+    cwd: string;
+}
+
+/**
+ * Run make with no arguments (default target) in the workspace root.
+ * Which sources get built is entirely decided by the Makefile.
+ */
+export async function spawnMake(
+    tool: MakeTool,
+    cwd: string,
+    options?: { timeout?: number; signal?: AbortSignal }
+): Promise<MakeBuildResult> {
+    const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
+    const result = await spawnProcess(tool, [], { timeout, signal: options?.signal, cwd });
+    return { ...result, tool, cwd };
+}
+
 /**
  * Spawn g++ to compile a single source file.
  *
@@ -148,6 +221,7 @@ export async function spawnExecutable(
 interface SpawnProcessOptions {
     timeout?: number;
     signal?: AbortSignal;
+    cwd?: string;
 }
 
 /**
@@ -174,6 +248,7 @@ function spawnProcess(
             env: buildEnglishEnv(),
             shell: triedShell && process.platform === 'win32',
             windowsHide: true,
+            cwd: options.cwd,
         });
 
         const timeoutHandle = setTimeout(() => {

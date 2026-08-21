@@ -75,7 +75,8 @@ function makeCompileSuccess(id: string, timestamp = 0): CompileSuccessEvent {
 describe('knowledge cards', () => {
     it('covers all patterns with non-empty concept metadata', () => {
         const concepts = listKnowledgeConcepts();
-        assert.strictEqual(concepts.length, 12);
+        // 12 个 C/C++ 编译概念 + 2 个 make 类概念(#8:make_no_rule / make_missing_separator)。
+        assert.strictEqual(concepts.length, 14);
         for (const concept of concepts) {
             assert.ok(concept.title.length > 0, `${concept.tag} title empty`);
             assert.ok(concept.summary.length > 0, `${concept.tag} summary empty`);

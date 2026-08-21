@@ -16,8 +16,8 @@ import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig, getFallbackLLMConfig, saveFallbackLLMConfig, getFallbackApiKey } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
-import { checkGppAvailability, spawnGpp } from './compiler/compilerService';
-import { registerCompileOutputProvider, showCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
+import { checkGppAvailability, detectMakeTool, findRootMakefile, spawnGpp, spawnMake } from './compiler/compilerService';
+import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
 import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
 import type { CompileSelectionRange } from './error/errorParser';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
@@ -278,7 +278,8 @@ async function compileHandlerAsync(
 	debugStore: DebugJourneyStore,
 	sessionId: string,
 	workspaceId: string,
-	lastKnownSource: Map<string, string>
+	lastKnownSource: Map<string, string>,
+	extensionUri: vscode.Uri
 ): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
@@ -292,6 +293,27 @@ async function compileHandlerAsync(
 	if (document.isDirty && !(await document.save())) {
 		void vscode.window.showWarningMessage('Could not save the current file before compiling.');
 		return;
+	}
+
+	// #8: 工作区根目录有 Makefile(大小写不敏感,只认根目录)时改用 make 构建。
+	const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+	if (workspaceFolder) {
+		const workspaceRoot = workspaceFolder.uri.fsPath;
+		const rootMakefile = await findRootMakefile(workspaceRoot);
+		if (rootMakefile) {
+			const relatedErrorId = await getLastCompileErrorEventId(debugStore, fileUri, workspaceId);
+			await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource, relatedErrorId);
+			await compileWithMakeAsync(debugStore, sessionId, workspaceId, fileUri, workspaceRoot, rootMakefile, extensionUri);
+			return;
+		}
+
+		// Makefile 只在子目录时不递归兼容:提示用户放根目录,然后继续走 g++ 单文件。
+		const fileDir = path.dirname(document.fileName);
+		if (path.resolve(fileDir) !== path.resolve(workspaceRoot) && (await findRootMakefile(fileDir))) {
+			void vscode.window.showInformationMessage(
+				'ClassMate 只使用工作区根目录的 Makefile;检测到 Makefile 在子目录中,本次仍按 g++ 单文件编译。请把 Makefile 放到工作区根目录,或把该子目录作为工作区打开。'
+			);
+		}
 	}
 
 	if (!checkGppAvailability()) {
@@ -317,41 +339,120 @@ async function compileHandlerAsync(
 			.join('\n');
 
 		await showCompileOutput(output);
-
-		if (result.exitCode !== 0) {
-			const parsedErrors = result.stderr
-				.split('\n')
-				.map((line) => extractErrorLocation(line))
-				.filter((err): err is NonNullable<typeof err> => err !== undefined);
-
-			const event: CompileErrorEvent = {
-				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-				type: 'compile_error',
-				timestamp: Date.now(),
-				sessionId,
-				workspaceId,
-				fileUri,
-				stderr: result.stderr,
-				parsedErrors,
-				exitCode: result.exitCode,
-				durationMs: result.durationMs,
-			};
-			await debugStore.append(event);
-		} else {
-			const event: CompileSuccessEvent = {
-				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-				type: 'compile_success',
-				timestamp: Date.now(),
-				sessionId,
-				workspaceId,
-				fileUri,
-				exitCode: result.exitCode,
-				durationMs: result.durationMs,
-			};
-			await debugStore.append(event);
-		}
+		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result);
 	} catch (error) {
 		void vscode.window.showErrorMessage(`Compilation failed: ${String(error)}`);
+	}
+}
+
+/**
+ * Record the outcome of a build (g++ or make) into the debug journey store.
+ */
+async function recordCompileOutcome(
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string,
+	fileUri: string,
+	result: { exitCode: number | null; stderr: string; durationMs: number }
+): Promise<void> {
+	if (result.exitCode !== 0) {
+		const parsedErrors = result.stderr
+			.split('\n')
+			.map((line) => extractErrorLocation(line))
+			.filter((err): err is NonNullable<typeof err> => err !== undefined);
+
+		const event: CompileErrorEvent = {
+			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			type: 'compile_error',
+			timestamp: Date.now(),
+			sessionId,
+			workspaceId,
+			fileUri,
+			stderr: result.stderr,
+			parsedErrors,
+			exitCode: result.exitCode,
+			durationMs: result.durationMs,
+		};
+		await debugStore.append(event);
+	} else {
+		const event: CompileSuccessEvent = {
+			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			type: 'compile_success',
+			timestamp: Date.now(),
+			sessionId,
+			workspaceId,
+			fileUri,
+			exitCode: result.exitCode,
+			durationMs: result.durationMs,
+		};
+		await debugStore.append(event);
+	}
+}
+
+const MAKE_SETUP_GUIDE_FALLBACK = [
+	'# 未找到 make',
+	'',
+	'ClassMate 检测到工作区根目录有 Makefile,但系统 PATH 中找不到 make 或 mingw32-make。',
+	'Windows:安装 MinGW-w64 并把其 bin 目录(内含 mingw32-make.exe)加入 Path 后重启 VS Code。',
+	'macOS:终端执行 xcode-select --install。Linux:安装 build-essential。',
+].join('\n');
+
+/**
+ * #8/#9: 根目录 Makefile 场景的构建流程——点击后即时预创建 compile_result.txt
+ * 展示基本信息,make 结束后强制刷新一次展示全量输出;make 缺失时打开随扩展
+ * 打包的预置文案(只读虚拟文档),不报错。编译哪些代码完全由 Makefile 决定。
+ */
+async function compileWithMakeAsync(
+	debugStore: DebugJourneyStore,
+	sessionId: string,
+	workspaceId: string,
+	fileUri: string,
+	workspaceRoot: string,
+	makefilePath: string,
+	extensionUri: vscode.Uri
+): Promise<void> {
+	const makeTool = detectMakeTool();
+	if (!makeTool) {
+		let guide = MAKE_SETUP_GUIDE_FALLBACK;
+		try {
+			const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extensionUri, 'resources', 'make-setup-guide.md'));
+			guide = Buffer.from(bytes).toString('utf8');
+		} catch {
+			// 打包资源缺失时退回内置简要文案,保证用户始终能看到指引。
+		}
+		await showMakeSetupGuide(guide);
+		return;
+	}
+
+	const basicInfo = [
+		'ClassMate 编译已开始,正在等待 make 构建完成…',
+		'',
+		`构建工具: ${makeTool}(无参,使用 Makefile 默认 target)`,
+		`遵循指令: ${makefilePath}`,
+		`工作目录: ${workspaceRoot}`,
+		'',
+		'编译结束后本文件会自动刷新为完整输出。',
+	].join('\n');
+	await showCompileOutput(basicInfo);
+
+	try {
+		const result = await spawnMake(makeTool, workspaceRoot);
+		const output = [
+			`Built with: ${makeTool} (default target)`,
+			`Makefile: ${makefilePath}`,
+			`Working directory: ${workspaceRoot}`,
+			`Exit code: ${result.exitCode ?? 'killed'}`,
+			`Duration: ${result.durationMs}ms`,
+			result.stdout ? `\n--- stdout ---\n${result.stdout}` : '',
+			result.stderr ? `\n--- stderr ---\n${result.stderr}` : '',
+		]
+			.filter(Boolean)
+			.join('\n');
+
+		await showCompileOutput(output);
+		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result);
+	} catch (error) {
+		void vscode.window.showErrorMessage(`Make build failed: ${String(error)}`);
 	}
 }
 
@@ -578,8 +679,8 @@ async function runCodeHandlerAsync(
 	}
 }
 
-function compileHandler(debugStore: DebugJourneyStore, sessionId: string, workspaceId: string, lastKnownSource: Map<string, string>): () => void {
-	return () => void compileHandlerAsync(debugStore, sessionId, workspaceId, lastKnownSource);
+function compileHandler(debugStore: DebugJourneyStore, sessionId: string, workspaceId: string, lastKnownSource: Map<string, string>, extensionUri: vscode.Uri): () => void {
+	return () => void compileHandlerAsync(debugStore, sessionId, workspaceId, lastKnownSource, extensionUri);
 }
 
 function runCodeHandler(debugStore: DebugJourneyStore, sessionId: string, workspaceId: string, lastKnownSource: Map<string, string>): () => void {
@@ -994,7 +1095,7 @@ export function activate(
 			id: 'classmate.toggleChatContainer',
 			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, nextChatContainer(currentContainer)),
 		},
-		{ id: 'classmate.compile', handler: compileHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
+		{ id: 'classmate.compile', handler: compileHandler(debugStore, sessionId, workspaceId, lastKnownSource, context.extensionUri) },
 		{ id: 'classmate.runCode', handler: runCodeHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
 		{
 			id: 'classmate.explainSelection',

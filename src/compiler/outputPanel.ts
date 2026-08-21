@@ -2,11 +2,14 @@ import * as vscode from 'vscode';
 
 export const COMPILE_OUTPUT_SCHEME = 'classmate-output';
 export const COMPILE_OUTPUT_URI = vscode.Uri.parse(`${COMPILE_OUTPUT_SCHEME}:///compile-result.txt`);
+export const MAKE_SETUP_GUIDE_URI = vscode.Uri.parse(`${COMPILE_OUTPUT_SCHEME}:///make-setup-guide.md`);
 
 /**
  * Provides the content for the read-only compile output virtual document.
+ * Exported so unit tests can drive the content/change-notification cycle
+ * directly without a full extension activation.
  */
-class CompileOutputProvider implements vscode.TextDocumentContentProvider {
+export class CompileOutputProvider implements vscode.TextDocumentContentProvider {
     private readonly _content = new Map<string, string>();
     private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri>();
     public readonly onDidChange = this._onDidChange.event;
@@ -83,6 +86,23 @@ export async function showCompileOutput(content: string): Promise<void> {
     const document = await vscode.workspace.openTextDocument(COMPILE_OUTPUT_URI);
     await vscode.window.showTextDocument(document, {
         viewColumn: targetColumn,
+        preserveFocus: false,
+        preview: false,
+    });
+}
+
+/**
+ * Open the bundled make setup guide as a read-only virtual document.
+ * Used when the workspace has a root Makefile but no make executable
+ * could be found on PATH.
+ */
+export async function showMakeSetupGuide(content: string): Promise<void> {
+    const provider = getProvider();
+    provider.set(MAKE_SETUP_GUIDE_URI, content);
+
+    const document = await vscode.workspace.openTextDocument(MAKE_SETUP_GUIDE_URI);
+    await vscode.window.showTextDocument(document, {
+        viewColumn: vscode.ViewColumn.Two,
         preserveFocus: false,
         preview: false,
     });
