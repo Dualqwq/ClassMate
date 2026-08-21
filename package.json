@@ -332,6 +332,8 @@
     "@langchain/langgraph": "^1.4.8",
     "diff": "^8.0.4",
     "gray-matter": "^4.0.3",
+    "iconv-lite": "^0.7.3",
+    "jschardet": "^3.1.4",
     "openai": "^4.77.0",
     "pdf-parse": "^1.1.1",
     "react": "^18.3.1",

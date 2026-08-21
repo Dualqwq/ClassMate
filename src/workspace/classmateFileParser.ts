@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import matter = require('gray-matter');
+import { decodeDiskTextFile } from './textEncoding';
 import type { CourseContext } from './types';
 
 const MAX_CLASSMATE_BYTES = 64 * 1024;
@@ -56,7 +57,7 @@ export async function parseClassmateMdDetailed(uri: vscode.Uri): Promise<ParsedC
                 warnings: [`CLASSMATE.md exceeds the ${MAX_CLASSMATE_BYTES}-byte safety limit.`],
             };
         }
-        const raw = Buffer.from(rawBytes).toString('utf-8');
+        const raw = decodeDiskTextFile(rawBytes);
         const parsed = matter(raw);
 
         const data = parsed.data ?? {};

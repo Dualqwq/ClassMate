@@ -4,6 +4,7 @@ import type { ContextRequest } from '../graph/types';
 import { extractMarkdownSection } from '../skill/markdownSectionExtractor';
 import { hashContent } from '../skill/skillContentLoader';
 import { extractPdfUri, formatPdfExtraction } from './pdfExtractor';
+import { decodeDiskTextFile } from './textEncoding';
 import type {
 	LoadedWorkspaceItem,
 	WorkspaceCatalog,
@@ -146,7 +147,7 @@ function selectSection(content: string, entry: WorkspaceFileEntry, section?: str
 					if (bytes.byteLength > this._limits.maxFileBytes) {
 						throw new Error(`Workspace file exceeds size limit after reading: ${entry.path}`);
 					}
-					content = Buffer.from(bytes).toString('utf8');
+					content = decodeDiskTextFile(bytes);
 				}
 			}
 			content = selectSection(content, entry, request.section);

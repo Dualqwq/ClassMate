@@ -11,6 +11,7 @@ import type {
 import { parseClassmateMd } from './classmateFileParser';
 import * as path from 'path';
 import { extractPdfUri, formatPdfExtraction } from './pdfExtractor';
+import { decodeDiskTextFile } from './textEncoding';
 
 const TEXT_EXTENSIONS = new Set(['.md', '.txt', '.markdown', '.in', '.out', '.ans']);
 const CODE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx']);
@@ -65,7 +66,7 @@ async function readFirstTextFile(uris: vscode.Uri[]): Promise<string | undefined
         }
         try {
             const bytes = await vscode.workspace.fs.readFile(uri);
-            return Buffer.from(bytes).toString('utf-8');
+            return decodeDiskTextFile(bytes);
         } catch {
             // Ignore unreadable files and try the next one.
         }
