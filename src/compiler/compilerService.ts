@@ -173,13 +173,24 @@ export interface GppCommandPreview {
     outputPath: string;
 }
 
+export interface GppSourceOptions {
+    /**
+     * true (default): also compile sibling .c/.cpp files next to the source.
+     * false: compile only the given file (the no-Makefile Compile path, which
+     * focuses on the current active file for teaching).
+     */
+    relatedSources?: boolean;
+}
+
 /**
  * Resolve the exact g++ invocation for a source file without running it.
  * Used to show what will be compiled before the build starts (#9).
  */
-export async function previewGppCommand(sourcePath: string): Promise<GppCommandPreview> {
+export async function previewGppCommand(sourcePath: string, options?: GppSourceOptions): Promise<GppCommandPreview> {
     const outputPath = resolveOutputPath(sourcePath);
-    const sourcePaths = await discoverRelatedSourceFiles(sourcePath);
+    const sourcePaths = options?.relatedSources === false
+        ? [sourcePath]
+        : await discoverRelatedSourceFiles(sourcePath);
     return {
         command: 'g++',
         args: buildCompileArgs(sourcePaths, outputPath),
@@ -197,9 +208,9 @@ export async function previewGppCommand(sourcePath: string): Promise<GppCommandP
  */
 export async function spawnGpp(
     sourcePath: string,
-    options?: { timeout?: number; signal?: AbortSignal }
+    options?: { timeout?: number; signal?: AbortSignal } & GppSourceOptions
 ): Promise<CompileResult> {
-    const preview = await previewGppCommand(sourcePath);
+    const preview = await previewGppCommand(sourcePath, { relatedSources: options?.relatedSources });
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
 
     const result = await spawnProcess(preview.command, preview.args, { timeout, signal: options?.signal });
@@ -207,6 +218,11 @@ export async function spawnGpp(
 }
 
 const CPP_SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
+
+/** Whether the file is a C/C++ source ClassMate can compile directly (headers are compiled via their includers). */
+export function isCompilableSourceFile(fileName: string): boolean {
+    return CPP_SOURCE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
+}
 
 /** Include all implementation files beside the active source for typical coursework projects. */
 export async function discoverRelatedSourceFiles(sourcePath: string): Promise<string[]> {

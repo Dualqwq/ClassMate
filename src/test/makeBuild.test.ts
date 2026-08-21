@@ -4,9 +4,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, it } from 'mocha';
 import * as vscode from 'vscode';
-import { detectMakeTool, findRootMakefile, previewGppCommand } from '../compiler/compilerService';
+import { detectMakeTool, findRootMakefile, isCompilableSourceFile, previewGppCommand } from '../compiler/compilerService';
 import {
     buildCompileStartInfo,
+    buildNoCompilableSourceGuidance,
     CompileOutputProvider,
     COMPILE_OUTPUT_URI,
     getCompileOutputContent,
@@ -246,5 +247,70 @@ describe('compile visualization two-phase timing', () => {
             }
             await fs.rm(dir, { recursive: true, force: true });
         }
+    });
+});
+
+describe('single-active-file compile (no root Makefile)', () => {
+    it('isCompilableSourceFile accepts only C/C++ source extensions', () => {
+        for (const name of ['main.cpp', 'a.c', 'b.cc', 'c.cxx', 'MAIN.CPP']) {
+            assert.ok(isCompilableSourceFile(name), `${name} should be compilable`);
+        }
+        for (const name of ['card.h', 'bits.hpp', 'README.md', 'Makefile', 'note.txt']) {
+            assert.ok(!isCompilableSourceFile(name), `${name} should not be compilable`);
+        }
+    });
+
+    it('previews only the active file when relatedSources is false', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-gpp-single-'));
+        try {
+            const mainPath = path.join(dir, 'main.cpp');
+            const utilPath = path.join(dir, 'util.cpp');
+            await fs.writeFile(mainPath, 'int main() { return 0; }\n');
+            await fs.writeFile(utilPath, 'int util() { return 1; }\n');
+
+            const preview = await previewGppCommand(mainPath, { relatedSources: false });
+            assert.deepStrictEqual(preview.sourcePaths, [mainPath]);
+            assert.ok(preview.args.includes(mainPath));
+            assert.ok(!preview.args.includes(utilPath));
+            assert.strictEqual(preview.args[preview.args.length - 1], preview.outputPath);
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('still previews sibling sources by default (runCode path unchanged)', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-gpp-related-'));
+        try {
+            const mainPath = path.join(dir, 'main.cpp');
+            const utilPath = path.join(dir, 'util.cpp');
+            await fs.writeFile(mainPath, 'int main() { return 0; }\n');
+            await fs.writeFile(utilPath, 'int util() { return 1; }\n');
+
+            const preview = await previewGppCommand(mainPath);
+            assert.deepStrictEqual(preview.sourcePaths, [mainPath, utilPath]);
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('guides the student when the active file is a header (compile nothing)', () => {
+        const guidance = buildNoCompilableSourceGuidance(
+            '当前打开的不是可编译源文件: card.h(头文件由 .c/.cpp 源文件包含,不需要单独编译)'
+        );
+        assert.ok(guidance.includes('没有可编译'));
+        assert.ok(guidance.includes('card.h'));
+        assert.ok(guidance.includes('请先打开要编译的 .c/.cpp 源文件'));
+    });
+
+    it('guides the student when no editor is active', () => {
+        const guidance = buildNoCompilableSourceGuidance('当前没有打开任何文件。');
+        assert.ok(guidance.includes('当前没有打开任何文件'));
+        assert.ok(guidance.includes('请先打开要编译的 .c/.cpp 源文件'));
+    });
+
+    it('guides the student when the active file is not C/C++ at all', () => {
+        const guidance = buildNoCompilableSourceGuidance('当前打开的文件不是 C/C++ 源文件: README.md');
+        assert.ok(guidance.includes('README.md'));
+        assert.ok(guidance.includes('请先打开要编译的 .c/.cpp 源文件'));
     });
 });

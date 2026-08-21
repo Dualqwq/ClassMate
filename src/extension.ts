@@ -16,8 +16,8 @@ import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig, getFallbackLLMConfig, saveFallbackLLMConfig, getFallbackApiKey } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
-import { checkGppAvailability, detectMakeTool, findRootMakefile, previewGppCommand, spawnGpp, spawnMake } from './compiler/compilerService';
-import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
+import { checkGppAvailability, detectMakeTool, findRootMakefile, isCompilableSourceFile, previewGppCommand, spawnGpp, spawnMake } from './compiler/compilerService';
+import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, buildNoCompilableSourceGuidance, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
 import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
 import type { CompileSelectionRange } from './error/errorParser';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
@@ -283,7 +283,13 @@ async function compileHandlerAsync(
 ): Promise<void> {
 	const editor = vscode.window.activeTextEditor;
 	if (!editor || !isLanguageEnabled(editor.document.languageId)) {
-		void vscode.window.showInformationMessage('ClassMate compile is not enabled for this file type.');
+		// 兜底(G4 拍板):无 active 编辑器或当前文件不是 C/C++,不编译,
+		// compile_result.txt 给出明确引导。
+		await showCompileOutput(buildNoCompilableSourceGuidance(
+			editor
+				? `当前打开的文件不是 C/C++ 源文件: ${editor.document.fileName}`
+				: '当前没有打开任何文件。'
+		));
 		return;
 	}
 
@@ -316,6 +322,16 @@ async function compileHandlerAsync(
 		}
 	}
 
+	// G4 拍板:无根目录 Makefile 时 g++ 路径只编当前 active 源文件(教学场景聚焦
+	// 当前文件);active 是头文件等非源文件时不编译,引导进 compile_result.txt。
+	// 有根目录 Makefile 的 make 路径在上面已 return,不受此守卫影响。
+	if (!isCompilableSourceFile(document.fileName)) {
+		await showCompileOutput(buildNoCompilableSourceGuidance(
+			`当前打开的不是可编译源文件: ${document.fileName}(头文件由 .c/.cpp 源文件包含,不需要单独编译)`
+		));
+		return;
+	}
+
 	if (!checkGppAvailability()) {
 		void vscode.window.showWarningMessage(
 			'g++ was not found on PATH. Please install MinGW (Windows) or Xcode/Clang (macOS) or build-essential (Linux).'
@@ -329,14 +345,14 @@ async function compileHandlerAsync(
 	try {
 		// #9 两阶段(与 make 路径一致):即时预创建 compile_result.txt 展示
 		// 编译基本信息,编译结束后就地强刷为全量输出(不重新打开编辑器)。
-		const preview = await previewGppCommand(document.fileName);
+		const preview = await previewGppCommand(document.fileName, { relatedSources: false });
 		await showCompileOutput(buildCompileStartInfo('g++ 编译', [
 			`编译器: ${preview.command}`,
 			`源文件: ${preview.sourcePaths.join(', ')}`,
 			`命令: ${preview.command} ${preview.args.join(' ')}`,
 		]));
 
-		const result = await spawnGpp(document.fileName);
+		const result = await spawnGpp(document.fileName, { relatedSources: false });
 		const output = [
 			`Compiled: ${document.fileName}`,
 			`Command: ${preview.command} ${preview.args.join(' ')}`,

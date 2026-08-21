@@ -119,6 +119,21 @@ export function updateCompileOutput(content: string): void {
 }
 
 /**
+ * Guidance content for compile_result.txt when the g++ path has nothing to
+ * compile (no active editor, or the active file is not a .c/.cpp source).
+ */
+export function buildNoCompilableSourceGuidance(detail: string): string {
+    return [
+        'ClassMate 没有可编译的 C/C++ 源文件。',
+        '',
+        detail,
+        '',
+        '请先打开要编译的 .c/.cpp 源文件,再点击 ClassMate Compile。',
+        '(若工作区根目录放了 Makefile,点 Compile 会用 make 构建整个工作区,与当前打开的文件无关。)',
+    ].join('\n');
+}
+
+/**
  * Open the bundled make setup guide as a read-only virtual document.
  * Used when the workspace has a root Makefile but no make executable
  * could be found on PATH.
