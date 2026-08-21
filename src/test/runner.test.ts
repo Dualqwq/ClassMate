@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import { execSync } from 'child_process';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -12,7 +13,37 @@ import { runExecutable } from '../run/runner';
  * mocha 单例超时 20s,各用例的 idle/hard timeout 都压到远小于它。
  */
 
-const NODE = process.execPath;
+function findNodeExecutable(): string | undefined {
+	const execPath = process.execPath.toLowerCase();
+	// 在 VS Code extension host 中 process.execPath 是 Code.exe,无法执行 JS。
+	if (execPath.includes('node') && !execPath.endsWith('code.exe') && !execPath.endsWith('code - insiders.exe')) {
+		return process.execPath;
+	}
+	if (process.platform === 'win32') {
+		try {
+			const found = execSync('where node', { encoding: 'utf8', windowsHide: true })
+				.trim()
+				.split(/\r?\n/)[0];
+			if (found) {
+				return found;
+			}
+		} catch {
+			// fall through
+		}
+	} else {
+		try {
+			const found = execSync('command -v node', { encoding: 'utf8' }).trim();
+			if (found) {
+				return found;
+			}
+		} catch {
+			// fall through
+		}
+	}
+	return undefined;
+}
+
+const NODE = findNodeExecutable();
 
 async function runScript(
 	script: string,
@@ -38,6 +69,13 @@ async function runScript(
 }
 
 describe('runExecutable', () => {
+	if (!NODE) {
+		it('当前环境找不到 Node 可执行文件,跳过 runner 测试', () => {
+			// VS Code extension host 中 process.execPath 是 Code.exe,从 PATH 找 node 也失败。
+		});
+		return;
+	}
+
 	it('灌入预填 stdin,程序读到并回显', async () => {
 		// runner 灌完 stdin 后不 end 管道,程序靠内部 300ms 分支输出已读内容。
 		const script = `

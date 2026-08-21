@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { stat } from 'fs/promises';
 import * as vscode from 'vscode';
 import { getCompileOutputContent } from '../compiler/outputPanel';
 import { RunHistoryStore, truncateOutput } from '../storage/runHistoryStore';
@@ -12,6 +13,9 @@ import type {
 	RunRecord,
 	RunWebviewToExtensionMessage,
 } from './types';
+
+/** 面板打开后未找到 exe 时的自动发现轮询间隔(ms)。 */
+const AUTO_DISCOVER_INTERVAL_MS = 2000;
 
 /**
  * Run 面板的 extension 侧编排(#11):exe 发现 → 运行 → 历史落盘 → 状态回推。
@@ -29,6 +33,7 @@ export class RunService {
 	private _interactiveHint: { exePath: string } | undefined;
 	private _selectedExecutable: { path: string; source: ExecutableSource } | undefined;
 	private _notice: string | undefined;
+	private _discoverInterval: ReturnType<typeof setInterval> | undefined;
 
 	constructor(context: vscode.ExtensionContext) {
 		this._context = context;
@@ -40,10 +45,12 @@ export class RunService {
 	public attach(presenter: { postMessage(message: RunExtensionToWebviewMessage): void }): void {
 		this._presenter = presenter;
 		void this.pushState();
+		this._startAutoDiscover();
 	}
 
 	public detach(): void {
 		this._presenter = undefined;
+		this._stopAutoDiscover();
 	}
 
 	public async handleMessage(message: RunWebviewToExtensionMessage): Promise<void> {
@@ -93,6 +100,7 @@ export class RunService {
 		if (result.exePath && result.source) {
 			this._notice = undefined;
 			this._selectedExecutable = { path: result.exePath, source: result.source };
+			this._stopAutoDiscover();
 			return this._selectedExecutable;
 		}
 		if (result.makeScenario && options?.allowDialog) {
@@ -122,6 +130,7 @@ export class RunService {
 		}
 		this._selectedExecutable = { path: picked[0].fsPath, source: 'user-picked' };
 		this._notice = undefined;
+		this._stopAutoDiscover();
 		await this.pushState();
 		return this._selectedExecutable;
 	}
@@ -139,6 +148,16 @@ export class RunService {
 			// 兜底文案进面板,不弹窗打扰(拍板:无 exe 兜底文案)。
 			this._lastResult = undefined;
 			await this.pushState();
+			return;
+		}
+
+		// 友好处理"有路径但文件已被删除"(#11 G2 修复)。
+		if (!(await fileExists(executable.path))) {
+			this._selectedExecutable = undefined;
+			this._notice = '选中的可执行文件已不存在,请重新选择或先编译。';
+			this._lastResult = undefined;
+			await this.pushState();
+			this._startAutoDiscover();
 			return;
 		}
 
@@ -163,6 +182,7 @@ export class RunService {
 			this._selectedExecutable = undefined;
 			this._notice = `无法启动 ${executable.path}:${error instanceof Error ? error.message : String(error)}`;
 			await this.pushState();
+			this._startAutoDiscover();
 			return;
 		}
 
@@ -221,5 +241,46 @@ export class RunService {
 			return;
 		}
 		this._presenter.postMessage({ type: 'run:state', state: await this.buildSnapshot() });
+	}
+
+	/**
+	 * 自动发现轮询:面板打开后若尚无 exe,每隔一段时间尝试发现,
+	 * 新编译出 exe 时自动同步到面板(G2 修复)。
+	 */
+	private _startAutoDiscover(): void {
+		this._stopAutoDiscover();
+		if (this._selectedExecutable || this._running) {
+			return;
+		}
+		void this._autoDiscoverTick();
+		this._discoverInterval = setInterval(() => void this._autoDiscoverTick(), AUTO_DISCOVER_INTERVAL_MS);
+	}
+
+	private _stopAutoDiscover(): void {
+		if (this._discoverInterval) {
+			clearInterval(this._discoverInterval);
+			this._discoverInterval = undefined;
+		}
+	}
+
+	private async _autoDiscoverTick(): Promise<void> {
+		if (this._selectedExecutable || this._running || !this._presenter) {
+			this._stopAutoDiscover();
+			return;
+		}
+		const resolved = await this.resolveExecutable({ allowDialog: false });
+		if (resolved) {
+			this._stopAutoDiscover();
+			await this.pushState();
+		}
+	}
+}
+
+async function fileExists(candidate: string): Promise<boolean> {
+	try {
+		const info = await stat(candidate);
+		return info.isFile();
+	} catch {
+		return false;
 	}
 }
