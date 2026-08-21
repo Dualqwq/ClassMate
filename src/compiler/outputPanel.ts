@@ -92,6 +92,33 @@ export async function showCompileOutput(content: string): Promise<void> {
 }
 
 /**
+ * Build the phase-1 (#9) basic-info content shown immediately when a build
+ * starts, so the student can see what is being compiled before it finishes.
+ */
+export function buildCompileStartInfo(toolDescription: string, detailLines: string[]): string {
+    return [
+        `ClassMate 编译已开始,正在等待 ${toolDescription} 完成…`,
+        '',
+        ...detailLines,
+        '',
+        '编译结束后本文件会自动刷新为完整输出。',
+    ].join('\n');
+}
+
+/**
+ * Phase-2 (#9) forced refresh: replace the compile output content in place.
+ *
+ * Only sets the content and fires onDidChange — VS Code refreshes the already
+ * open virtual document editor automatically. Deliberately does NOT call
+ * showTextDocument again, which would open a duplicate compile-result.txt in
+ * a new editor group.
+ */
+export function updateCompileOutput(content: string): void {
+    const provider = getProvider();
+    provider.set(COMPILE_OUTPUT_URI, content);
+}
+
+/**
  * Open the bundled make setup guide as a read-only virtual document.
  * Used when the workspace has a root Makefile but no make executable
  * could be found on PATH.

@@ -16,8 +16,8 @@ import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig, getFallbackLLMConfig, saveFallbackLLMConfig, getFallbackApiKey } from './config/llmConfig';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
-import { checkGppAvailability, detectMakeTool, findRootMakefile, spawnGpp, spawnMake } from './compiler/compilerService';
-import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
+import { checkGppAvailability, detectMakeTool, findRootMakefile, previewGppCommand, spawnGpp, spawnMake } from './compiler/compilerService';
+import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
 import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
 import type { CompileSelectionRange } from './error/errorParser';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
@@ -327,9 +327,19 @@ async function compileHandlerAsync(
 	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource, relatedErrorId);
 
 	try {
+		// #9 两阶段(与 make 路径一致):即时预创建 compile_result.txt 展示
+		// 编译基本信息,编译结束后就地强刷为全量输出(不重新打开编辑器)。
+		const preview = await previewGppCommand(document.fileName);
+		await showCompileOutput(buildCompileStartInfo('g++ 编译', [
+			`编译器: ${preview.command}`,
+			`源文件: ${preview.sourcePaths.join(', ')}`,
+			`命令: ${preview.command} ${preview.args.join(' ')}`,
+		]));
+
 		const result = await spawnGpp(document.fileName);
 		const output = [
 			`Compiled: ${document.fileName}`,
+			`Command: ${preview.command} ${preview.args.join(' ')}`,
 			`Exit code: ${result.exitCode ?? 'killed'}`,
 			`Duration: ${result.durationMs}ms`,
 			result.stdout ? `\n--- stdout ---\n${result.stdout}` : '',
@@ -338,9 +348,11 @@ async function compileHandlerAsync(
 			.filter(Boolean)
 			.join('\n');
 
-		await showCompileOutput(output);
+		updateCompileOutput(output);
 		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result);
 	} catch (error) {
+		// spawn 级失败(超时/取消)也写回文档,不停留在"编译已开始"。
+		updateCompileOutput(`Compilation failed: ${String(error)}`);
 		void vscode.window.showErrorMessage(`Compilation failed: ${String(error)}`);
 	}
 }
@@ -424,16 +436,11 @@ async function compileWithMakeAsync(
 		return;
 	}
 
-	const basicInfo = [
-		'ClassMate 编译已开始,正在等待 make 构建完成…',
-		'',
+	await showCompileOutput(buildCompileStartInfo(`${makeTool} 构建`, [
 		`构建工具: ${makeTool}(无参,使用 Makefile 默认 target)`,
 		`遵循指令: ${makefilePath}`,
 		`工作目录: ${workspaceRoot}`,
-		'',
-		'编译结束后本文件会自动刷新为完整输出。',
-	].join('\n');
-	await showCompileOutput(basicInfo);
+	]));
 
 	try {
 		const result = await spawnMake(makeTool, workspaceRoot);
@@ -449,9 +456,12 @@ async function compileWithMakeAsync(
 			.filter(Boolean)
 			.join('\n');
 
-		await showCompileOutput(output);
+		// 强刷=就地更新同一虚拟文档;不再调 showTextDocument,避免开出第二个 compile_result.txt。
+		updateCompileOutput(output);
 		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result);
 	} catch (error) {
+		// spawn 级失败(超时/取消)也写回文档,不停留在"编译已开始"。
+		updateCompileOutput(`Make build failed: ${String(error)}`);
 		void vscode.window.showErrorMessage(`Make build failed: ${String(error)}`);
 	}
 }

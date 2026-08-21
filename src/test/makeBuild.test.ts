@@ -4,8 +4,16 @@ import * as os from 'os';
 import * as path from 'path';
 import { describe, it } from 'mocha';
 import * as vscode from 'vscode';
-import { detectMakeTool, findRootMakefile } from '../compiler/compilerService';
-import { CompileOutputProvider, COMPILE_OUTPUT_URI } from '../compiler/outputPanel';
+import { detectMakeTool, findRootMakefile, previewGppCommand } from '../compiler/compilerService';
+import {
+    buildCompileStartInfo,
+    CompileOutputProvider,
+    COMPILE_OUTPUT_URI,
+    getCompileOutputContent,
+    registerCompileOutputProvider,
+    showCompileOutput,
+    updateCompileOutput,
+} from '../compiler/outputPanel';
 import { getKnowledgeConcept, matchErrorToKnowledge } from '../error/errorKnowledgeMap';
 
 describe('make tool detection', () => {
@@ -146,5 +154,97 @@ describe('bundled make setup guide resource', () => {
         const text = Buffer.from(bytes).toString('utf8');
         assert.ok(text.includes('mingw32-make'));
         assert.ok(text.includes('Makefile'));
+    });
+});
+
+describe('g++ command preview (#9 phase-1 basic info)', () => {
+    it('resolves the exact g++ invocation for a source file', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-gpp-preview-'));
+        try {
+            const mainPath = path.join(dir, 'main.cpp');
+            const utilPath = path.join(dir, 'util.cpp');
+            await fs.writeFile(mainPath, 'int main() { return 0; }\n');
+            await fs.writeFile(utilPath, 'int util() { return 1; }\n');
+
+            const preview = await previewGppCommand(mainPath);
+            assert.strictEqual(preview.command, 'g++');
+            assert.deepStrictEqual(preview.sourcePaths, [mainPath, utilPath]);
+            assert.deepStrictEqual(preview.args.slice(0, 3), ['-std=c++17', '-O2', '-Wall']);
+            assert.ok(preview.args.includes(mainPath) && preview.args.includes(utilPath));
+            const expectedOutput = path.join(dir, process.platform === 'win32' ? 'main.exe' : 'main');
+            assert.strictEqual(preview.outputPath, expectedOutput);
+            assert.strictEqual(preview.args[preview.args.length - 1], expectedOutput);
+            assert.strictEqual(preview.args[preview.args.length - 2], '-o');
+        } finally {
+            await fs.rm(dir, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('compile visualization two-phase timing', () => {
+    it('builds phase-1 basic info with tool, details and refresh note', () => {
+        const info = buildCompileStartInfo('make 构建', ['构建工具: make', '工作目录: /tmp/ws']);
+        assert.ok(info.includes('编译已开始'));
+        assert.ok(info.includes('make 构建'));
+        assert.ok(info.includes('构建工具: make'));
+        assert.ok(info.includes('工作目录: /tmp/ws'));
+        assert.ok(info.includes('自动刷新'));
+    });
+
+    it('g++ path: immediate basic info, then in-place full refresh without reopening', async () => {
+        // 测试直接 import 的是 tsc 产物,与扩展 bundle 不是同一模块实例,
+        // 因此在本测试内自行注册 provider(同一 scheme 后注册者生效),走
+        // 与生产完全相同的 show/update 函数验证真实 VS Code 编辑器行为。
+        const subscriptions: vscode.Disposable[] = [];
+        registerCompileOutputProvider({ subscriptions } as unknown as vscode.ExtensionContext);
+        await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-gpp-timing-'));
+        try {
+            const mainPath = path.join(dir, 'main.cpp');
+            await fs.writeFile(mainPath, 'int main() { return 0; }\n');
+
+            // Phase 1 (#9): the compile_result.txt virtual document appears at
+            // once with basic info (compiler / sources / command).
+            const preview = await previewGppCommand(mainPath);
+            const startInfo = buildCompileStartInfo('g++ 编译', [
+                `编译器: ${preview.command}`,
+                `源文件: ${preview.sourcePaths.join(', ')}`,
+                `命令: ${preview.command} ${preview.args.join(' ')}`,
+            ]);
+            await showCompileOutput(startInfo);
+            assert.strictEqual(getCompileOutputContent(), startInfo);
+            assert.ok(getCompileOutputContent().includes('g++'));
+
+            const outputEditors = () => vscode.window.visibleTextEditors.filter(
+                (editor) => editor.document.uri.toString() === COMPILE_OUTPUT_URI.toString()
+            );
+            assert.strictEqual(outputEditors().length, 1, 'phase 1 must open exactly one compile_result.txt');
+
+            // Phase 2 (#9): forced refresh replaces content in place — same
+            // URI, same editor, no duplicate tab.
+            const fullOutput = `Compiled: ${mainPath}\nCommand: ${preview.command} ${preview.args.join(' ')}\nExit code: 0\nDuration: 42ms\n`;
+            updateCompileOutput(fullOutput);
+
+            assert.strictEqual(getCompileOutputContent(), fullOutput);
+            assert.strictEqual(outputEditors().length, 1, 'phase 2 must not open a duplicate compile_result.txt');
+
+            // onDidChange 触发 VS Code 就地刷新文档模型(异步,短轮询等待)。
+            let refreshedText = '';
+            for (let attempt = 0; attempt < 20; attempt++) {
+                const document = await vscode.workspace.openTextDocument(COMPILE_OUTPUT_URI);
+                refreshedText = document.getText();
+                if (refreshedText === fullOutput) {
+                    break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            assert.strictEqual(refreshedText, fullOutput);
+        } finally {
+            for (const subscription of subscriptions) {
+                subscription.dispose();
+            }
+            await fs.rm(dir, { recursive: true, force: true });
+        }
     });
 });

@@ -166,6 +166,28 @@ export async function spawnMake(
     return { ...result, tool, cwd };
 }
 
+export interface GppCommandPreview {
+    command: 'g++';
+    args: string[];
+    sourcePaths: string[];
+    outputPath: string;
+}
+
+/**
+ * Resolve the exact g++ invocation for a source file without running it.
+ * Used to show what will be compiled before the build starts (#9).
+ */
+export async function previewGppCommand(sourcePath: string): Promise<GppCommandPreview> {
+    const outputPath = resolveOutputPath(sourcePath);
+    const sourcePaths = await discoverRelatedSourceFiles(sourcePath);
+    return {
+        command: 'g++',
+        args: buildCompileArgs(sourcePaths, outputPath),
+        sourcePaths,
+        outputPath,
+    };
+}
+
 /**
  * Spawn g++ to compile a single source file.
  *
@@ -177,13 +199,11 @@ export async function spawnGpp(
     sourcePath: string,
     options?: { timeout?: number; signal?: AbortSignal }
 ): Promise<CompileResult> {
-    const outputPath = resolveOutputPath(sourcePath);
-    const sourcePaths = await discoverRelatedSourceFiles(sourcePath);
-    const args = buildCompileArgs(sourcePaths, outputPath);
+    const preview = await previewGppCommand(sourcePath);
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
 
-    const result = await spawnProcess('g++', args, { timeout, signal: options?.signal });
-    return { ...result, outputPath };
+    const result = await spawnProcess(preview.command, preview.args, { timeout, signal: options?.signal });
+    return { ...result, outputPath: preview.outputPath };
 }
 
 const CPP_SOURCE_EXTENSIONS = new Set(['.c', '.cc', '.cpp', '.cxx']);
