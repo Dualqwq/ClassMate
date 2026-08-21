@@ -7,6 +7,7 @@ import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
+import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
 import type { ChatReference, LLMConfig, MessageIntent, PersistedChatData } from './chat/types';
@@ -854,34 +855,16 @@ export function activate(
 					endLine,
 					document.lineAt(endLine).text.length
 				);
-				// 目标文件在原文件所在的同一个分屏组打开并成为 active,
-				// 原文件留在同组、保持打开(不会被关闭)。
-				// 仅当 ChatPanel 是 active 标签时,改到另一个有文件的分屏组
-				// (没有则创建),避免文件落进面板组触发 relocation。
-				const panelColumn = ChatPanel.getActivePanelColumn();
-				if (panelColumn === undefined) {
-					// 目标以常驻(preview:false)方式在同组打开:原文件若是预览 tab,
-					// 会保留为后台预览而不被 VS Code 替换;目标文件成为 active。
-					await vscode.window.showTextDocument(document, {
-						selection,
-						preview: false,
-					});
-				} else {
-					const fileGroup = vscode.window.tabGroups.all.find(
-						(group) =>
-							group.viewColumn !== panelColumn
-							&& group.tabs.some((tab) => tab.input instanceof vscode.TabInputText)
-					);
-					const targetColumn = fileGroup?.viewColumn
-						?? (panelColumn === vscode.ViewColumn.One
-							? vscode.ViewColumn.Two
-							: vscode.ViewColumn.One);
-					await vscode.window.showTextDocument(document, {
-						viewColumn: targetColumn,
-						selection,
-						preview: false,
-					});
-				}
+				// ADD2 统一分组逻辑(已泛化到任意 ClassMate 面板,见 ui/panelGrouping.ts):
+				// active 标签不是 ClassMate 面板 → 目标文件在 active 组打开,原文件
+				// 留在同组;是 ClassMate 面板 → 开到面板之外、已有文件的分组(没有
+				// 则创建对侧分组),预路由一步到位,不经过面板组(#18 零闪屏路径)。
+				// 目标以常驻(preview:false)方式打开:原文件若是预览 tab,会保留为
+				// 后台预览而不被 VS Code 替换;目标文件成为 active。
+				await showTextDocumentRespectingPanels(document, {
+					selection,
+					preview: false,
+				});
 			} catch {
 				void vscode.window.showWarningMessage('引用的文件已不存在。');
 			}

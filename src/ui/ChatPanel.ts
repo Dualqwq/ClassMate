@@ -2,33 +2,7 @@ import * as vscode from 'vscode';
 import type { WebviewPresenter, WebviewToExtensionMessage } from '../chat/types';
 import { getChatWebviewHtml } from './getChatWebviewHtml';
 import { ChatSession } from '../chat/ChatSession';
-
-/**
- * Resolve which ViewColumn a newly-created ChatPanel should occupy.
- * Exported so the decision logic can be unit-tested without VS Code UI state.
- */
-export function resolveChatPanelColumn(
-    visibleEditorCount: number,
-    activeColumn: vscode.ViewColumn | undefined
-): vscode.ViewColumn {
-    const hasSplitView = visibleEditorCount > 1;
-    if (
-        hasSplitView &&
-        activeColumn !== undefined &&
-        activeColumn !== vscode.ViewColumn.One
-    ) {
-        return vscode.ViewColumn.One;
-    }
-    return vscode.ViewColumn.Two;
-}
-
-/**
- * 面板被新文件挤占时,把新文件挪到的对侧分屏列。
- * 面板在 One → 目标 Two;其余情况 → One。
- */
-export function resolveRelocationTarget(panelColumn: vscode.ViewColumn): vscode.ViewColumn {
-    return panelColumn === vscode.ViewColumn.One ? vscode.ViewColumn.Two : vscode.ViewColumn.One;
-}
+import { registerClassMatePanel, resolveNewPanelColumn, resolveRelocationTarget } from './panelGrouping';
 
 export class ChatPanel implements WebviewPresenter {
 	public static readonly viewType = 'classmate.chatPanel';
@@ -66,7 +40,7 @@ export class ChatPanel implements WebviewPresenter {
 		// If the user already has a split view (>=2 visible text editors), place
 		// the chat panel in a column that does not contain the active source editor
 		// so it doesn't cover the code they're reading.
-		const targetColumn = resolveChatPanelColumn(visibleEditors.length, activeColumn);
+		const targetColumn = resolveNewPanelColumn(visibleEditors.length, activeColumn);
 
 		const panel = vscode.window.createWebviewPanel(
 			ChatPanel.viewType,
@@ -104,18 +78,6 @@ export class ChatPanel implements WebviewPresenter {
 		return ChatPanel._currentPanel !== undefined;
 	}
 
-	/**
-	 * 面板是 active 标签时返回它所在的列;否则 undefined。
-	 * 用于"面板 active 时引用文件应开到别的分屏组"的路由判断。
-	 */
-	public static getActivePanelColumn(): vscode.ViewColumn | undefined {
-		const panel = ChatPanel._currentPanel;
-		if (!panel || !panel._panel.active) {
-			return undefined;
-		}
-		return panel._panel.viewColumn;
-	}
-
 	public static revealCurrent(preserveFocus?: boolean): void {
 		ChatPanel._currentPanel?._panel.reveal(undefined, preserveFocus ?? false);
 	}
@@ -144,6 +106,14 @@ export class ChatPanel implements WebviewPresenter {
 		);
 		this._disposables.push(
 			vscode.window.tabGroups.onDidChangeTabs((event) => this._handleTabChange(event))
+		);
+		// 登记到 ClassMate 面板注册表:ADD2 分组决策(见 ui/panelGrouping.ts)
+		// 以"任一已登记面板的 active 列"为准,不绑死 ChatPanel,Run Panel 直接复用。
+		this._disposables.push(
+			registerClassMatePanel({
+				viewType: ChatPanel.viewType,
+				getActiveColumn: () => (this._panel.active ? this._panel.viewColumn : undefined),
+			})
 		);
 		this._panel.webview.onDidReceiveMessage(
 			(message) => this._handleMessage(message),

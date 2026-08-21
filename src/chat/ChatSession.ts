@@ -38,6 +38,7 @@ import { extractAnswerReferences } from './answerReferenceExtractor';
 import { mergeContractAndExtractedReferences } from './answerReferenceMerge';
 import type { ConversationDiagnosticBundle } from './conversationDiagnostics';
 import { ConversationDiagnosticRecorder } from './conversationDiagnostics';
+import { showTextDocumentRespectingPanels } from '../ui/panelGrouping';
 
 const HINT_INTENTS: MessageIntent[] = [
 	'hint',
@@ -306,7 +307,8 @@ export class ChatSession {
 				await mkdir(path.dirname(uri.fsPath), { recursive: true });
 				await vscode.workspace.fs.writeFile(uri, Buffer.from(message.content, 'utf8'));
 				const document = await vscode.workspace.openTextDocument(uri);
-				await vscode.window.showTextDocument(document, { preview: true });
+				// 走 ADD2 统一分组决策:面板 active 时不经面板组,避免 #18 闪屏。
+				await showTextDocumentRespectingPanels(document, { preview: true });
 			} catch (error) {
 				void vscode.window.showErrorMessage(
 					`ClassMate: 调试信息写入失败 ${uri.fsPath}: ` +
@@ -390,7 +392,7 @@ export class ChatSession {
 		});
 		if (options.reveal !== false) {
 			const document = await vscode.workspace.openTextDocument(uri);
-			await vscode.window.showTextDocument(document, { preview: true });
+			await showTextDocumentRespectingPanels(document, { preview: true });
 			void vscode.window.showInformationMessage(
 				`ClassMate: 已导出 ${bundle.conversations.length} 段对话和 ${bundle.events.length} 条诊断事件。`
 			);
@@ -1749,7 +1751,8 @@ export class ChatSession {
 		const edit = new vscode.WorkspaceEdit();
 		edit.replace(document.uri, new vscode.Range(0, 0, lastLine.lineNumber, lastLine.text.length), proposed.newText);
 		if (await vscode.workspace.applyEdit(edit)) {
-			await vscode.window.showTextDocument(document);
+			// 走 ADD2 统一分组决策:面板 active 时直接落进面板之外的分组(#18 零闪屏)。
+			await showTextDocumentRespectingPanels(document);
 			void vscode.window.showInformationMessage(`已应用对 ${proposed.fileName} 的修改，请检查后保存。`);
 		}
 	}
