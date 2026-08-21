@@ -41,11 +41,21 @@ export function snapshotTabGroups(groups: readonly vscode.TabGroup[]): EditorGro
 /**
  * Resolve which ViewColumn a newly-created ClassMate panel should occupy.
  * 纯函数,不依赖 live UI 状态,可直接单测。
+ *
+ * activeEditorIsClassMateOutput:active 编辑器是 ClassMate 产出的虚拟文档
+ * (compile_result.txt,classmate-output: scheme)时置真——它与面板同为
+ * ClassMate 面板面,面板开进它所在组(同分组),而不是按源码编辑器对待
+ * 劈到别的列。虚拟文档在 Tab API 里就是普通 TabInputText,分组决策一律
+ * 视为普通文件编辑器参与。
  */
 export function resolveNewPanelColumn(
 	visibleEditorCount: number,
-	activeColumn: vscode.ViewColumn | undefined
+	activeColumn: vscode.ViewColumn | undefined,
+	options?: { activeEditorIsClassMateOutput?: boolean }
 ): vscode.ViewColumn {
+	if (options?.activeEditorIsClassMateOutput && activeColumn !== undefined) {
+		return activeColumn;
+	}
 	const hasSplitView = visibleEditorCount > 1;
 	if (
 		hasSplitView &&

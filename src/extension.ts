@@ -78,7 +78,14 @@ function createChatPanel(
 		extensionUri,
 		(message) => session.handleWebviewMessage(message),
 		() => session.detach(panel),
-		{ ...options, onDidClose }
+		{
+			...options,
+			onDidClose,
+			// active 是 compile_result.txt(classmate-output: 虚拟文档)时,
+			// 面板与它同分组打开(它同为 ClassMate 面板面,不当源码编辑器避让)。
+			activeEditorIsClassMateOutput:
+				vscode.window.activeTextEditor?.document.uri.scheme === COMPILE_OUTPUT_SCHEME,
+		}
 	);
 	session.attach(panel);
 	return panel;

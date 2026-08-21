@@ -38,6 +38,22 @@ describe('resolveNewPanelColumn (面板新建落列)', () => {
 	it('falls back to column Two when active column is unknown', () => {
 		assert.strictEqual(resolveNewPanelColumn(2, undefined), vscode.ViewColumn.Two);
 	});
+
+	it('compile_result.txt(classmate-output 虚拟文档)active 时,面板与其同分组', () => {
+		const asOutput = { activeEditorIsClassMateOutput: true };
+		// 无分屏:不再劈出 Two,而是开进虚拟文档所在的 One。
+		assert.strictEqual(resolveNewPanelColumn(1, vscode.ViewColumn.One, asOutput), vscode.ViewColumn.One);
+		// 有分屏且虚拟文档在 Two:面板进 Two(同组),而不是按源码避让去 One。
+		assert.strictEqual(resolveNewPanelColumn(2, vscode.ViewColumn.Two, asOutput), vscode.ViewColumn.Two);
+		assert.strictEqual(resolveNewPanelColumn(3, vscode.ViewColumn.Three, asOutput), vscode.ViewColumn.Three);
+		// 标志为假时维持源码避让语义不变。
+		assert.strictEqual(
+			resolveNewPanelColumn(2, vscode.ViewColumn.Two, { activeEditorIsClassMateOutput: false }),
+			vscode.ViewColumn.One
+		);
+		// 标志为真但 active 列未知(无 active 编辑器):走原兜底。
+		assert.strictEqual(resolveNewPanelColumn(1, undefined, asOutput), vscode.ViewColumn.Two);
+	});
 });
 
 describe('resolveFileOpenTarget (ADD2 统一分组)', () => {
@@ -149,5 +165,28 @@ describe('snapshotTabGroups', () => {
 			{ viewColumn: vscode.ViewColumn.Two, hasTextTab: false },
 			{ viewColumn: vscode.ViewColumn.Three, hasTextTab: false },
 		]);
+	});
+
+	it('classmate-output: 虚拟文档 tab 按普通文件编辑器参与分组(hasTextTab=true)', () => {
+		// 回归锚点:compile_result.txt 在 Tab API 里是 TabInputText(uri.scheme
+		// 为 classmate-output),快照不按 scheme 过滤——它所在组是合法文件分组。
+		const virtualTab = {
+			input: new vscode.TabInputText(vscode.Uri.parse('classmate-output:///compile-result.txt')),
+		} as vscode.Tab;
+		const groups = [
+			{ viewColumn: vscode.ViewColumn.One, tabs: [virtualTab] } as unknown as vscode.TabGroup,
+		];
+		assert.deepStrictEqual(snapshotTabGroups(groups), [
+			{ viewColumn: vscode.ViewColumn.One, hasTextTab: true },
+		]);
+		// 决策层联动:面板 active 在 One 时,引用文件应复用虚拟文档所在的 Two 组。
+		const panelGroups = [
+			{ viewColumn: vscode.ViewColumn.One, hasTextTab: false },
+			{ viewColumn: vscode.ViewColumn.Two, hasTextTab: true },
+		];
+		assert.strictEqual(
+			resolveFileOpenTarget(vscode.ViewColumn.One, panelGroups).viewColumn,
+			vscode.ViewColumn.Two
+		);
 	});
 });

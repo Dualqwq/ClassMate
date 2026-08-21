@@ -23,7 +23,7 @@ export class ChatPanel implements WebviewPresenter {
 		extensionUri: vscode.Uri,
 		onMessage: (message: WebviewToExtensionMessage) => void,
 		onDisposed: () => void,
-		options?: { preserveFocus?: boolean; onDidClose?: () => void }
+		options?: { preserveFocus?: boolean; onDidClose?: () => void; activeEditorIsClassMateOutput?: boolean }
 	): ChatPanel {
 		const activeEditor = vscode.window.activeTextEditor;
 		const visibleEditors = vscode.window.visibleTextEditors;
@@ -39,8 +39,12 @@ export class ChatPanel implements WebviewPresenter {
 
 		// If the user already has a split view (>=2 visible text editors), place
 		// the chat panel in a column that does not contain the active source editor
-		// so it doesn't cover the code they're reading.
-		const targetColumn = resolveNewPanelColumn(visibleEditors.length, activeColumn);
+		// so it doesn't cover the code they're reading. Exception: when the active
+		// editor is a ClassMate output virtual doc (compile_result.txt), the panel
+		// joins its group instead — both are ClassMate surfaces.
+		const targetColumn = resolveNewPanelColumn(visibleEditors.length, activeColumn, {
+			activeEditorIsClassMateOutput: options?.activeEditorIsClassMateOutput,
+		});
 
 		const panel = vscode.window.createWebviewPanel(
 			ChatPanel.viewType,
