@@ -5,6 +5,8 @@ import * as vscode from 'vscode';
 import { spawnSync } from 'child_process';
 import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
+import { RunPanel } from './ui/RunPanel';
+import { RunService } from './run/runService';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
 import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
@@ -1093,6 +1095,10 @@ export function activate(
 	// Provide API key to ChatSession for LLM calls.
 	chatSession.setOnGetApiKey(() => getApiKey(context));
 
+	// Run 面板(#11):与 Chat Panel 同级的大标签页面板,共享 React bundle +
+	// route 切换;只消费编译产物(compile_result.txt / 源文件推导),不做编译决策。
+	const runService = new RunService(context);
+
 	// Register all commands declared in package.json.
 	const commands: { id: string; handler: (...args: unknown[]) => void }[] = [
 		{
@@ -1123,6 +1129,13 @@ export function activate(
 		},
 		{ id: 'classmate.compile', handler: compileHandler(debugStore, sessionId, workspaceId, lastKnownSource, context.extensionUri) },
 		{ id: 'classmate.runCode', handler: runCodeHandler(debugStore, sessionId, workspaceId, lastKnownSource) },
+		{
+			// #11:编辑器工具栏的 Run 图标改为打开/聚焦 Run 面板(执行按钮在面板内)。
+			id: 'classmate.openRunPanel',
+			handler: () => {
+				RunPanel.createOrShow(context.extensionUri, runService);
+			},
+		},
 		{
 			id: 'classmate.explainSelection',
 			handler: (...args: unknown[]) => {
@@ -1266,14 +1279,15 @@ export function activate(
 		);
 	}
 
-	// Status bar: compile & run button (visible when the active file's language is enabled).
+	// Status bar: Run button opens the Run panel (#11 拍板:Run 为独立按钮,
+	// 替代原 classmate.runCode 的 Compile & Run 入口;runCode 仍留命令面板)。
 	const compileRunStatusBarItem = vscode.window.createStatusBarItem(
 		vscode.StatusBarAlignment.Left,
 		100
 	);
-	compileRunStatusBarItem.command = 'classmate.runCode';
+	compileRunStatusBarItem.command = 'classmate.openRunPanel';
 	compileRunStatusBarItem.text = '$(run) ClassMate: Run';
-	compileRunStatusBarItem.tooltip = 'Compile and run the current file';
+	compileRunStatusBarItem.tooltip = 'Open the ClassMate run panel';
 
 	function updateCompileRunVisibility(): void {
 		const editor = vscode.window.activeTextEditor;

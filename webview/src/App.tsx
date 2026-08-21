@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ChatAttachment, ChatImage, ChatState, ExtensionToWebviewMessage, LLMConfig, MessageIntent } from '../../src/chat/types';
-import { getInitialState, getContainer, sendMessage, subscribeToExtension } from './vscodeApi';
+import type { ChatAttachment, ChatImage, ChatState, LLMConfig, MessageIntent } from '../../src/chat/types';
+import { getInitialState, getContainer, getRoute, sendMessage, subscribeToExtension, type AnyExtensionToWebviewMessage } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
 import { SettingsPanel } from './components/SettingsPanel';
+import { RunPanel } from './RunPanel';
 import { hasAuthoritativeInputDraft } from '../../src/chat/composerDraftContract';
 import './classmate.css';
 
@@ -51,6 +52,16 @@ function formatConversationDate(timestamp: number): string {
 const COMPOSER_MAX_HEIGHT = 132;
 
 export const App: React.FC = () => {
+	// 共享 bundle 路由(grill R2-Q3):Run 面板与 Chat 共用 dist/webview.js,
+	// 由 HTML 注入的 __CLASSMATE_ROUTE__ 决定渲染哪一棵组件树。
+	// route 在页面生命周期内不变,提前 return 不违反 hooks 规则。
+	if (getRoute() === 'run') {
+		return <RunPanel />;
+	}
+	return <ChatApp />;
+};
+
+const ChatApp: React.FC = () => {
 	const [state, setState] = useState<ChatState>(getInitialState);
 	const [container, setContainer] = useState<'view' | 'panel'>(getContainer);
 	const [llmConfig, setLlmConfig] = useState<LLMConfig | null>(null);
@@ -101,7 +112,7 @@ export const App: React.FC = () => {
 		// Request LLM config on mount.
 		sendMessage({ type: 'requestLLMConfig' });
 
-		return subscribeToExtension((message: ExtensionToWebviewMessage) => {
+		return subscribeToExtension((message: AnyExtensionToWebviewMessage) => {
 			switch (message.type) {
 				case 'stateSync':
 					setState(message.state);

@@ -34,6 +34,7 @@
     "onCommand:classmate.toggleChatContainer",
     "onCommand:classmate.compile",
     "onCommand:classmate.runCode",
+    "onCommand:classmate.openRunPanel",
     "onCommand:classmate.explainSelection",
     "onCommand:classmate.explainError",
     "onCommand:classmate.debugJourney",
@@ -62,6 +63,12 @@
       {
         "command": "classmate.runCode",
         "title": "Compile & Run",
+        "category": "ClassMate",
+        "icon": "$(run)"
+      },
+      {
+        "command": "classmate.openRunPanel",
+        "title": "Open Run Panel",
         "category": "ClassMate",
         "icon": "$(run)"
       },
@@ -225,6 +232,9 @@
           "command": "classmate.runCode"
         },
         {
+          "command": "classmate.openRunPanel"
+        },
+        {
           "command": "classmate.explainSelection"
         },
         {
@@ -295,7 +305,7 @@
           "when": "editorLangId == c || editorLangId == cpp"
         },
         {
-          "command": "classmate.runCode",
+          "command": "classmate.openRunPanel",
           "group": "navigation@2",
           "when": "editorLangId == c || editorLangId == cpp"
         }

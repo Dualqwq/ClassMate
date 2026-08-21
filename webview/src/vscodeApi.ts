@@ -1,4 +1,5 @@
 import type { ChatState, ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../src/chat/types';
+import type { RunExtensionToWebviewMessage, RunWebviewToExtensionMessage } from '../../src/run/types';
 
 declare const acquireVsCodeApi: () => {
 	postMessage: (message: unknown) => void;
@@ -12,11 +13,17 @@ declare global {
 	interface Window {
 		__CLASSMATE_INITIAL_STATE__?: ChatState;
 		__CLASSMATE_CONTAINER__?: 'view' | 'panel';
+		/** 共享 bundle 的路由(grill R2-Q3):缺省 chat;Run 面板注入 'run'。 */
+		__CLASSMATE_ROUTE__?: 'chat' | 'run';
 	}
 }
 
 export function getContainer(): 'view' | 'panel' {
 	return window.__CLASSMATE_CONTAINER__ ?? 'view';
+}
+
+export function getRoute(): 'chat' | 'run' {
+	return window.__CLASSMATE_ROUTE__ ?? 'chat';
 }
 
 export function getInitialState(): ChatState {
@@ -33,12 +40,15 @@ export function getInitialState(): ChatState {
 	);
 }
 
-export function sendMessage(message: WebviewToExtensionMessage): void {
+export type AnyWebviewToExtensionMessage = WebviewToExtensionMessage | RunWebviewToExtensionMessage;
+export type AnyExtensionToWebviewMessage = ExtensionToWebviewMessage | RunExtensionToWebviewMessage;
+
+export function sendMessage(message: AnyWebviewToExtensionMessage): void {
 	vscode.postMessage(message);
 }
 
-export function subscribeToExtension(callback: (message: ExtensionToWebviewMessage) => void): () => void {
-	const handler = (event: MessageEvent<ExtensionToWebviewMessage>) => {
+export function subscribeToExtension(callback: (message: AnyExtensionToWebviewMessage) => void): () => void {
+	const handler = (event: MessageEvent<AnyExtensionToWebviewMessage>) => {
 		callback(event.data);
 	};
 	window.addEventListener('message', handler);

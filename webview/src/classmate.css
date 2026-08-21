@@ -657,3 +657,144 @@ label:focus-within {
 		padding: 12px 10px;
 	}
 }
+
+/* ========== Run 面板(#11) ========== */
+
+.run-panel {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.run-body {
+	flex: 1;
+	overflow-y: auto;
+	padding: 12px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.run-exe-line {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	word-break: break-all;
+}
+
+.run-exe-path {
+	color: var(--vscode-foreground);
+}
+
+.run-notice {
+	color: var(--vscode-editorWarning-foreground);
+}
+
+.run-stdin-block {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.run-stdin-label {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.run-stdin-input {
+	width: 100%;
+	resize: vertical;
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 13px;
+	padding: 6px 8px;
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 4px;
+	box-sizing: border-box;
+}
+
+.run-stdin-input:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.run-start-button {
+	align-self: flex-start;
+}
+
+.run-interactive-hint {
+	border: 1px solid var(--vscode-editorWarning-foreground);
+	border-radius: 4px;
+	padding: 8px 10px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	font-size: 13px;
+}
+
+.run-interactive-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.run-section-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--vscode-descriptionForeground);
+	margin-bottom: 6px;
+}
+
+.run-record {
+	border: 1px solid var(--vscode-panel-border, transparent);
+	border-radius: 4px;
+	padding: 6px 8px;
+	margin-bottom: 8px;
+}
+
+.run-record-meta {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	margin-bottom: 4px;
+}
+
+.run-truncated-tag {
+	margin-left: 6px;
+}
+
+.run-record-empty {
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+}
+
+.run-output {
+	margin: 4px 0;
+	padding: 6px 8px;
+	border-radius: 4px;
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 12px;
+	white-space: pre-wrap;
+	word-break: break-all;
+	max-height: 320px;
+	overflow-y: auto;
+	background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.1));
+}
+
+.run-output.stderr {
+	border-left: 3px solid var(--vscode-editorError-foreground);
+}
+
+.run-history-group {
+	margin-bottom: 6px;
+}
+
+.run-history-group summary {
+	cursor: pointer;
+	font-size: 13px;
+	padding: 4px 0;
+}
+
+.run-history-count {
+	margin-left: 8px;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
