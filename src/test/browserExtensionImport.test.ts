@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as http from 'http';
 import * as vscode from 'vscode';
 import { describe, it } from 'mocha';
 import {
@@ -68,10 +69,33 @@ describe('Browser extension import', () => {
 			assert.ok(messages.some((m) => m.includes('已导入')));
 		});
 
+		it('calls showSaveDialog exactly once with README.md defaults for a valid request', async () => {
+			const dialogCalls: vscode.SaveDialogOptions[] = [];
+			const deps = makeMockDeps({
+				showSaveDialog: async (options) => {
+					dialogCalls.push(options);
+					return vscode.Uri.file('/tmp/README.md');
+				},
+			});
+
+			const result = await handleBrowserExtensionImport({ markdown: '# Problem' }, deps);
+
+			assert.strictEqual(result, true);
+			assert.strictEqual(dialogCalls.length, 1, 'a valid request must open the save dialog exactly once');
+			assert.strictEqual(dialogCalls[0].saveLabel, '导入题目');
+			assert.deepStrictEqual(dialogCalls[0].filters, { Markdown: ['md'] });
+			assert.ok(dialogCalls[0].defaultUri?.fsPath.endsWith('README.md'));
+		});
+
 		it('returns false when user cancels save dialog', async () => {
-			const deps = makeMockDeps({ showSaveDialog: async () => undefined });
+			let writeCalls = 0;
+			const deps = makeMockDeps({
+				showSaveDialog: async () => undefined,
+				writeFile: async () => { writeCalls += 1; },
+			});
 			const result = await handleBrowserExtensionImport({ markdown: '# Problem' }, deps);
 			assert.strictEqual(result, false);
+			assert.strictEqual(writeCalls, 0, 'cancelling the dialog must never write a file');
 		});
 	});
 
@@ -91,6 +115,64 @@ describe('Browser extension import', () => {
 			}
 		});
 
+		it('auto-binds inside the browser probe range so the extension can discover it', async function () {
+			// G5 反馈回归:默认配置(importPort=0)下服务端必须落在浏览器扩展
+			// 探测区间 53135–53145 内,否则浏览器永远找不到端点、保存弹窗不出现。
+			// 区间被外部进程占满时会回退随机端口,该极端场景跳过断言。
+			if (await isProbeRangeFullyOccupied()) {
+				this.skip();
+				return;
+			}
+			const { port, dispose } = await startBrowserExtensionImportServer(makeMockExtensionContext());
+			try {
+				assert.ok(
+					port >= 53135 && port <= 53145,
+					`expected auto-bound port in 53135-53145, got ${port}`
+				);
+			} finally {
+				dispose();
+			}
+		});
+
+		it('skips occupied probe-range ports and stays reachable', async () => {
+			const occupier = http.createServer();
+			let occupied = false;
+			await new Promise<void>((resolve) => {
+				occupier.once('error', () => resolve());
+				occupier.listen(53135, '127.0.0.1', () => {
+					occupied = true;
+					resolve();
+				});
+			});
+			try {
+				const { port, dispose } = await startBrowserExtensionImportServer(makeMockExtensionContext());
+				try {
+					assert.notStrictEqual(port, 53135);
+					const response = await fetch(`http://127.0.0.1:${port}/health`);
+					assert.strictEqual(response.status, 200);
+				} finally {
+					dispose();
+				}
+			} finally {
+				if (occupied) {
+					await new Promise<void>((resolve) => occupier.close(() => resolve()));
+				}
+			}
+		});
+
+		it('assigns distinct ports to concurrent servers', async () => {
+			const first = await startBrowserExtensionImportServer(makeMockExtensionContext());
+			const second = await startBrowserExtensionImportServer(makeMockExtensionContext());
+			try {
+				assert.notStrictEqual(first.port, second.port);
+				const response = await fetch(`http://127.0.0.1:${second.port}/health`);
+				assert.strictEqual(response.status, 200);
+			} finally {
+				second.dispose();
+				first.dispose();
+			}
+		});
+
 		it('rejects non-localhost requests', async () => {
 			const context = makeMockExtensionContext();
 			const { port, dispose } = await startBrowserExtensionImportServer(context);
@@ -107,12 +189,13 @@ describe('Browser extension import', () => {
 });
 
 interface MockDepsInput {
-	showSaveDialog?: () => Thenable<vscode.Uri | undefined>;
+	showSaveDialog?: (options: vscode.SaveDialogOptions) => Thenable<vscode.Uri | undefined>;
 	writeFile?: (uri: vscode.Uri, content: Uint8Array) => Thenable<void>;
 	showTextDocument?: (uri: vscode.Uri) => Thenable<vscode.TextEditor>;
 	information?: (message: string) => Thenable<unknown>;
 	warning?: (message: string) => Thenable<unknown>;
 	error?: (message: string) => Thenable<unknown>;
+	log?: (message: string) => void;
 }
 
 function makeMockDeps(input: MockDepsInput = {}): BrowserExtensionImportDependencies {
@@ -147,4 +230,22 @@ function makeMockExtensionContext(): vscode.ExtensionContext {
 		} as unknown as vscode.Memento,
 		// Only the fields used by startBrowserExtensionImportServer are stubbed.
 	} as unknown as vscode.ExtensionContext;
+}
+
+/**
+ * 探测区间 53135–53145 是否已被外部进程全部占用（极端环境下跳过区间断言用）。
+ */
+async function isProbeRangeFullyOccupied(): Promise<boolean> {
+	const probes = Array.from({ length: 11 }, (_, i) => 53135 + i);
+	const results = await Promise.all(probes.map(async (port) => {
+		try {
+			const response = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) });
+			await response.arrayBuffer().catch(() => undefined);
+			return true;
+		} catch {
+			// 连接失败说明端口无人监听。
+			return false;
+		}
+	}));
+	return results.every((listening) => listening);
 }

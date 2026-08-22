@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { BrowserExtensionImportRequest } from './types';
+import { browserImportLog } from './log';
 
 const DEFAULT_FILE_NAME = 'README.md';
 
@@ -11,17 +12,21 @@ export async function handleBrowserExtensionImport(
 	request: BrowserExtensionImportRequest,
 	deps: BrowserExtensionImportDependencies = defaultDependencies()
 ): Promise<boolean> {
+	const log = deps.log ?? (() => undefined);
 	const { title, markdown, url } = request;
 	if (typeof markdown !== 'string' || markdown.length === 0) {
+		log('rejected: markdown empty or missing');
 		void deps.showWarningMessage('ClassMate: 浏览器扩展导入内容为空，未保存。');
 		return false;
 	}
+	log(`import request received: url=${url ?? 'none'}, markdown ${markdown.length} chars`);
 
 	let body = buildMarkdownBody(markdown, title, url);
 
 	const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
 	const defaultUri = vscode.Uri.joinPath(workspaceFolder ?? vscode.Uri.file('.'), DEFAULT_FILE_NAME);
 
+	log(`showing native save dialog (defaultUri=${defaultUri.fsPath})`);
 	const saveUri = await deps.showSaveDialog({
 		defaultUri,
 		filters: { Markdown: ['md'] },
@@ -30,11 +35,14 @@ export async function handleBrowserExtensionImport(
 	});
 
 	if (!saveUri) {
+		log('save dialog cancelled by user, nothing written');
 		return false;
 	}
+	log(`save dialog returned ${saveUri.fsPath}, writing file`);
 
 	try {
 		await deps.writeFile(saveUri, Buffer.from(body, 'utf-8'));
+		log(`file written: ${saveUri.fsPath}`);
 		void deps.showInformationMessage(`ClassMate: 已导入 ${saveUri.fsPath}`);
 		// 保存后打开文件，方便用户确认；失败不阻塞导入结果。
 		try {
@@ -45,6 +53,7 @@ export async function handleBrowserExtensionImport(
 		return true;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
+		log(`file write failed: ${message}`);
 		void deps.showErrorMessage(`ClassMate: 导入保存失败：${message}`);
 		return false;
 	}
@@ -74,6 +83,8 @@ export interface BrowserExtensionImportDependencies {
 	showInformationMessage: (message: string) => Thenable<unknown>;
 	showWarningMessage: (message: string) => Thenable<unknown>;
 	showErrorMessage: (message: string) => Thenable<unknown>;
+	/** 关键节点日志，便于定位导入链路断点；缺省（自定义 deps 未传时）不输出。 */
+	log?: (message: string) => void;
 }
 
 function defaultDependencies(): BrowserExtensionImportDependencies {
@@ -84,5 +95,6 @@ function defaultDependencies(): BrowserExtensionImportDependencies {
 		showInformationMessage: (message) => vscode.window.showInformationMessage(message),
 		showWarningMessage: (message) => vscode.window.showWarningMessage(message),
 		showErrorMessage: (message) => vscode.window.showErrorMessage(message),
+		log: (message) => browserImportLog(message),
 	};
 }

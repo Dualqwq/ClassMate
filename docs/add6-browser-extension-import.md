@@ -20,8 +20,9 @@
 
 - 模块：`src/browserExtensionImport/server.ts`
 - 仅监听 `127.0.0.1`，拒绝外部 IP。
-- 端口可配置：`classmate.browserExtension.importPort`，默认 `0`（随机端口）。
-- 启动后端口写入 `context.globalState`（`classmate.browserExtension.importPort`），popup 探测失败时尝试常见端口 `53135–53145`。
+- 端口可配置：`classmate.browserExtension.importPort`。显式配置 > 0 直接绑定；默认（0）在浏览器扩展探测区间 `53135–53145` 内依次绑定第一个空闲端口，区间全部被占才回退随机端口并记录告警。（G5 复审修复：原先默认绑 OS 随机端口，浏览器扩展只探测固定区间，端点永远发现不了，保存弹窗不会出现。）
+- 启动后端口写入 `context.globalState`（`classmate.browserExtension.importPort`）；浏览器扩展对 `53135–53145` 逐一 `GET /health` 探测发现实际端口。
+- 关键节点日志输出到 OutputChannel `ClassMate Browser Import`（`src/browserExtensionImport/log.ts`）：服务启动与绑定策略、每个请求、校验拒绝、`showSaveDialog` 调用与结果、写文件成败。
 - 路由：
   - `GET /health`：返回 `{ ok: true, port: number }`。
   - `POST /import`：接收 `{ title?, markdown, url? }`，调用保存流程。
