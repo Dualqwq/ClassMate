@@ -197,3 +197,32 @@ export type ExtensionToWebviewMessage =
 	| { type: 'containerInfo'; container: 'view' | 'panel' }
 	| { type: 'llmConfig'; config: LLMConfig }
 	| { type: 'themeUpdate'; theme: ClassMateTheme };
+
+// ---------------------------------------------------------------------------
+// Journey 面板消息(#12a/#14a,轨 FE1)。设计文档 §3.4:新 route 的消息先过
+// 本契约文件。独立 union(与 run 通道同策略):不并入上方 chat union,避免
+// 影响 ChatApp 既有 switch 的穷尽性;由 webview/vscodeApi.ts 组合成 Any*。
+// 视图模型 JourneyViewModel 定义在 src/journey/journeyViewModel.ts。
+// ---------------------------------------------------------------------------
+
+// webview → extension
+export type JourneyWebviewToExtensionMessage =
+	/** 面板打开/重连时拉全量视图模型(ext 侧派生后经 journey:sync 推回)。 */
+	| { type: 'journey:requestState' }
+	/** 清除本工作区调试记录(ext 侧二次确认后 store.clear())。 */
+	| { type: 'journey:clearAll' }
+	/** 打开 code_modified 条目的只读 diff(原生 vscode.diff,复用快照通路)。 */
+	| { type: 'journey:openDiff'; eventId: string }
+	/** [在代码里看]:按 ADD2 分组打开文件并定位到行(#18 零闪屏路径)。 */
+	| { type: 'journey:openFile'; uri: string; line?: number }
+	/** [求提示]:聚焦聊天容器并预填求助草稿;不自动发送,发送权在学生。 */
+	| { type: 'journey:requestHint'; text: string }
+	/** 错题本「导出」:接通既有 classmate.exportDebugNotebook 命令通路。 */
+	| { type: 'journey:exportNotebook' };
+
+// extension → webview
+export type JourneyExtensionToWebviewMessage =
+	/** 全量视图模型整体替换渲染(节流合并窗口后推送,不逐事件推流)。 */
+	| { type: 'journey:sync'; view: import('../journey/journeyViewModel').JourneyViewModel }
+	/** 清除已完成(webview 复位本地过滤与确认态)。 */
+	| { type: 'journey:cleared' };

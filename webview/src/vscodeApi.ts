@@ -1,4 +1,5 @@
 import type { ChatState, ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../src/chat/types';
+import type { JourneyExtensionToWebviewMessage, JourneyWebviewToExtensionMessage } from '../../src/chat/types';
 import type { RunExtensionToWebviewMessage, RunWebviewToExtensionMessage } from '../../src/run/types';
 
 declare const acquireVsCodeApi: () => {
@@ -28,8 +29,9 @@ declare global {
 	interface Window {
 		__CLASSMATE_INITIAL_STATE__?: ChatState;
 		__CLASSMATE_CONTAINER__?: 'view' | 'panel';
-		/** 共享 bundle 的路由(grill R2-Q3):缺省 chat;Run 面板注入 'run'。 */
-		__CLASSMATE_ROUTE__?: 'chat' | 'run';
+		/** 共享 bundle 的路由(grill R2-Q3):缺省 chat;Run 面板注入 'run',
+		 * Journey 面板注入 'journey'(#12a route 泛化)。 */
+		__CLASSMATE_ROUTE__?: 'chat' | 'run' | 'journey';
 	}
 }
 
@@ -37,7 +39,7 @@ export function getContainer(): 'view' | 'panel' {
 	return window.__CLASSMATE_CONTAINER__ ?? 'view';
 }
 
-export function getRoute(): 'chat' | 'run' {
+export function getRoute(): 'chat' | 'run' | 'journey' {
 	return window.__CLASSMATE_ROUTE__ ?? 'chat';
 }
 
@@ -55,8 +57,14 @@ export function getInitialState(): ChatState {
 	);
 }
 
-export type AnyWebviewToExtensionMessage = WebviewToExtensionMessage | RunWebviewToExtensionMessage;
-export type AnyExtensionToWebviewMessage = ExtensionToWebviewMessage | RunExtensionToWebviewMessage;
+export type AnyWebviewToExtensionMessage =
+	| WebviewToExtensionMessage
+	| RunWebviewToExtensionMessage
+	| JourneyWebviewToExtensionMessage;
+export type AnyExtensionToWebviewMessage =
+	| ExtensionToWebviewMessage
+	| RunExtensionToWebviewMessage
+	| JourneyExtensionToWebviewMessage;
 
 export function sendMessage(message: AnyWebviewToExtensionMessage): void {
 	vscode.postMessage(message);
