@@ -6,7 +6,7 @@ import * as vscode from 'vscode';
 import { describe, it, after } from 'mocha';
 import { CoursewareStore } from '../../courseware/coursewareStore';
 import { CoursewareService } from '../../courseware/coursewareService';
-import type { CoursewareGraph, CoursewareItem } from '../../courseware/types';
+import { COURSEWARE_GRAPH_VERSION, type CoursewareGraph, type CoursewareItem } from '../../courseware/types';
 
 /**
  * 内存版 workspaceState + 临时目录 globalStorage 的假 ExtensionContext。
@@ -38,7 +38,7 @@ function makeItem(id: string): CoursewareItem {
 
 function makeGraph(nodeSourceId: string): CoursewareGraph {
 	return {
-		version: 1,
+		version: COURSEWARE_GRAPH_VERSION,
 		updatedAt: Date.now(),
 		nodes: [
 			{
@@ -128,5 +128,52 @@ describe('courseware store/service 删除与重建语义', () => {
 		assert.strictEqual(rebuilt.nodes.length, 0);
 		assert.strictEqual((await service.loadGraph()).nodes.length, 0);
 		assert.deepStrictEqual(service.items.map((item) => item.id), ['src-missing-file']);
+	});
+});
+
+describe('课件图版本迁移（期 1：version<2 丢弃旧图并提示重建）', () => {
+	const tempRoots: string[] = [];
+
+	function newTempRoot(): string {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'classmate-courseware-migration-'));
+		tempRoots.push(dir);
+		return dir;
+	}
+
+	after(() => {
+		for (const dir of tempRoots) {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('version=1 旧结构图加载时被丢弃：空图 + needsRebuild 标记，检索为空', async () => {
+		const context = makeFakeContext(newTempRoot());
+		const prep = new CoursewareStore(context);
+		await prep.saveGraph({ ...makeGraph('src-legacy'), version: 1 });
+
+		const service = new CoursewareService(context);
+		const graph = await service.loadGraph();
+		assert.strictEqual(graph.nodes.length, 0);
+		assert.strictEqual(graph.edges.length, 0);
+		assert.strictEqual(graph.needsRebuild, true);
+		assert.deepStrictEqual(await service.retrieve('二叉树'), []);
+	});
+
+	it('当前版本图原样加载，不带重建标记', async () => {
+		const context = makeFakeContext(newTempRoot());
+		const prep = new CoursewareStore(context);
+		await prep.saveGraph(makeGraph('src-current'));
+
+		const store = new CoursewareStore(context);
+		const graph = await store.loadGraph();
+		assert.strictEqual(graph.nodes.length, 1);
+		assert.notStrictEqual(graph.needsRebuild, true);
+	});
+
+	it('无图文件（全新安装）不触发重建提示', async () => {
+		const store = new CoursewareStore(makeFakeContext(newTempRoot()));
+		const graph = await store.loadGraph();
+		assert.strictEqual(graph.nodes.length, 0);
+		assert.notStrictEqual(graph.needsRebuild, true);
 	});
 });

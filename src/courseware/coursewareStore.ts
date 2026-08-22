@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { CoursewareGraph, CoursewareItem } from './types';
+import { COURSEWARE_GRAPH_VERSION, type CoursewareGraph, type CoursewareItem } from './types';
 
 const ITEMS_KEY = 'classmate.courseware.items';
 
@@ -56,6 +56,12 @@ export class CoursewareStore {
 			const bytes = await vscode.workspace.fs.readFile(uri);
 			const parsed = JSON.parse(Buffer.from(bytes).toString('utf8'));
 			if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+				const version = typeof parsed.version === 'number' ? parsed.version : 0;
+				if (version < COURSEWARE_GRAPH_VERSION && parsed.nodes.length > 0) {
+					// 旧结构图（version<2）与新版 chunk 语义不兼容：丢弃返回空图并打标记，
+					// 由管理页提示手动重建（用户拍板：不自动静默重建，源文件可能已删）。
+					return { version: 0, updatedAt: Date.now(), nodes: [], edges: [], needsRebuild: true };
+				}
 				return parsed as CoursewareGraph;
 			}
 		} catch {

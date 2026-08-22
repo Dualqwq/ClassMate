@@ -113,7 +113,16 @@ export class CoursewarePanel {
 	private async _sendList(): Promise<void> {
 		const items = this._service.items;
 		const graph = await this._service.loadGraph();
-		this.postMessage({ type: 'list', items, graphStats: { nodes: graph.nodes.length, edges: graph.edges.length, updatedAt: graph.updatedAt } });
+		this.postMessage({
+			type: 'list',
+			items,
+			graphStats: {
+				nodes: graph.nodes.length,
+				edges: graph.edges.length,
+				updatedAt: graph.updatedAt,
+				needsRebuild: graph.needsRebuild === true,
+			},
+		});
 	}
 
 	private async _importPdf(): Promise<void> {

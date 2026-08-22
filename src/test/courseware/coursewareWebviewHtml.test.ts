@@ -29,4 +29,18 @@ describe('课件管理页 webview HTML', () => {
 		const html = renderHtml();
 		assert.match(html, /white-space:\s*nowrap/);
 	});
+
+	it('旧格式图触发「课件格式已升级，请重建搜索图」横幅（期 1 迁移提示）', () => {
+		const html = renderHtml();
+		assert.match(html, /课件格式已升级/);
+		assert.match(html, /重建搜索图」按新格式重新解析/);
+		// 横幅由 list 消息里的 needsRebuild 标记驱动
+		assert.match(html, /updateBanner\(graphStats \? graphStats\.needsRebuild : false\)/);
+	});
+
+	it('检索结果列表展示单元标签（slide/p.）与标题', () => {
+		const html = renderHtml();
+		assert.match(html, /r\.unitLabel \|\| \('p\.' \+ r\.pageStart\)/);
+		assert.match(html, /r\.title/);
+	});
 });

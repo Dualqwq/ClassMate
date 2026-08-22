@@ -51,9 +51,14 @@ export class CoursewareService {
 			addedAt: Date.now(),
 		};
 		await this._store.addItem(item);
-		const graph = await this.loadGraph();
+		const previousGraph = await this.loadGraph();
 		const incoming = buildCoursewareGraph(chunks);
-		this._graph = mergeGraphs(graph, incoming);
+		this._graph = mergeGraphs(previousGraph, incoming);
+		if (previousGraph.needsRebuild) {
+			// 新导入只把新课件带入图里，旧结构课件仍缺：保留待重建标记，
+			// 直到用户点「重建搜索图」按当前列表全量重建。
+			this._graph.needsRebuild = true;
+		}
 		await this._store.saveGraph(this._graph);
 		return item;
 	}

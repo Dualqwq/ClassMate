@@ -22,6 +22,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 		button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 		button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
 		.stats { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin-bottom: 16px; }
+		.banner { display: none; margin-bottom: 12px; padding: 8px 12px; border-left: 3px solid var(--vscode-editorWarning-foreground); background: var(--vscode-editorWarning-background); color: var(--vscode-editorWarning-foreground); }
 		table { width: 100%; border-collapse: collapse; }
 		th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); }
 		th { color: var(--vscode-descriptionForeground); font-weight: normal; }
@@ -43,6 +44,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 		<button id="rebuildBtn" class="secondary">重建搜索图</button>
 		<span id="progress" class="progress"></span>
 	</div>
+	<div id="rebuildBanner" class="banner">课件格式已升级：旧搜索图与新的分块格式不兼容，请点击「重建搜索图」按新格式重新解析已导入的课件。</div>
 	<div class="stats" id="stats">加载中…</div>
 	<table id="listTable" style="display:none">
 		<thead>
@@ -94,6 +96,9 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 					break;
 			}
 		});
+		function updateBanner(needsRebuild) {
+			document.getElementById('rebuildBanner').style.display = needsRebuild ? '' : 'none';
+		}
 		function updateStats(nodes, edges, updatedAt) {
 			const items = document.getElementById('listBody').children.length;
 			const timeText = updatedAt ? new Date(updatedAt).toLocaleString() : '未建图';
@@ -120,6 +125,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 			});
 			document.getElementById('listTable').style.display = items.length ? '' : 'none';
 			document.getElementById('empty').style.display = items.length ? 'none' : '';
+			updateBanner(graphStats ? graphStats.needsRebuild : false);
 			updateStats(graphStats ? graphStats.nodes : 0, graphStats ? graphStats.edges : 0, graphStats ? graphStats.updatedAt : undefined);
 		}
 		function renderResults(query, results) {
@@ -128,11 +134,13 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 				container.innerHTML = '<div class="result">无匹配片段</div>';
 				return;
 			}
-			container.innerHTML = results.map((r, i) =>
-				'<div class="result"><small>#' + (i + 1) + ' ' + escapeHtml(r.fileName) +
-				' p.' + r.pageStart + (r.pageStart === r.pageEnd ? '' : '-' + r.pageEnd) +
-				' (score ' + r.score.toFixed(2) + ')</small><br/>' + escapeHtml(r.content.slice(0, 240)) + '…</div>'
-			).join('');
+			container.innerHTML = results.map((r, i) => {
+				const unitText = r.unitLabel || ('p.' + r.pageStart);
+				const titleText = r.title ? ' · ' + escapeHtml(r.title) : '';
+				return '<div class="result"><small>#' + (i + 1) + ' ' + escapeHtml(r.fileName) +
+					' · ' + escapeHtml(unitText) + titleText +
+					' (score ' + r.score.toFixed(2) + ')</small><br/>' + escapeHtml(r.content.slice(0, 240)) + '…</div>';
+			}).join('');
 		}
 		function escapeHtml(text) {
 			return text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

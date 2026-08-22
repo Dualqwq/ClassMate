@@ -70,6 +70,9 @@ export function retrieveCoursewareChunks(
 				pageEnd: node.pageEnd,
 				content: node.content,
 				score,
+				// 可选定位信息透传（打分语义不变），供管理页结果列表展示 title/slide。
+				title: node.title,
+				unitLabel: node.unitLabel,
 			};
 		})
 		.filter((item): item is CoursewareRetrievalResult => item !== undefined)
