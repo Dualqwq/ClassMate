@@ -39,7 +39,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 <body>
 	<h1>ClassMate 课件管理</h1>
 	<div class="toolbar">
-		<button id="importBtn">导入 PDF</button>
+		<button id="importBtn">导入课件 (PDF/PPTX)</button>
 		<button id="rebuildBtn" class="secondary">重建 GraphRAG</button>
 		<span id="progress" class="progress"></span>
 	</div>
@@ -50,7 +50,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 		</thead>
 		<tbody id="listBody"></tbody>
 	</table>
-	<div id="empty" class="empty" style="display:none">尚未导入任何课件。点击“导入 PDF”选择文件。</div>
+	<div id="empty" class="empty" style="display:none">尚未导入任何课件。点击“导入课件”选择文件。</div>
 	<div class="query-box">
 		<input id="queryInput" type="text" placeholder="输入测试查询，检查检索效果…" />
 		<button id="queryBtn">测试检索</button>

@@ -53,6 +53,28 @@ describe('courseware retriever', () => {
 		assert.strictEqual(results.length, 0);
 	});
 
+	it('returns chunks for a single CJK character query', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('tree#0', 'tree', '二叉树是一种重要的树形结构，每个结点最多有两个孩子。', ['二叉树', '树形', '结点']),
+			makeChunk('oop#0', 'oop', 'A class defines a blueprint for objects.', ['class', 'object']),
+		]);
+		const results = retrieveCoursewareChunks(graph, '树', 3);
+		assert.ok(results.length > 0);
+		assert.strictEqual(results[0].chunkId, 'tree#0');
+	});
+
+	it('ranks chunks with denser single-character matches first', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('dense#0', 'dense', '树的性质 树的遍历 树的计数 树的存储 树的应用', ['树的性质', '树的遍历']),
+			makeChunk('sparse#0', 'sparse', '森林与树的概念辨析。', ['森林', '概念']),
+		]);
+		const results = retrieveCoursewareChunks(graph, '树', 2);
+		assert.ok(results.length === 2);
+		assert.strictEqual(results[0].chunkId, 'dense#0');
+		assert.ok(results[0].score > results[1].score);
+	});
+
+
 	it('formats results into a prompt block', () => {
 		const graph = buildSampleGraph();
 		const results = retrieveCoursewareChunks(graph, 'pointer', 2);

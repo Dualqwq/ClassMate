@@ -46,7 +46,8 @@
     "onCommand:classmate.exportConversationDiagnostics",
     "onCommand:classmate.setupApiKey",
     "onCommand:classmate.showBrowserExtensionImportStatus",
-    "onCommand:classmate.openCoursewarePanel"
+    "onCommand:classmate.openCoursewarePanel",
+    "onCommand:classmate.exportCoursewareGraph"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -80,6 +81,11 @@
         "title": "Open Courseware",
         "category": "ClassMate",
         "icon": "$(book)"
+      },
+      {
+        "command": "classmate.exportCoursewareGraph",
+        "title": "Export Courseware Graph",
+        "category": "ClassMate"
       },
       {
         "command": "classmate.explainSelection",

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { CoursewareGraph, CoursewareItem, CoursewareRetrievalResult, CoursewareServiceConfig } from './types';
 import { CoursewareStore } from './coursewareStore';
-import { extractAndChunkPdf } from './pdfChunker';
+import { extractAndChunkCourseware } from './coursewareChunker';
 import { buildCoursewareGraph, mergeGraphs } from './graphBuilder';
 import { formatRetrievalResults, retrieveCoursewareChunks } from './retriever';
 
@@ -36,8 +36,8 @@ export class CoursewareService {
 
 	public async importPdf(uri: vscode.Uri): Promise<CoursewareItem> {
 		const fileName = uri.path.split('/').pop() ?? uri.toString();
-		const sourceId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-		const chunks = await extractAndChunkPdf(sourceId, fileName, uri, {
+		const sourceId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+		const chunks = await extractAndChunkCourseware(sourceId, fileName, uri, {
 			chunkSize: this._config.chunkSize,
 			chunkOverlap: this._config.chunkOverlap,
 		});
@@ -77,11 +77,11 @@ export class CoursewareService {
 
 	public async rebuildGraphFromItems(progress?: (message: string) => void): Promise<CoursewareGraph> {
 		const items = this._store.getItems();
-		let allChunks: Awaited<ReturnType<typeof extractAndChunkPdf>> = [];
+		let allChunks: Awaited<ReturnType<typeof extractAndChunkCourseware>> = [];
 		for (const item of items) {
 			try {
 				progress?.(`正在解析: ${item.fileName}`);
-				const chunks = await extractAndChunkPdf(item.id, item.fileName, vscode.Uri.parse(item.uri), {
+				const chunks = await extractAndChunkCourseware(item.id, item.fileName, vscode.Uri.parse(item.uri), {
 					chunkSize: this._config.chunkSize,
 					chunkOverlap: this._config.chunkOverlap,
 				});

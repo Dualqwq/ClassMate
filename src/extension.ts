@@ -1178,6 +1178,33 @@ export async function activate(
 			},
 		},
 		{
+			id: 'classmate.exportCoursewareGraph',
+			handler: async () => {
+				const graph = await coursewareService.loadGraph();
+				if (graph.nodes.length === 0) {
+					void vscode.window.showWarningMessage(
+						'尚未构建课件知识图：请先在课件管理页导入课件并构建 GraphRAG。'
+					);
+					return;
+				}
+				const defaultUri = vscode.workspace.workspaceFolders?.[0]
+					? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, 'classmate-courseware-graph.json')
+					: vscode.Uri.file('classmate-courseware-graph.json');
+				const target = await vscode.window.showSaveDialog({
+					title: '导出课件 GraphRAG 图文件',
+					defaultUri,
+					filters: { JSON: ['json'] },
+				});
+				if (!target) {
+					return;
+				}
+				await vscode.workspace.fs.writeFile(target, Buffer.from(JSON.stringify(graph, null, 2), 'utf8'));
+				void vscode.window.showInformationMessage(
+					`已导出课件 GraphRAG 图（${graph.nodes.length} 节点 / ${graph.edges.length} 边）：${target.fsPath}`
+				);
+			},
+		},
+		{
 			id: 'classmate.explainSelection',
 			handler: (...args: unknown[]) => {
 				const selectedText = typeof args[0] === 'string' ? args[0] : undefined;

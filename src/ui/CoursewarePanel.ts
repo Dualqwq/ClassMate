@@ -119,8 +119,8 @@ export class CoursewarePanel {
 	private async _importPdf(): Promise<void> {
 		const uris = await vscode.window.showOpenDialog({
 			canSelectMany: true,
-			openLabel: '导入 PDF',
-			filters: { PDF: ['pdf'] },
+			openLabel: '导入课件',
+			filters: { 'PDF / PPTX': ['pdf', 'pptx'] },
 		});
 		if (!uris || uris.length === 0) {
 			return;

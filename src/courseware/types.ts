@@ -1,7 +1,7 @@
 import type * as vscode from 'vscode';
 
 /**
- * 单个课件（目前仅 PDF）的元数据。
+ * 单个课件的元数据。
  */
 export interface CoursewareItem {
 	id: string;
@@ -65,7 +65,7 @@ export interface CoursewareRetrievalResult {
 export interface CoursewareServiceConfig {
 	storageUri: vscode.Uri;
 	/**
-	 * 导入时单个 PDF 的最大字节数；与 pdfExtractor 保持一致。
+	 * 导入时单个课件文件（PDF/PPTX）的最大字节数。
 	 * @default 20MB
 	 */
 	maxPdfBytes?: number;

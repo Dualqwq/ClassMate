@@ -1,5 +1,13 @@
 import type { CoursewareEdge, CoursewareGraph, CoursewareRetrievalResult } from './types';
 
+/** 内容命中计分次数上限：出现更多次不再加分，避免长 chunk 垄断排序。 */
+const MAX_CONTENT_HITS_SCORED = 5;
+
+/** 单字 CJK 查询项的停用字（与 extractKeywords 的中文停用词一致）：高频虚字不参与匹配。 */
+const SINGLE_CJK_STOP_WORDS = new Set([
+	'的', '了', '是', '在', '和', '与', '或', '等', '对', '为', '有', '被', '将', '从', '到',
+]);
+
 /**
  * 基于查询关键词与图传播进行简单 RAG 检索。
  * 步骤：
@@ -20,13 +28,16 @@ export function retrieveCoursewareChunks(
 	const scores = new Map<string, number>();
 	for (const node of graph.nodes) {
 		let score = 0;
+		const lowerContent = node.content.toLowerCase();
 		for (const term of queryTerms) {
 			if (node.keywords.includes(term)) {
 				score += 1;
 			}
-			// 内容中完整出现也计分，但权重较低
-			if (node.content.toLowerCase().includes(term)) {
-				score += 0.3;
+			// 内容中出现次数越多得分越高（封顶，避免长文垄断），
+			// 同时让「树」「图」这类单字 CJK 查询能按密度区分相关性。
+			const occurrences = countOccurrences(lowerContent, term);
+			if (occurrences > 0) {
+				score += Math.min(occurrences, MAX_CONTENT_HITS_SCORED) * 0.3;
 			}
 		}
 		if (score > 0) {
@@ -72,12 +83,34 @@ function extractQueryTerms(query: string): string[] {
 		terms.add(match[0]);
 	}
 	const cjk = query.replace(/[^\u4e00-\u9fa5]/g, '');
+	// 单个 CJK 字符也是有效查询项：中文术语常为单字（树/图/环），
+	// 若只生成 2–6 字 n-gram，单字查询会得到空词集并直接返回空结果。
+	// 高频虚字除外——整句提问时它们几乎处处命中，只会稀释相关性。
+	for (const char of cjk) {
+		if (!SINGLE_CJK_STOP_WORDS.has(char)) {
+			terms.add(char);
+		}
+	}
+	// 相邻字组合成 2–6 字 n-gram，覆盖多字术语（二叉树、最短路径等）。
 	for (let i = 0; i < cjk.length - 1; i++) {
 		for (let len = 2; len <= 6 && i + len <= cjk.length; len++) {
 			terms.add(cjk.slice(i, i + len));
 		}
 	}
-	return [...terms].filter((term) => term.length >= 2);
+	return [...terms].filter((term) => term.length >= 1);
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+	if (!needle) {
+		return 0;
+	}
+	let count = 0;
+	let index = haystack.indexOf(needle);
+	while (index !== -1) {
+		count++;
+		index = haystack.indexOf(needle, index + needle.length);
+	}
+	return count;
 }
 
 function buildAdjacency(edges: CoursewareEdge[]): Map<string, Array<{ to: string; weight: number }>> {

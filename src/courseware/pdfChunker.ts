@@ -6,6 +6,11 @@ const DEFAULT_CHUNK_SIZE = 1200;
 const DEFAULT_CHUNK_OVERLAP = 120;
 const MAX_KEYWORDS_PER_CHUNK = 12;
 
+export interface ChunkTextOptions {
+	chunkSize?: number;
+	chunkOverlap?: number;
+}
+
 /**
  * 从 PDF 提取文本并按滑动窗口分块。
  * 规则：
@@ -17,13 +22,26 @@ export async function extractAndChunkPdf(
 	sourceId: string,
 	fileName: string,
 	uri: vscode.Uri,
-	options?: { chunkSize?: number; chunkOverlap?: number }
+	options?: ChunkTextOptions
 ): Promise<CoursewareChunk[]> {
 	const extraction: PdfExtractionResult = await extractPdfUri(uri);
+	return chunkExtractedText(extraction.text, extraction.pageCount, sourceId, fileName, options);
+}
+
+/**
+ * 把已抽取的纯文本按滑动窗口分块；PDF 与 PPTX 解析器共用。
+ */
+export function chunkExtractedText(
+	text: string,
+	pageCount: number,
+	sourceId: string,
+	fileName: string,
+	options?: ChunkTextOptions
+): CoursewareChunk[] {
 	const chunkSize = options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
 	const chunkOverlap = options?.chunkOverlap ?? DEFAULT_CHUNK_OVERLAP;
 
-	const paragraphs = extraction.text
+	const paragraphs = text
 		.split(/\n\s*\n+/)
 		.map((paragraph) => paragraph.replace(/\s+/g, ' ').trim())
 		.filter(Boolean);
@@ -37,7 +55,7 @@ export async function extractAndChunkPdf(
 		if (!content) {
 			return;
 		}
-		chunks.push(buildChunk(chunks.length, content, currentPage, extraction.pageCount));
+		chunks.push(buildChunk(chunks.length, content, currentPage, pageCount));
 	}
 
 	function buildChunk(index: number, content: string, pageStart: number, pageEnd: number): CoursewareChunk {
@@ -54,10 +72,10 @@ export async function extractAndChunkPdf(
 
 	for (const paragraph of paragraphs) {
 		// 粗略按页码推断：假设每页文本量大致均匀分布。
-		const progressRatio = extraction.text.length > 0
-			? (currentBuffer.length + paragraph.length) / extraction.text.length
+		const progressRatio = text.length > 0
+			? (currentBuffer.length + paragraph.length) / text.length
 			: 0;
-		currentPage = Math.max(1, Math.min(extraction.pageCount, Math.floor(progressRatio * extraction.pageCount) + 1));
+		currentPage = Math.max(1, Math.min(pageCount, Math.floor(progressRatio * pageCount) + 1));
 
 		if (paragraph.length > chunkSize) {
 			flushBuffer();
