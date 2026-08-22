@@ -407,3 +407,89 @@ describe('grounding existence claims from run17 review (存在性声明回归)',
 		assert.strictEqual(result.passed, true, '空体声明落在注释态基类上为真,类名不参与绑定');
 	});
 });
+
+describe('grounding contrast sentence binding (#29 状态就近绑定)', () => {
+	const FUNC_A = fn('sym:a.h:A:funcA', 'a.h', 'funcA', { nonEmptyStatementCount: 3 });
+	const FUNC_B = fn('sym:b.h:B:funcB', 'b.h', 'funcB', { nonEmptyStatementCount: 0 });
+
+	it('binds "已实现" to A and "未实现" to B across 但', () => {
+		const result = checkAnswerGrounding(
+			'`funcA` 已实现，但 `funcB` 还没实现。',
+			[FUNC_A, FUNC_B]
+		);
+		assert.strictEqual(result.passed, true, '状态描述与事实一致时不应冲突');
+		assert.deepStrictEqual(
+			result.claims.map((claim) => ({ name: claim.symbolName, kind: claim.kind })),
+			[
+				{ name: 'funcA', kind: 'completion' },
+				{ name: 'funcB', kind: 'existence' },
+			]
+		);
+	});
+
+	it('flags false binding when both clauses contradict facts', () => {
+		const result = checkAnswerGrounding(
+			'`funcA` 已实现，但 `funcB` 还没实现。',
+			[
+				{ ...FUNC_A, body: { empty: true, commentOnly: false, nonEmptyStatementCount: 0, calledNames: [] } },
+				{ ...FUNC_B, body: { empty: false, commentOnly: false, nonEmptyStatementCount: 3, calledNames: [] } },
+			]
+		);
+		assert.strictEqual(result.passed, false);
+		assert.strictEqual(result.conflicts.length, 2);
+		assert.ok(result.conflicts.some((c) => c.symbolName === 'funcA' && c.kind === 'completion'));
+		assert.ok(result.conflicts.some((c) => c.symbolName === 'funcB' && c.kind === 'existence'));
+	});
+
+	it('binds opposite states across comma when no conjunction but mixed polarity', () => {
+		const result = checkAnswerGrounding(
+			'`funcA` 已实现，`funcB` 未实现。',
+			[FUNC_A, FUNC_B]
+		);
+		assert.strictEqual(result.passed, true);
+		assert.deepStrictEqual(
+			result.claims.map((claim) => ({ name: claim.symbolName, kind: claim.kind })),
+			[
+				{ name: 'funcA', kind: 'completion' },
+				{ name: 'funcB', kind: 'existence' },
+			]
+		);
+	});
+
+	it('keeps non-contrast enumeration binding both symbols to the same state', () => {
+		const result = checkAnswerGrounding(
+			'`funcA` 和 `funcB` 都已实现。',
+			[FUNC_A, { ...FUNC_B, body: { empty: false, commentOnly: false, nonEmptyStatementCount: 2, calledNames: [] } }]
+		);
+		assert.strictEqual(result.passed, true);
+		assert.strictEqual(result.claims.length, 2);
+		assert.ok(result.claims.every((claim) => claim.kind === 'completion'));
+	});
+
+	it('respects file mentions when segmenting contrastive clauses', () => {
+		const printStatus = {
+			targetId: 'sym:player.h:Player:printStatus',
+			file: 'player.h', name: 'printStatus', kind: 'method' as const, container: 'Player',
+			startLine: 103, endLine: 105,
+			body: { empty: false, commentOnly: false, nonEmptyStatementCount: 1, calledNames: [] },
+		};
+		const takeTurn = {
+			targetId: 'sym:monster.h:Monster:takeTurn',
+			file: 'monster.h', name: 'takeTurn', kind: 'method' as const, container: 'Monster',
+			startLine: 26, endLine: 31,
+			body: { empty: true, commentOnly: false, nonEmptyStatementCount: 0, calledNames: [] },
+		};
+		const result = checkAnswerGrounding(
+			'在 player.h 中，`printStatus` 已实现；但在 monster.h 中，`takeTurn` 还没实现。',
+			[printStatus, takeTurn]
+		);
+		assert.strictEqual(result.passed, true);
+		assert.deepStrictEqual(
+			result.claims.map((claim) => ({ name: claim.symbolName, kind: claim.kind })),
+			[
+				{ name: 'printStatus', kind: 'completion' },
+				{ name: 'takeTurn', kind: 'existence' },
+			]
+		);
+	});
+});

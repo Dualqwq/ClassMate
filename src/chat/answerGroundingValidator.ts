@@ -10,6 +10,8 @@ import type { CppSymbol } from '../parser/cppWorkspaceIndex';
  * - 声明绑定不到唯一符号 → 跳过(宁缺毋滥,漏检无副作用);同名多符号
  *   按限定容器/句内文件/行号范围消歧,仍不唯一则放弃;
  * - 不可核对的措辞不产生冲突;只有"声明 vs 事实"明确矛盾才判 conflict。
+ * - 对比句型(如 "A已实现但B未实现")按句法就近/主语归属绑定状态,
+ *   不得把转折前后的状态张冠李戴。
  */
 export type GroundingClaimKind = 'comment_only' | 'empty' | 'count' | 'completion' | 'existence';
 
@@ -85,6 +87,53 @@ function fileMentionsOf(sentence: string): string[] {
 function lineRangesOf(sentence: string): Array<[number, number]> {
 	return [...sentence.matchAll(/第\s*(\d+)\s*(?:[-–—~至]\s*(\d+))?\s*行/g)]
 		.map((match) => [Number(match[1]), Number(match[2] ?? match[1])] as [number, number]);
+}
+
+/** 转折/对比连词:左右分句的状态应各自绑定到本句主语。 */
+const CONTRASTIVE_CONJUNCTIONS = /(?<!不|非)但(?:是)?|(?<!因)而(?!且)|然而|不过|却|可是|只(?:是|不过)|反而|相反|尽管如此/;
+
+function hasMixedPolarity(text: string): boolean {
+	const positive = CLAIM_PATTERNS.some(
+		({ kind, pattern }) => kind === 'completion' && pattern.test(text)
+	);
+	const negative = CLAIM_PATTERNS.some(
+		({ kind, pattern }) =>
+			(kind === 'existence' || kind === 'empty' || kind === 'comment_only') &&
+			pattern.test(text)
+	);
+	return positive && negative;
+}
+
+/**
+ * 把句子切分为状态绑定单元。
+ * - 显式转折(但/然而/不过等)按连词拆分;
+ * - 无显式转折但含正负状态混合时,按逗号/分号拆分,避免
+ *   "A已实现,B未实现"把两个状态都绑到两个符号上。
+ */
+function splitSentenceSegments(sentence: string): string[] {
+	const byContrast = sentence
+		.split(CONTRASTIVE_CONJUNCTIONS)
+		.map((s) => s.trim())
+		.filter(Boolean);
+	if (byContrast.length === 1 && hasMixedPolarity(sentence)) {
+		return sentence
+			.split(/[，,；;]/)
+			.map((s) => s.trim())
+			.filter(Boolean);
+	}
+	return byContrast.length === 1
+		? byContrast
+		: byContrast.flatMap((segment) => splitSentenceSegments(segment));
+}
+
+/** 返回符号首次出现的分句索引;找不到时归于第 0 分句(兜底)。 */
+function symbolSegmentIndex(symbol: CppSymbol, segments: string[]): number {
+	for (let i = 0; i < segments.length; i++) {
+		if (new RegExp(`\\b${escapeRegExp(symbol.name)}\\b`).test(segments[i])) {
+			return i;
+		}
+	}
+	return 0;
 }
 
 function locateSymbols(sentence: string, symbols: CppSymbol[]): CppSymbol[] {
@@ -213,10 +262,19 @@ export function checkAnswerGrounding(
 			continue;
 		}
 		// 一句可谈论多个符号(枚举型回答的常态),逐个绑定核对。
-		for (const symbol of locateSymbols(sentence, symbols)) {
+		// 对比句型先按转折/标点切分,状态只绑到同一句法分句的符号,
+		// 避免 "A已实现但B未实现" 把两种状态交叉绑到两个符号。
+		const resolvedSymbols = locateSymbols(sentence, symbols);
+		if (resolvedSymbols.length === 0) {
+			continue;
+		}
+		const segments = splitSentenceSegments(sentence);
+		for (const symbol of resolvedSymbols) {
 			const actual = factOf(symbol);
+			const symbolSegment = symbolSegmentIndex(symbol, segments);
+			const bindingScope = segments[symbolSegment];
 			for (const { kind, statedFact, pattern } of CLAIM_PATTERNS) {
-				if (!pattern.test(sentence)) {
+				if (!pattern.test(bindingScope)) {
 					continue;
 				}
 				const claim: GroundingClaim = {
@@ -239,7 +297,7 @@ export function checkAnswerGrounding(
 					conflicts.push(claim);
 				}
 			}
-			const count = countClaimOf(sentence);
+			const count = countClaimOf(bindingScope);
 			if (count) {
 				const actualCount = actualCountOf(symbol);
 				if (actualCount !== undefined) {
