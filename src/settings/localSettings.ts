@@ -62,9 +62,11 @@ export function buildLocalSettingsUrl(url: string, token: string): string {
 
 export async function openLocalSettingsPage(
 	context: vscode.ExtensionContext,
-	serverUrl: string
+	serverUrl: string,
+	/** 打开器缺省为系统浏览器(env.openExternal);测试注入替身以断言 URL 形态。 */
+	opener: (url: string) => Thenable<unknown> = (url) =>
+		vscode.env.openExternal(vscode.Uri.parse(url))
 ): Promise<void> {
 	const token = await ensureLocalToken(context);
-	const url = buildLocalSettingsUrl(serverUrl, token);
-	await vscode.env.openExternal(vscode.Uri.parse(url));
+	await opener(buildLocalSettingsUrl(serverUrl, token));
 }

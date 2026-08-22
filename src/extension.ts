@@ -18,7 +18,7 @@ import { ChatSessionStorage } from './chat/chatSessionStorage';
 import type { ChatReference, LLMConfig, MessageIntent } from './chat/types';
 import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
 import { chooseContainer } from './chat/MessageRouter';
-import { setupApiKey, getApiKey } from './config/apiKey';
+import { getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig, getFallbackLLMConfig, saveFallbackLLMConfig, getFallbackApiKey } from './config/llmConfig';
 import { createLocalSettingsServer, getThemeSettings } from './settings/localSettingsServer';
 import { openLocalSettingsPage } from './settings/localSettings';
@@ -881,10 +881,6 @@ async function exportDebugNotebookHandler(
 	await vscode.window.showTextDocument(saveUri);
 }
 
-async function setupApiKeyHandlerAsync(context: vscode.ExtensionContext): Promise<void> {
-	await setupApiKey(context);
-}
-
 const CODE_LENS_HINT_KEY = 'classmate.codeLensHintShown';
 
 async function promptToEnableCodeLens(context: vscode.ExtensionContext): Promise<void> {
@@ -1343,7 +1339,21 @@ export async function activate(
 				}
 			},
 		},
-		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) },
+		{
+			// G5 复测:该命令的旧实现是原生 InputBox 密码框(简陋 UI),曾被误当
+			// "模型设置"入口。收敛为明确提示 + 一键跳转本地网页设置页,不再弹
+			// 原生输入框;模型配置(含 API Key)统一在设置页管理。
+			id: 'classmate.setupApiKey',
+			handler: async () => {
+				const choice = await vscode.window.showInformationMessage(
+					'ClassMate 的模型配置（含 API Key）请在本地设置页中管理。',
+					'打开设置页'
+				);
+				if (choice === '打开设置页') {
+					await openLocalSettingsPage(context, localSettingsServer.url);
+				}
+			},
+		},
 		{
 			id: 'classmate.showBrowserExtensionImportStatus',
 			handler: () => {
