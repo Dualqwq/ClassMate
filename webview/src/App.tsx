@@ -5,6 +5,7 @@ import { applyClassMateTheme } from '../../src/chat/classmateTheme';
 import { getInitialState, getContainer, getRoute, sendMessage, subscribeToExtension, type AnyExtensionToWebviewMessage } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
 import { RunPanel } from './RunPanel';
+import { JourneyView } from './journey/JourneyView';
 import { hasAuthoritativeInputDraft } from '../../src/chat/composerDraftContract';
 import './classmate.css';
 
@@ -52,11 +53,14 @@ function formatConversationDate(timestamp: number): string {
 const COMPOSER_MAX_HEIGHT = 132;
 
 export const App: React.FC = () => {
-	// 共享 bundle 路由(grill R2-Q3):Run 面板与 Chat 共用 dist/webview.js,
+	// 共享 bundle 路由(grill R2-Q3):Chat / Run / Journey(#12a)共用 dist/webview.js,
 	// 由 HTML 注入的 __CLASSMATE_ROUTE__ 决定渲染哪一棵组件树。
 	// route 在页面生命周期内不变,提前 return 不违反 hooks 规则。
 	if (getRoute() === 'run') {
 		return <RunPanel />;
+	}
+	if (getRoute() === 'journey') {
+		return <JourneyView />;
 	}
 	return <ChatApp />;
 };
