@@ -340,8 +340,10 @@ function looksLikeSolutionRequest(text: string): boolean {
 	return (
 		text.includes('完整代码') ||
 		text.includes('完整答案') ||
-		text.includes('全部代码') ||
-		text.includes('给我代码') ||
+		text.includes('完整解法') ||
+		/全部.*代码/.test(text) ||
+		/给我.*代码/.test(text) ||
+		/给我.*解法/.test(text) ||
 		text.includes('solution') ||
 		text.includes('完整实现')
 	);

@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import {
 	buildLearnerState,
+	fallbackPlan,
 	inferConcepts,
 	sanitizePlannerResult,
 	validateCorrectedAnswer,
@@ -126,5 +127,47 @@ describe('unconverted marker leak guard (run14 竖线笔误防泄漏)', () => {
 			validateStudentAnswer('初始化列表写在 { } 里,别漏了分号;数组是 {1, 2, 3}。', plan).valid,
 			true
 		);
+	});
+});
+
+describe('solution_request teaching guard (#30)', () => {
+	it('fallbackPlan never allows complete code for solution_request', () => {
+		const learner = buildLearnerState('给我完整代码', []);
+		assert.strictEqual(learner.wantsCompleteSolution, true);
+		const result = fallbackPlan('solution_request', ['链表'], learner);
+		assert.strictEqual(result.answerPlan.allowCompleteCode, false);
+		assert.ok(result.answerPlan.mustAvoid.includes('不要直接给出完整代码或完整程序'));
+	});
+
+	it('sanitizePlannerResult overrides model attempt to allow complete code for solution_request', () => {
+		const learner = buildLearnerState('给我完整代码', []);
+		const unsafe = buildDefaultAnswerPlan('solution_request', ['链表'], 4);
+		assert.strictEqual(unsafe.allowCompleteCode, true);
+		const sanitized = sanitizePlannerResult(
+			{ answerPlan: unsafe, skillRetrievalQuery: unsafe.skillQuery },
+			'solution_request',
+			learner
+		);
+		assert.strictEqual(sanitized.answerPlan.allowCompleteCode, false);
+		assert.strictEqual(sanitized.answerPlan.requestType, 'solution_request');
+		assert.ok(sanitized.answerPlan.mustAvoid.includes('不要直接给出完整代码或完整程序'));
+	});
+
+	it('validateStudentAnswer rejects a long complete program for solution_request', () => {
+		const plan = buildDefaultAnswerPlan('solution_request', ['链表'], 1);
+		const longCode = `\`\`\`cpp\n${Array.from(
+			{ length: 25 },
+			(_, index) => `int value${index} = ${index};`
+		).join('\n')}\n\`\`\``;
+		const result = validateStudentAnswer(longCode, plan);
+		assert.strictEqual(result.valid, false);
+		assert.ok(result.problems.some((problem) => problem.includes('solution_request')));
+	});
+
+	it('still allows a short illustrative snippet for solution_request', () => {
+		const plan = buildDefaultAnswerPlan('solution_request', ['链表'], 1);
+		const shortSnippet = '先定义一个节点结构:\n\`\`\`cpp\nstruct Node { int data; Node* next; };\n\`\`\`\n然后想想头指针怎么移动。';
+		const result = validateStudentAnswer(shortSnippet, plan);
+		assert.strictEqual(result.valid, true);
 	});
 });

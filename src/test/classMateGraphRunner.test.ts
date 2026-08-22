@@ -29,7 +29,7 @@ function createGraph(): SkillGraph {
 }
 
 function mergedPlan(
-	requestType: 'concept_explanation' | 'code_explanation' | 'runtime_error_help' | 'problem_hint' | 'code_edit',
+	requestType: 'concept_explanation' | 'code_explanation' | 'runtime_error_help' | 'problem_hint' | 'solution_request' | 'code_edit',
 	workspaceRequests: Array<{
 		target: string;
 		section?: string | null;
@@ -1461,5 +1461,70 @@ describe('load_evidence_backfill (7.8 缺证据补读)', () => {
 		});
 		assert.strictEqual(result.state.evidenceBackfillCount, 0);
 		assert.strictEqual(result.state.answerOutcome, 'answered');
+	});
+
+	it('falls back to guidance when a solution_request model tries to emit a full program', async () => {
+		const fullProgram = '```cpp\n' + Array.from(
+			{ length: 30 },
+			(_, index) => `int step${index} = ${index};`
+		).join('\n') + '\n```';
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return {
+						content: mergedPlan('solution_request', [{
+							target: 'main.cpp',
+							required: true,
+							reason: '学生索要完整代码',
+						}]),
+					};
+				}
+				if (text.includes('ClassMate Problem Constraint Mode')) {
+					return { content: JSON.stringify({ h: [], o: [], l: [], e: [], u: [] }) };
+				}
+				if (text.includes('ClassMate Lightweight Correctness Check')) {
+					return { content: JSON.stringify({ p: true, s: 'none', i: [] }) };
+				}
+				return { content: fullProgram };
+			},
+		};
+		const minimal: MinimalWorkspaceContext = {
+			catalog: {
+				files: [{
+					path: 'main.cpp',
+					uri: 'file:///main.cpp',
+					kind: 'code',
+					size: 50,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+				activeEditor: {
+					fileName: 'main.cpp',
+					uri: 'file:///main.cpp',
+					languageId: 'cpp',
+				},
+			},
+		};
+		const services = createServices(model, minimal, async () => [{
+			path: 'main.cpp',
+			kind: 'code',
+			content: 'int main() { return 0; }',
+			contentHash: 'main-hash',
+			reason: 'test',
+		}]);
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'solution-request-guard',
+			conversationId: 'conversation-solution-request',
+			userText: '给我完整代码',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(result.state.requestType, 'solution_request');
+		assert.strictEqual(result.state.answerPlan?.allowCompleteCode, false);
+		assert.strictEqual(result.state.answerOutcome, 'generic_fallback');
+		assert.ok(!result.answer.includes('```'));
 	});
 });

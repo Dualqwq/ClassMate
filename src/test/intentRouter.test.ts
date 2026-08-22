@@ -62,4 +62,9 @@ describe('Intent Router Test Suite', () => {
 		const result = classifyRequest(undefined, '你好');
 		assert.strictEqual(result, 'chat');
 	});
+
+	it('text analysis detects a direct request for complete code', () => {
+		assert.strictEqual(classifyRequest(undefined, '给我完整代码'), 'solution_request');
+		assert.strictEqual(classifyRequest(undefined, '请给我这道题的完整解法'), 'solution_request');
+	});
 });

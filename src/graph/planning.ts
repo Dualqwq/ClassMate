@@ -57,9 +57,17 @@ export function fallbackPlan(
 	learnerState: LearnerState
 ): PlannerResult {
 	const plan = buildDefaultAnswerPlan(requestType, concepts, learnerState.hintLevel);
-	if (!learnerState.wantsCompleteSolution && requestType !== 'code_edit') {
+	if (requestType === 'code_edit') {
+		// code_edit is the only path that may emit a complete replacement block.
+	} else {
 		plan.allowCompleteCode = false;
 		plan.depthLevel = Math.min(plan.depthLevel, learnerState.hintLevel) as 1 | 2 | 3 | 4;
+	}
+	if (requestType === 'solution_request') {
+		const noCompleteCode = '不要直接给出完整代码或完整程序';
+		if (!plan.mustAvoid.includes(noCompleteCode)) {
+			plan.mustAvoid = [...plan.mustAvoid, noCompleteCode];
+		}
 	}
 	return { answerPlan: plan, skillRetrievalQuery: plan.skillQuery };
 }
@@ -77,9 +85,8 @@ export function sanitizePlannerResult(
 		maxSections: Math.min(5, Math.max(1, result.skillRetrievalQuery.maxSections)),
 		maxTokens: Math.min(4000, Math.max(200, result.skillRetrievalQuery.maxTokens)),
 	};
-	const mayReturnCompleteCode =
-		frozenRequestType === 'code_edit' ||
-		(frozenRequestType === 'solution_request' && learnerState.wantsCompleteSolution);
+	// #30: solution_request must not become a backdoor for full-code answers.
+	const mayReturnCompleteCode = frozenRequestType === 'code_edit';
 	const depthLevel = frozenRequestType === 'problem_hint'
 		? Math.min(result.answerPlan.depthLevel, learnerState.hintLevel) as 1 | 2 | 3 | 4
 		: result.answerPlan.depthLevel;
@@ -90,6 +97,12 @@ export function sanitizePlannerResult(
 		allowCompleteCode: mayReturnCompleteCode && result.answerPlan.allowCompleteCode,
 		skillQuery: query,
 	};
+	if (frozenRequestType === 'solution_request' && !answerPlan.allowCompleteCode) {
+		const noCompleteCode = '不要直接给出完整代码或完整程序';
+		if (!answerPlan.mustAvoid.includes(noCompleteCode)) {
+			answerPlan.mustAvoid = [...answerPlan.mustAvoid, noCompleteCode];
+		}
+	}
 	return { answerPlan, skillRetrievalQuery: query };
 }
 
@@ -147,6 +160,10 @@ export function validateStudentAnswer(answer: string, plan: AnswerPlan): AnswerV
 	);
 	if (!plan.allowCompleteCode && codeLines > 18) {
 		problems.push('当前层级不允许直接给出大段完整代码。');
+	}
+	// #30: solution_request is a teaching hint route, not a license to write the full program.
+	if (plan.requestType === 'solution_request' && codeLines > 18) {
+		problems.push('solution_request 不允许直接给出完整代码或完整程序，请改为提示和引导。');
 	}
 	if (plan.requestType === 'problem_hint' && plan.depthLevel === 1) {
 		if (trimmed.length > 900) {

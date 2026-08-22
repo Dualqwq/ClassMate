@@ -109,6 +109,21 @@ describe('V5 workspace context policy', () => {
 		);
 	});
 
+	it('does not inherit solution_request across turns; it falls back to problem_hint', () => {
+		const workspace = assignmentWorkspace();
+		assert.strictEqual(
+			biasRequestTypeForWorkspace('chat', '然后呢', workspace, {
+				problemRoot: 'assignment',
+				questionPath: 'assignment/question.md',
+				activeSourcePath: 'assignment/main.cpp',
+				relatedPaths: ['assignment/question.md', 'assignment/main.cpp'],
+				previousRequestType: 'solution_request',
+				previousContextMode: 'problem_context',
+			}),
+			'problem_hint'
+		);
+	});
+
 	it('keeps previous assignment context for a natural follow-up without keywords', () => {
 		const workspace = assignmentWorkspace();
 		const previous = {

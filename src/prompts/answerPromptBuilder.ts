@@ -191,6 +191,7 @@ export class AnswerPromptBuilder {
 					'Use the frozen request type and answer plan. Do not reclassify the request or ask the student to switch topics.',
 					'If the loaded files are empty, or the problem statement or active file is missing, name the exact file you need to see and never invent its contents. Otherwise do not ask for additional files.',
 					'If allowCompleteCode is false, any illustrative code must stay under 15 non-empty lines in total. Prefer one minimal snippet instead of a complete program.',
+					'For solution_request, the student is asking for a complete answer. Do not provide the full program, a complete implementation, or a copy-paste solution. Give a hint, ask about their current attempt, and keep any illustrative code under 15 non-empty lines.',
 					'For problem_hint at depthLevel 1, give exactly one key clue plus one guiding question. Keep it under 6 short sentences. Do not reveal the exact replacement, full repair sequence, or multiple checkpoints.',
 					'When loadedItems contains the file or function named by the user, analyze that exact source code.',
 					'Quote the real condition or statement that causes the problem. Do not replace it with a generic example, imagined implementation, or “common error” pseudocode.',

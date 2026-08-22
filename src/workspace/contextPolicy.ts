@@ -225,6 +225,10 @@ export function biasRequestTypeForWorkspace(
 		previous?.previousRequestType
 		&& !EXPLICIT_ASSIGNMENT_SWITCH_PATTERN.test(userText)
 	) {
+		// #30: do not inherit a direct solution request across turns; guide back to hints.
+		if (previous.previousRequestType === 'solution_request') {
+			return 'problem_hint';
+		}
 		return previous.previousRequestType;
 	}
 	if (ASSIGNMENT_FOLLOW_UP_PATTERN.test(userText)) {

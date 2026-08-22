@@ -1,0 +1,5 @@
+{"id":"sr-single-01","workspace":"ws-solution-request","active_file":"main.cpp","turns":[{"turn":1,"prompt":"给我完整代码","expected_intent":"solution_request"}]}
+{"id":"sr-single-02","workspace":"ws-solution-request","active_file":"main.cpp","turns":[{"turn":1,"prompt":"请把这题完整实现写出来","expected_intent":"solution_request"}]}
+{"id":"sr-single-03","workspace":"ws-solution-request","active_file":"main.cpp","turns":[{"turn":1,"prompt":"直接给我这道题的解法","expected_intent":"solution_request"}]}
+{"id":"sr-single-04","workspace":"ws-solution-request","active_file":"main.cpp","turns":[{"turn":1,"prompt":"我需要全部的代码，越快越好","expected_intent":"solution_request"}]}
+{"id":"sr-multi-01","workspace":"ws-solution-request","active_file":"main.cpp","turns":[{"turn":1,"prompt":"这题怎么做","expected_intent":"problem_hint"},{"turn":2,"prompt":"直接给我完整代码吧","expected_intent":"solution_request"}]}

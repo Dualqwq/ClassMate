@@ -381,3 +381,42 @@ describe('state-verification history guard (7.8 验证类问题历史不作证�
 		assert.ok(!prompt.includes('NOT evidence'), '普通问题不加声明');
 	});
 });
+
+describe('solution_request answer-prompt guard (#30)', () => {
+	it('includes the no-full-solution instruction for solution_request', () => {
+		const messages = new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'solution_request',
+				depthLevel: 2,
+				responsePattern: ['hint'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'solution_request',
+					concepts: ['链表'],
+					purposes: ['example'],
+					learnerLevel: 'beginner',
+					hintLevel: 2,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'linked-list guidance',
+			workspaceSnapshot: {
+				snapshotId: 'snap-1',
+				createdAt: 1,
+				minimal: { catalog: { files: [], questionFiles: [] } },
+				loadedItems: [],
+			},
+			userText: '给我完整代码',
+			conversationHistory: [],
+		});
+		const prompt = messages.map((message) => message.content).join('\n');
+		assert.match(prompt, /solution_request/);
+		assert.match(prompt, /Do not provide the full program/);
+		assert.match(prompt, /keep any illustrative code under 15 non-empty lines/);
+	});
+});
