@@ -59,20 +59,9 @@ export class CoursewareService {
 	}
 
 	public async deleteCourseware(id: string): Promise<void> {
+		// 用户拍板语义：删除仅把课件移出导入列表（元数据随 workspaceState 持久化消失），
+		// 已构建的搜索图原样保留，直到点「重建搜索图」时按当前列表全量重建。
 		await this._store.removeItem(id);
-		const current = await this.loadGraph();
-		const keptNodes = current.nodes.filter((node) => node.sourceId !== id);
-		const keptNodeIds = new Set(keptNodes.map((node) => node.chunkId));
-		const keptEdges = current.edges.filter(
-			(edge) => keptNodeIds.has(edge.from) && keptNodeIds.has(edge.to)
-		);
-		this._graph = {
-			version: current.version + 1,
-			updatedAt: Date.now(),
-			nodes: keptNodes,
-			edges: keptEdges,
-		};
-		await this._store.saveGraph(this._graph);
 	}
 
 	public async rebuildGraphFromItems(progress?: (message: string) => void): Promise<CoursewareGraph> {

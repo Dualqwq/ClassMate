@@ -17,7 +17,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 		body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px; margin: 0; }
 		h1 { font-size: 1.2em; margin: 0 0 12px; }
 		.toolbar { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
-		button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 12px; cursor: pointer; border-radius: 2px; }
+		button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 12px; cursor: pointer; border-radius: 2px; white-space: nowrap; }
 		button:hover { background: var(--vscode-button-hoverBackground); }
 		button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 		button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
@@ -40,7 +40,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 	<h1>ClassMate 课件管理</h1>
 	<div class="toolbar">
 		<button id="importBtn">导入课件 (PDF/PPTX)</button>
-		<button id="rebuildBtn" class="secondary">重建 GraphRAG</button>
+		<button id="rebuildBtn" class="secondary">重建搜索图</button>
 		<span id="progress" class="progress"></span>
 	</div>
 	<div class="stats" id="stats">加载中…</div>
@@ -64,7 +64,7 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 			post('importPdf');
 		});
 		document.getElementById('rebuildBtn').addEventListener('click', () => {
-			setProgress('正在重建图…');
+			setProgress('正在重建搜索图…');
 			post('rebuildGraph');
 		});
 		document.getElementById('queryBtn').addEventListener('click', () => {
@@ -83,7 +83,8 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 					updateStats(msg.nodes, msg.edges, msg.updatedAt);
 					break;
 				case 'importProgress':
-					setProgress(msg.status === 'done' ? '' : (msg.message || msg.status));
+					// done 且带 message 时显示该状态(如空列表重建提示),否则清空进度。
+					setProgress(msg.status === 'done' ? (msg.message || '') : (msg.message || msg.status));
 					break;
 				case 'testQueryResult':
 					renderResults(msg.query, msg.results);
@@ -112,9 +113,9 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 			}
 			tbody.querySelectorAll('button').forEach(btn => {
 				btn.addEventListener('click', () => {
-					if (confirm('确定删除该课件及其图节点？')) {
-						post('deleteCourseware', { id: btn.dataset.id });
-					}
+					// 确认弹窗由扩展宿主的原生模态框承担(webview iframe 里 confirm 被禁用),
+					// 这里直接发消息。
+					post('deleteCourseware', { id: btn.dataset.id });
 				});
 			});
 			document.getElementById('listTable').style.display = items.length ? '' : 'none';

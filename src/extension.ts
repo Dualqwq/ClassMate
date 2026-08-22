@@ -1183,7 +1183,7 @@ export async function activate(
 				const graph = await coursewareService.loadGraph();
 				if (graph.nodes.length === 0) {
 					void vscode.window.showWarningMessage(
-						'尚未构建课件知识图：请先在课件管理页导入课件并构建 GraphRAG。'
+						'尚未构建课件搜索图：请先在课件管理页导入课件并点击「重建搜索图」。'
 					);
 					return;
 				}
@@ -1191,7 +1191,7 @@ export async function activate(
 					? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, 'classmate-courseware-graph.json')
 					: vscode.Uri.file('classmate-courseware-graph.json');
 				const target = await vscode.window.showSaveDialog({
-					title: '导出课件 GraphRAG 图文件',
+					title: '导出课件搜索图文件',
 					defaultUri,
 					filters: { JSON: ['json'] },
 				});
@@ -1200,7 +1200,7 @@ export async function activate(
 				}
 				await vscode.workspace.fs.writeFile(target, Buffer.from(JSON.stringify(graph, null, 2), 'utf8'));
 				void vscode.window.showInformationMessage(
-					`已导出课件 GraphRAG 图（${graph.nodes.length} 节点 / ${graph.edges.length} 边）：${target.fsPath}`
+					`已导出课件搜索图（${graph.nodes.length} 节点 / ${graph.edges.length} 边）：${target.fsPath}`
 				);
 			},
 		},

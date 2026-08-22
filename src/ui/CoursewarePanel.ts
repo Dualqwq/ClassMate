@@ -139,7 +139,19 @@ export class CoursewarePanel {
 	}
 
 	private async _deleteCourseware(id: string): Promise<void> {
+		const item = this._service.items.find((candidate) => candidate.id === id);
 		try {
+			// 确认走扩展宿主的原生模态框:webview iframe 里 window.confirm 被静默禁用,
+			// 依赖它会导致删除按钮看起来点了没反应。
+			const label = item?.fileName ?? id;
+			const pick = await vscode.window.showWarningMessage(
+				`确定从课件列表移除「${label}」？已构建的搜索图不会改变，直到点击「重建搜索图」。`,
+				{ modal: true },
+				'移除'
+			);
+			if (pick !== '移除') {
+				return;
+			}
 			await this._service.deleteCourseware(id);
 			await this._sendList();
 		} catch (error) {
@@ -153,7 +165,11 @@ export class CoursewarePanel {
 			const graph = await this._service.rebuildGraphFromItems((progress) => {
 				this.postMessage({ type: 'importProgress', id: 'rebuild', status: 'building', message: progress });
 			});
-			this.postMessage({ type: 'importProgress', id: 'rebuild', status: 'done' });
+			// 空列表重建产出空图:带 message 让管理页显示明确状态而不是静默清空进度。
+			const doneMessage = graph.nodes.length === 0
+				? '导入列表为空，已重建出空搜索图'
+				: undefined;
+			this.postMessage({ type: 'importProgress', id: 'rebuild', status: 'done', message: doneMessage });
 			this.postMessage({ type: 'graphStats', nodes: graph.nodes.length, edges: graph.edges.length, updatedAt: graph.updatedAt });
 			await this._sendList();
 		} catch (error) {
