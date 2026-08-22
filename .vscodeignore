@@ -9,6 +9,8 @@ node_modules/**
 !node_modules/tree-sitter-c/tree-sitter-c.wasm
 src/**
 webview/**
+# 浏览器扩展(MV3)随仓库纳管但不进 VSIX——它以"加载已解压扩展程序"方式分发。
+browser-extension/**
 .gitattributes
 .gitignore
 .yarnrc

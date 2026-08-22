@@ -11,7 +11,7 @@
 - **传输通道**：本地 HTTP 端点，与 ADD5 同基座思路（127.0.0.1 仅本地回环）。
 - **浏览器**：先跑通 Chrome Manifest V3。
 - **落点**：VS Code `showSaveDialog` 原生弹窗，默认文件名 `README.md`，冲突由 VS Code 原生覆盖提示处理。
-- **工程位置**：本仓库 monorepo 目录 `code/classmate-browser-ext/`。
+- **工程位置**：本仓库目录 `browser-extension/`（2026-08-22 由仓库外 `code/classmate-browser-ext/` 移入纳管）。
 - **Markdown 转换**：走 yorkxin/copy-as-markdown（MIT）轻量自研思路，不引入 Turndown/Readability npm 依赖。
 
 ## 3. VS Code 端实现
@@ -47,7 +47,7 @@
 
 ## 4. 浏览器扩展实现
 
-目录：`code/classmate-browser-ext/`
+目录：`browser-extension/`（仓库内）
 
 | 文件 | 说明 |
 |---|---|
@@ -72,7 +72,7 @@
 
 - 参考项目 yorkxin/copy-as-markdown 为 MIT License。
 - 本扩展自研实现，架构思路参考；未逐行复制实质代码。
-- 仍按拍板要求，在 `code/classmate-browser-ext/THIRD-PARTY-NOTICES.md` 中保留其版权声明与 MIT 许可摘录。
+- 仍按拍板要求，在 `browser-extension/THIRD-PARTY-NOTICES.md` 中保留其版权声明与 MIT 许可摘录。
 - 不引入 Turndown/Readability 等第三方 npm 依赖，无额外 license 义务。
 
 ## 6. 测试

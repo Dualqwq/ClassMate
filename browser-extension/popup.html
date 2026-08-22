@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>导入到 ClassMate</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>ClassMate 题目导入</h1>
+      <p id="status">正在读取页面内容…</p>
+    </header>
+
+    <label for="title-input">题目标题</label>
+    <input type="text" id="title-input" placeholder="未识别标题" />
+
+    <label for="url-input">来源链接</label>
+    <input type="text" id="url-input" readonly />
+
+    <label for="preview">Markdown 预览（可选编辑）</label>
+    <textarea id="preview" rows="12" placeholder="页面无选区，也未读取到正文。"></textarea>
+
+    <div class="actions">
+      <button id="import-btn" disabled>导入到 VS Code</button>
+    </div>
+
+    <footer>
+      <p class="hint">提示：在网页选中题目正文后点击扩展图标，导入内容更准确。</p>
+    </footer>
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
