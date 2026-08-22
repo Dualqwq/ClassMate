@@ -10,6 +10,22 @@ export interface PptxExtractionResult {
 	truncated: boolean;
 }
 
+/**
+ * 结构感知的单张幻灯片单元（设计文档期 1）：
+ * slide 序号 + 标题 + 正文段落，作为分块的硬边界输入。
+ */
+export interface PptxSlideUnit {
+	/** 幻灯片序号，从 1 起（按文件名编号排序，与放映顺序一致）。 */
+	slideNo: number;
+	/**
+	 * slide 标题：取 title/ctrTitle 占位符的段落文本；
+	 * 缺失或为空时回退首个正文段落；整页无文本时为空串。
+	 */
+	title: string;
+	/** 正文段落（不含已识别为标题的段落）。 */
+	paragraphs: string[];
+}
+
 const CENTRAL_DIR_SIGNATURE = 0x02014b50;
 const EOCD_SIGNATURE = 0x06054b50;
 
@@ -33,6 +49,27 @@ export function parsePptxSlides(buffer: Buffer): string[] {
 	}
 	slideNumbers.sort((a, b) => a.number - b.number);
 	return slideNumbers.map((slide) => extractSlideText(slide.xml));
+}
+
+/**
+ * 按结构解析每张幻灯片：按 <p:sp> 形状分组，识别 title/ctrTitle 占位符取标题，
+ * 其余形状段落为正文；shape 外的 <a:p>（表格等）兜底并入正文尾部，保证不丢字。
+ */
+export function parsePptxSlideUnits(buffer: Buffer): PptxSlideUnit[] {
+	if (buffer.byteLength > MAX_PPTX_BYTES) {
+		throw new Error(`PPTX exceeds the ${MAX_PPTX_BYTES / 1024 / 1024} MB local parsing limit.`);
+	}
+	const entries = readZipEntries(buffer);
+	const slideNumbers: { number: number; xml: string }[] = [];
+	for (const entry of entries) {
+		const match = entry.name.match(/^ppt\/slides\/slide(\d+)\.xml$/i);
+		if (!match) {
+			continue;
+		}
+		slideNumbers.push({ number: Number.parseInt(match[1], 10), xml: entry.data.toString('utf8') });
+	}
+	slideNumbers.sort((a, b) => a.number - b.number);
+	return slideNumbers.map((slide) => ({ slideNo: slide.number, ...extractSlideUnits(slide.xml) }));
 }
 
 /**
@@ -115,6 +152,37 @@ function inflateEntry(raw: Buffer, method: number): Buffer {
  * 段内 run 直接拼接，段间以换行分隔，保住分块所需的段落结构。
  */
 function extractSlideText(xml: string): string {
+	return collectParagraphs(xml).join('\n');
+}
+
+/** title/ctrTitle 占位符：PowerPoint 版式里 slide 标题所在形状。 */
+const TITLE_PLACEHOLDER_PATTERN = /<p:ph\b[^>]*\btype="(?:title|ctrTitle)"/;
+
+/**
+ * 按 <p:sp> 形状分组解析一张幻灯片：标题占位符的段落拼成标题（取先出现的非空命中），
+ * 其余段落按文档顺序作为正文返回；<p:sp> 之外的段落（表格等）兜底并入正文尾部。
+ */
+function extractSlideUnits(xml: string): { title: string; paragraphs: string[] } {
+	const bodyParagraphs: string[] = [];
+	let titleText = '';
+	const withoutShapes = xml.replace(/<p:sp(?:\s[^>]*)?>[\s\S]*?<\/p:sp>/g, (shapeXml) => {
+		const shapeParagraphs = collectParagraphs(shapeXml);
+		if (!titleText && TITLE_PLACEHOLDER_PATTERN.test(shapeXml) && shapeParagraphs.length > 0) {
+			titleText = shapeParagraphs.join(' ');
+		} else {
+			bodyParagraphs.push(...shapeParagraphs);
+		}
+		return '';
+	});
+	bodyParagraphs.push(...collectParagraphs(withoutShapes));
+	// 无标题占位符时回退：首段晋升为标题并从正文移除，避免标题在 content/keywords 中重复计权。
+	if (!titleText && bodyParagraphs.length > 0) {
+		return { title: bodyParagraphs[0], paragraphs: bodyParagraphs.slice(1) };
+	}
+	return { title: titleText, paragraphs: bodyParagraphs };
+}
+
+function collectParagraphs(xml: string): string[] {
 	const paragraphs: string[] = [];
 	for (const paragraphMatch of xml.matchAll(/<a:p(?:\s[^>]*)?>([\s\S]*?)<\/a:p>/g)) {
 		const runs = [...paragraphMatch[1].matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)]
@@ -124,7 +192,7 @@ function extractSlideText(xml: string): string {
 			paragraphs.push(runs.join(''));
 		}
 	}
-	return paragraphs.join('\n');
+	return paragraphs;
 }
 
 function decodeXmlEntities(input: string): string {

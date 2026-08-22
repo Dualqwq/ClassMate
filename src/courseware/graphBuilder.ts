@@ -1,4 +1,4 @@
-import type { CoursewareChunk, CoursewareEdge, CoursewareGraph } from './types';
+import { COURSEWARE_GRAPH_VERSION, type CoursewareChunk, type CoursewareEdge, type CoursewareGraph } from './types';
 
 /**
  * 基于 chunk 关键词共现构建轻量 GraphRAG 图。
@@ -93,7 +93,7 @@ export function buildCoursewareGraph(chunks: CoursewareChunk[]): CoursewareGraph
 	}
 
 	return {
-		version: 1,
+		version: COURSEWARE_GRAPH_VERSION,
 		updatedAt: Date.now(),
 		nodes: chunks,
 		edges,
@@ -104,7 +104,9 @@ export function mergeGraphs(base: CoursewareGraph, incoming: CoursewareGraph): C
 	const existingIds = new Set(base.nodes.map((node) => node.chunkId));
 	const newNodes = incoming.nodes.filter((node) => !existingIds.has(node.chunkId));
 	return {
-		version: base.version + 1,
+		// 取两侧较高版本：空图(v0)并入新图(v2)时结果仍是当前结构版本，
+		// 否则会回落成 v1 而在下次加载时被误判为待重建。
+		version: Math.max(base.version, incoming.version),
 		updatedAt: Date.now(),
 		nodes: [...base.nodes, ...newNodes],
 		edges: [...base.edges, ...incoming.edges],

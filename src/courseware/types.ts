@@ -1,6 +1,13 @@
 import type * as vscode from 'vscode';
 
 /**
+ * 当前课件图结构版本。
+ * version 2：结构感知分块——页/slide 为硬边界、chunk 携带 title/unitLabel、
+ * keywords 由统一分词器生成。version 1 的旧图在加载时被丢弃并提示手动重建。
+ */
+export const COURSEWARE_GRAPH_VERSION = 2;
+
+/**
  * 单个课件的元数据。
  */
 export interface CoursewareItem {
@@ -22,8 +29,14 @@ export interface CoursewareChunk {
 	pageStart: number;
 	pageEnd: number;
 	content: string;
-	/** 用于简单关键词检索/建边的关键词。 */
+	/** 用于简单关键词检索/建边的关键词（标题词×3 + 正文词×1 加权取 top-N）。 */
 	keywords: string[];
+	/** 所在单元的标题（如 slide 标题）；PDF 页暂无可靠标题时缺省。 */
+	title?: string;
+	/** 所在单元的展示标签，如 "p.12" / "slide 12"。 */
+	unitLabel?: string;
+	/** 预留：章节路径，待 TOC 摘要层落地时填充。 */
+	sectionPath?: string[];
 }
 
 /**
@@ -44,6 +57,12 @@ export interface CoursewareGraph {
 	updatedAt: number;
 	nodes: CoursewareChunk[];
 	edges: CoursewareEdge[];
+	/**
+	 * 读入 version<COURSEWARE_GRAPH_VERSION 的旧结构图时置 true：
+	 * 旧图被丢弃返回空图（用户拍板不自动重建，源文件可能已删），
+	 * UI 据此提示「请重建搜索图」。
+	 */
+	needsRebuild?: boolean;
 }
 
 /**
@@ -57,6 +76,9 @@ export interface CoursewareRetrievalResult {
 	pageEnd: number;
 	content: string;
 	score: number;
+	/** 与来源 chunk 对齐的可选定位信息（向后兼容，旧节点缺省）。 */
+	title?: string;
+	unitLabel?: string;
 }
 
 /**
@@ -97,7 +119,7 @@ export type CoursewareWebviewToExtensionMessage =
 	| { type: 'testQuery'; query: string };
 
 export type CoursewareExtensionToWebviewMessage =
-	| { type: 'list'; items: CoursewareItem[]; graphStats: { nodes: number; edges: number; updatedAt?: number } }
+	| { type: 'list'; items: CoursewareItem[]; graphStats: { nodes: number; edges: number; updatedAt?: number; needsRebuild?: boolean } }
 	| { type: 'importProgress'; id: string; status: 'parsing' | 'chunking' | 'building' | 'done' | 'error'; message?: string }
 	| { type: 'graphStats'; nodes: number; edges: number; updatedAt?: number }
 	| { type: 'testQueryResult'; query: string; results: CoursewareRetrievalResult[] }

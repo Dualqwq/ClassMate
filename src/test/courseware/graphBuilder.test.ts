@@ -25,6 +25,7 @@ describe('courseware graph builder', () => {
 		assert.strictEqual(graph.nodes.length, 2);
 		assert.strictEqual(graph.edges.length, 1);
 		assert.strictEqual(graph.edges[0].reason, 'sequential');
+		assert.strictEqual(graph.version, 2);
 	});
 
 	it('creates keyword-overlap edges between related chunks', () => {

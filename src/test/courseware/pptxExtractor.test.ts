@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { describe, it, after } from 'mocha';
-import { parsePptxSlides, extractPptxBuffer } from '../../courseware/pptxExtractor';
+import { parsePptxSlides, parsePptxSlideUnits, extractPptxBuffer } from '../../courseware/pptxExtractor';
 import { extractAndChunkCourseware } from '../../courseware/coursewareChunker';
 
 // ---- 合成 pptx fixture：手工构造最小 zip（store / deflate 两种压缩方式）----
@@ -88,6 +88,13 @@ function slideXml(paragraphs: string[]): string {
 		.join('')}</p:sld>`;
 }
 
+/** 带占位符声明的形状：phAttrs 形如 `type="title"`。 */
+function shapeXml(phAttrs: string | null, text: string): string {
+	const ph = phAttrs ? `<p:nvPr><p:ph ${phAttrs}/></p:nvPr>` : '<p:nvPr/>';
+	return `<p:sp><p:nvSpPr>${ph}</p:nvSpPr>`
+		+ `<p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`;
+}
+
 describe('courseware pptx extractor', () => {
 	const tempFiles: string[] = [];
 
@@ -132,6 +139,40 @@ describe('courseware pptx extractor', () => {
 		assert.throws(() => extractPptxBuffer(buffer), /No readable text/);
 	});
 
+	it('parsePptxSlideUnits 识别 title 占位符，正文不含标题段落', () => {
+		const xml = shapeXml('type="title"', '图的遍历') + shapeXml('type="body" idx="1"', 'DFS 与 BFS');
+		const buffer = buildZip([{ name: 'ppt/slides/slide7.xml', data: Buffer.from(xml, 'utf8'), deflate: true }]);
+		assert.deepStrictEqual(parsePptxSlideUnits(buffer), [
+			{ slideNo: 7, title: '图的遍历', paragraphs: ['DFS 与 BFS'] },
+		]);
+	});
+
+	it('ctrTitle 同样视为标题占位符（封面页）', () => {
+		const xml = shapeXml('type="ctrTitle"', '图论与代数结构') + shapeXml(null, '崔勇');
+		const buffer = buildZip([{ name: 'ppt/slides/slide1.xml', data: Buffer.from(xml, 'utf8') }]);
+		assert.deepStrictEqual(parsePptxSlideUnits(buffer), [
+			{ slideNo: 1, title: '图论与代数结构', paragraphs: ['崔勇'] },
+		]);
+	});
+
+	it('标题缺失时回退首段：首段晋升为标题并移出正文', () => {
+		const xml = shapeXml(null, '首段当标题') + shapeXml(null, '第二段正文');
+		const buffer = buildZip([{ name: 'ppt/slides/slide2.xml', data: Buffer.from(xml, 'utf8') }]);
+		assert.deepStrictEqual(parsePptxSlideUnits(buffer), [
+			{ slideNo: 2, title: '首段当标题', paragraphs: ['第二段正文'] },
+		]);
+	});
+
+	it('shape 外文本（表格等）兜底并入正文，不丢字', () => {
+		const xml = '<p:graphicFrame><a:tbl><a:tr><a:tc><a:txBody>'
+			+ '<a:p><a:r><a:t>表格单元</a:t></a:r></a:p>'
+			+ '</a:txBody></a:tc></a:tr></a:tbl></p:graphicFrame>';
+		const buffer = buildZip([{ name: 'ppt/slides/slide3.xml', data: Buffer.from(xml, 'utf8'), deflate: true }]);
+		assert.deepStrictEqual(parsePptxSlideUnits(buffer), [
+			{ slideNo: 3, title: '表格单元', paragraphs: [] },
+		]);
+	});
+
 	it('routes .pptx files through the pptx branch in extractAndChunkCourseware', async function () {
 		this.timeout(20000);
 		const buffer = buildZip([
@@ -151,5 +192,9 @@ describe('courseware pptx extractor', () => {
 		assert.ok(chunks.length > 0);
 		assert.ok(chunks.some((chunk) => chunk.content.includes('二叉树')));
 		assert.ok(chunks.every((chunk) => chunk.fileName === 'fixture.pptx'));
+		// 期 1：slide 为硬边界，页号真实且带单元标签。
+		assert.ok(chunks.every((chunk) => chunk.pageStart === chunk.pageEnd));
+		assert.deepStrictEqual(chunks.map((chunk) => chunk.unitLabel), ['slide 1', 'slide 2']);
+		assert.strictEqual(chunks[0].title, '二叉树的定义');
 	});
 });
