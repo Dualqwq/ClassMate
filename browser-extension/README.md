@@ -39,3 +39,10 @@ Chrome Manifest V3 扩展，允许用户在浏览网页时选中题目正文，�
 
 - 本地端点仅监听 `127.0.0.1`，拒绝外部请求。
 - Markdown 转换采用轻量自研实现，参考 [yorkxin/copy-as-markdown](https://github.com/yorkxin/copy-as-markdown)（MIT License）的架构思路。
+- **公式**：KaTeX（`.katex`/`.katex-display`）、MathJax v3（`mjx-container`）、原生 MathML（`<math>`）只导出一份 LaTeX 源——优先取 `annotation[encoding="application/x-tex"]` 原始码，行内包 `$...$`、display 包 `$$...$$`；渲染副本（`.katex-mathml`/`.katex-html`/`mjx-assistive-mml`）不再重复收集，修复了此前 `$N$` 被导成 `NNN` 的失真。选区起点落在公式内部等取不到源码的结构，退化为单份纯文本输出。
+
+### 公式导入手工验证
+
+1. 浏览器打开 `browser-extension/fixtures/katex-demo.html`（需联网加载 KaTeX CDN），确认页面渲染出公式；
+2. 选中 `<article>` 全部正文 → ClassMate 图标 → 导入；
+3. 预期 README.md 含 `$N$`、`$$E=mc^2$$`、`$E=mc^2$`，且无 `NNN` 类重复字符。

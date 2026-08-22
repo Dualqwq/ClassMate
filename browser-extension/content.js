@@ -33,6 +33,42 @@
 	}
 
 	/**
+	 * 从公式渲染根节点提取唯一一份 LaTeX 源码。
+	 * KaTeX 把公式渲染成 .katex-mathml(隐藏 MathML 副本,内含 mrow 文本 +
+	 * annotation 两份)+ .katex-html(可见副本);MathJax v3 是 mjx-container +
+	 * mjx-assistive-mml。通用 DOM 遍历会把副本全部收进输出($N$ 变 NNN)。
+	 * 优先取 annotation[encoding="application/x-tex"] 的原始 LaTeX 源码,
+	 * 而不是从渲染 DOM 反推。返回 null 表示不是公式根节点。
+	 */
+	function extractMathSource(element, tag) {
+		// KaTeX:display 外层是 .katex-display > .katex,先判外层。
+		if (element.classList.contains('katex-display') || element.classList.contains('katex')) {
+			const source = element.querySelector('annotation[encoding="application/x-tex"]')?.textContent ?? '';
+			const latex = source.trim();
+			return latex ? { latex, display: element.classList.contains('katex-display') } : null;
+		}
+		if (tag === 'mjx-container') {
+			// MathJax v3:原始 LaTeX 存于 assistive MathML 的 annotation;display 块有 display="block" 属性。
+			const source = element.querySelector('annotation[encoding="application/x-tex"]')?.textContent ?? '';
+			const latex = source.trim();
+			return latex ? { latex, display: element.getAttribute('display') === 'block' } : null;
+		}
+		if (tag === 'math') {
+			const annotation = element.querySelector('annotation[encoding="application/x-tex"]');
+			let latex = annotation?.textContent?.trim() ?? '';
+			if (!latex) {
+				// 纯 MathML(无 annotation):克隆后摘掉 annotation 再取文本,
+				// 否则 semantics 正文与 annotation 相加会双份($N$ 的 MathML 文本即 NN)。
+				const clone = /** @type {Element} */ (element.cloneNode(true));
+				clone.querySelectorAll('annotation').forEach((node) => node.remove());
+				latex = (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+			}
+			return latex ? { latex, display: element.getAttribute('display') === 'block' } : null;
+		}
+		return null;
+	}
+
+	/**
 	 * 递归将 DOM 节点转为 Markdown 字符串。
 	 */
 	function nodeToMarkdown(node) {
@@ -45,6 +81,25 @@
 
 		const element = /** @type {Element} */ (node);
 		const tag = element.tagName.toLowerCase();
+
+		// 公式渲染根节点(KaTeX/MathJax/MathML):输出唯一一份 LaTeX 源并停止下钻。
+		// 这类库把同一公式渲染成多份 DOM 副本,通用遍历会收集多次且丢 $ 定界符
+		// ($N$ 变 NNN)。取不到源码时返回 null 交由下方副本守卫兜底。
+		const math = extractMathSource(element, tag);
+		if (math) {
+			return math.display ? `\n\n$$${math.latex}$$\n\n` : `$${math.latex}$`;
+		}
+
+		// 渲染库的孤儿副本(选区起点落在公式内部、克隆不到外层根节点时出现):
+		// 隐藏副本(.katex-mathml/mjx-assistive-mml)直接丢弃;可见副本只保留一份
+		// 纯文本——两条路都保证同一公式不会被重复输出。
+		if (tag === 'mjx-assistive-mml' || element.classList.contains('katex-mathml')) {
+			return '';
+		}
+		if (element.classList.contains('katex-html')) {
+			return (element.textContent ?? '').trim();
+		}
+
 		const children = Array.from(element.childNodes).map(nodeToMarkdown).join('');
 
 		switch (tag) {
@@ -92,6 +147,18 @@
 				return `\n\n${items}\n\n`;
 			}
 			case 'li': return inlineClean(children);
+			case 'script': {
+				// MathJax v2 在 DOM 中保留原始 LaTeX 源 <script type="math/tex">,
+				// 直接取源码包定界符;其余脚本一律不输出。
+				const scriptType = element.getAttribute('type') ?? '';
+				if (!scriptType.startsWith('math/tex')) {
+					return '';
+				}
+				const latex = (element.textContent ?? '').trim();
+				return scriptType.includes('mode=display')
+					? `\n\n$$${latex}$$\n\n`
+					: `$${latex}$`;
+			}
 			case 'blockquote': return `\n\n> ${inlineClean(children).replace(/\n/g, '\n> ')}\n\n`;
 			case 'div':
 			case 'section':

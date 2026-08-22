@@ -52,7 +52,7 @@
 | 文件 | 说明 |
 |---|---|
 | `manifest.json` | MV3，权限 `activeTab/scripting/contextMenus/storage`，匹配 `<all_urls>`。 |
-| `content.js` | 内容脚本：读取选区或页面正文，转换为轻量 Markdown；监听 `classmate-collect` 消息。 |
+| `content.js` | 内容脚本：读取选区或页面正文，转换为轻量 Markdown；监听 `classmate-collect` 消息。公式（KaTeX/MathJax v2·v3/MathML）只导出一份 LaTeX 源：优先取 `annotation[encoding="application/x-tex"]` 原始码并包 `$...$`/`$$...$$`，渲染副本去重，修复 `$N$` 导成 `NNN` 的失真。 |
 | `background.js` | Service Worker：右键菜单、端口探测、POST 到本地端点、消息转发。 |
 | `popup.html/js/css` | 预览/编辑标题与 Markdown、触发导入。 |
 | `README.md` | 安装使用说明。 |

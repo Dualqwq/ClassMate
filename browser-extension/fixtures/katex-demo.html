@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>KaTeX 公式导入验证页</title>
+<!-- G5 手工验证用:引 KaTeX CDN 渲染行内 $N$ 与 display 块 $$E=mc^2$$。
+     打开本页(需联网加载 CDN)→ 选中正文 → 点 ClassMate 导入,
+     预期 README.md 出现 $N$、$$E=mc^2$$ 且无重复字符。 -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, { delimiters: [{ left: '$$', right: '$$', display: true }, { left: '$', right: '$', display: false }] });"></script>
+</head>
+<body>
+<article id="problem">
+	<h1>公式渲染验证</h1>
+	<p>设正整数为 $N$,根据质能方程 $$E=mc^2$$ 可知能量与质量等价。</p>
+	<p>再验证一个行内公式:$E=mc^2$ 与重复出现的 $N$。</p>
+</article>
+</body>
+</html>
