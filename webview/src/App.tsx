@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ChatAttachment, ChatImage, ChatState, ClassMateTheme, LLMConfig, MessageIntent } from '../../src/chat/types';
+import type { ChatAttachment, ChatImage, ChatState, LLMConfig, MessageIntent } from '../../src/chat/types';
+import { applyClassMateTheme } from '../../src/chat/classmateTheme';
 import { getInitialState, getContainer, getRoute, sendMessage, subscribeToExtension, type AnyExtensionToWebviewMessage } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
 import { RunPanel } from './RunPanel';
@@ -64,7 +65,6 @@ const ChatApp: React.FC = () => {
 	const [state, setState] = useState<ChatState>(getInitialState);
 	const [container, setContainer] = useState<'view' | 'panel'>(getContainer);
 	const [llmConfig, setLlmConfig] = useState<LLMConfig | null>(null);
-	const [theme, setTheme] = useState<ClassMateTheme>({});
 	const [showHistory, setShowHistory] = useState(false);
 	const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
 	const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
@@ -152,7 +152,9 @@ const ChatApp: React.FC = () => {
 					setLlmConfig(message.config);
 					break;
 				case 'themeUpdate':
-					setTheme(message.theme);
+					// 主题不经 React state:直接写根节点 CSS 自定义属性,浏览器把
+					// 变化传播到所有 var() 引用处,已有控件零重渲染、零重挂载。
+					applyClassMateTheme(message.theme);
 					break;
 			}
 		});
@@ -185,15 +187,8 @@ const ChatApp: React.FC = () => {
 		autosize();
 	}, [state.inputDraft, state.activeConversationId]);
 
-	// Apply custom theme colors to CSS variables so MessageBubble / link styles pick them up.
-	useEffect(() => {
-		const root = document.documentElement;
-		root.style.setProperty('--classmate-user-bubble-bg', theme.userBubbleBackground || '');
-		root.style.setProperty('--classmate-user-bubble-fg', theme.userBubbleForeground || '');
-		root.style.setProperty('--classmate-assistant-bubble-bg', theme.assistantBubbleBackground || '');
-		root.style.setProperty('--classmate-assistant-bubble-fg', theme.assistantBubbleForeground || '');
-		root.style.setProperty('--classmate-link-color', theme.linkColor || '');
-	}, [theme]);
+	// 主题颜色经 themeUpdate 消息由 applyClassMateTheme 直接写入 CSS 变量
+	// (含挂载时 requestTheme 的首次拉取),不走 React state,这里无需 effect。
 
 	// Auto-scroll to bottom when new messages arrive or streaming continues,
 	// but only if the user is already near the bottom.

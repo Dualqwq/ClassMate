@@ -42,8 +42,11 @@ describe('local settings server (ADD5)', () => {
 		await Promise.all(running.splice(0).map((server) => server.close()));
 	});
 
-	async function startServer(context = mockContext()) {
-		const server = await createLocalSettingsServer(context);
+	async function startServer(
+		context = mockContext(),
+		options: Parameters<typeof createLocalSettingsServer>[1] = {}
+	) {
+		const server = await createLocalSettingsServer(context, options);
 		running.push(server);
 		return { server, context };
 	}
@@ -192,6 +195,46 @@ describe('local settings server (ADD5)', () => {
 		assert.strictEqual(config.model, 'deepseek-chat');
 		assert.strictEqual(config.apiUrl, 'https://api.example.com/v1');
 		assert.strictEqual(config.apiKeySet, false);
+	});
+
+	it('POST /api/config notifies onConfigSaved with persisted config and no key material', async () => {
+		let savedConfig: Record<string, unknown> | undefined;
+		const { server, context } = await startServer(mockContext(), {
+			onConfigSaved: (config) => {
+				savedConfig = config as unknown as Record<string, unknown>;
+			},
+		});
+		const token = await getToken(context);
+
+		const saveResponse = await fetch(`${server.url}/api/config`, {
+			method: 'POST',
+			headers: { 'X-ClassMate-Token': token, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ provider: 'openai', model: 'gpt-4.1', apiKey: 'sk-secret' }),
+		});
+		assert.strictEqual(saveResponse.status, 200);
+		assert.ok(savedConfig);
+		assert.strictEqual(savedConfig.provider, 'openai');
+		assert.strictEqual(savedConfig.model, 'gpt-4.1');
+		assert.strictEqual(savedConfig.apiKeySet, true);
+		assert.strictEqual(savedConfig.apiKey, undefined);
+	});
+
+	it('POST /api/config does not notify onConfigSaved when the body is invalid', async () => {
+		let notified = 0;
+		const { server, context } = await startServer(mockContext(), {
+			onConfigSaved: () => {
+				notified += 1;
+			},
+		});
+		const token = await getToken(context);
+
+		const response = await fetch(`${server.url}/api/config`, {
+			method: 'POST',
+			headers: { 'X-ClassMate-Token': token, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ provider: 'nope' }),
+		});
+		assert.strictEqual(response.status, 400);
+		assert.strictEqual(notified, 0);
 	});
 
 	it('POST /api/token/rotate invalidates the old token', async () => {

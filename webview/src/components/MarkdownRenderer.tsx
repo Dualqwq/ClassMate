@@ -132,7 +132,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, ref
 							target="_blank"
 							rel="noreferrer"
 							style={{
-								color: 'var(--vscode-textLink-foreground)',
+								color: 'var(--classmate-link-color, var(--vscode-textLink-foreground))',
 								textDecoration: 'none',
 							}}
 							onMouseEnter={(e) => {

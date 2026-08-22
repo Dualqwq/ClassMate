@@ -83,6 +83,22 @@ button {
 }
 button.secondary { background: var(--input-bg); color: var(--fg); border: 1px solid var(--border); }
 button:disabled { opacity: 0.6; cursor: default; }
+/* 保存成功勾动画:勾从按钮左侧滑入盖住文字,停留后滑出复原。 */
+.actions button { position: relative; overflow: hidden; }
+.btn-label { display: inline-block; transition: opacity 0.2s ease; }
+.btn-check {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--button-bg);
+	font-weight: bold;
+	transform: translateX(-100%);
+	transition: transform 0.25s ease;
+}
+button.saved .btn-label { opacity: 0; }
+button.saved .btn-check { transform: translateX(0); }
 .status { margin-top: 12px; font-size: 13px; min-height: 20px; }
 .status.ok { color: #3fb950; }
 .status.err { color: #f85149; }
@@ -137,7 +153,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 	</div>
 
 	<div class="actions">
-		<button type="submit" id="save-config">保存模型配置</button>
+		<button type="submit" id="save-config"><span class="btn-label">保存模型配置</span><span class="btn-check">✓</span></button>
 	</div>
 </form>
 
@@ -169,7 +185,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 		<button type="button" class="secondary" data-reset="linkColor">重置</button>
 	</div>
 	<div class="actions">
-		<button type="submit" id="save-theme">保存主题</button>
+		<button type="submit" id="save-theme"><span class="btn-label">保存主题</span><span class="btn-check">✓</span></button>
 	</div>
 </form>
 
@@ -215,6 +231,14 @@ button:disabled { opacity: 0.6; cursor: default; }
 		linkColor: 'linkColor',
 	};
 	const themeKeys = Object.keys(fieldMap);
+
+	// 保存成功后在按钮上播放勾动画:勾滑入盖住文字,停留约 2.5s 后复原。
+	// 仅在服务端确认保存成功后调用;失败路径保持原有错误提示,不播勾。
+	function playSavedCheck(btnId) {
+		const btn = $(btnId);
+		btn.classList.add('saved');
+		setTimeout(() => btn.classList.remove('saved'), 2500);
+	}
 
 	function loadConfig(cfg) {
 		$('provider').value = cfg.provider || 'claude';
@@ -272,7 +296,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 		try {
 			const res = await fetch(base + '/api/config', { method: 'POST', headers, body: JSON.stringify(body) });
 			if (!res.ok) throw new Error(await res.text());
-			status('模型配置已保存', true);
+			status('模型配置已保存，正在运行的 Chat 已即时生效', true);
+			playSavedCheck('save-config');
 			const refreshed = await (await fetch(base + '/api/config', { headers })).json();
 			loadConfig(refreshed);
 		} catch (err) {
@@ -291,6 +316,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 			const res = await fetch(base + '/api/theme', { method: 'POST', headers, body: JSON.stringify(body) });
 			if (!res.ok) throw new Error(await res.text());
 			status('主题已保存并同步到 Chat 面板', true);
+			playSavedCheck('save-theme');
 		} catch (err) {
 			status('保存失败：' + err.message, false);
 		}

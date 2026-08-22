@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import * as vscode from 'vscode';
-import type { ClassMateTheme, LLMProvider } from '../chat/types';
+import type { ClassMateTheme, LLMConfig, LLMProvider } from '../chat/types';
 import {
 	getLLMConfig,
 	saveLLMConfig,
@@ -30,6 +30,8 @@ export interface CreateLocalSettingsServerOptions {
 	host?: string;
 	port?: number;
 	onThemeSaved?: (theme: ClassMateTheme) => void;
+	/** 模型配置保存成功后回调(配置只含 apiKeySet 布尔,永不含 key 本体),供运行中 host 即时刷新缓存。 */
+	onConfigSaved?: (config: LLMConfig) => void;
 }
 
 interface RequestContext {
@@ -235,7 +237,9 @@ export async function createLocalSettingsServer(
 				const body = parseConfigBody(await readJsonBody(request));
 				await saveLLMConfig(context, body.provider, body.model, body.apiKey, body.apiUrl);
 				await saveFallbackLLMConfig(context, body.fallback);
-				sendJson(response, 200, await getLLMConfig(context));
+				const saved = await getLLMConfig(context);
+				options.onConfigSaved?.(saved);
+				sendJson(response, 200, saved);
 				return;
 			}
 

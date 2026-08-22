@@ -1127,6 +1127,13 @@ export async function activate(
 	// ADD5 本地设置页:启动 127.0.0.1 上的本地 HTTP server,token 存 SecretStorage。
 	const localSettingsServer = await createLocalSettingsServer(context, {
 		onThemeSaved: (theme) => chatSession.broadcastThemeUpdate(theme),
+		onConfigSaved: (config) => {
+			// 浏览器设置页保存后,运行中的 host 立即换用新 provider/model/url:
+			// setLLMConfig 同时向 webview 广播 llmConfig;恢复通道配置同步刷新
+			//(key 本体不在此处,LLM 调用时每次经 _onGetApiKey 读 SecretStorage)。
+			chatSession.setLLMConfig(config);
+			void refreshFallbackLLMConfig();
+		},
 	});
 	context.subscriptions.push({
 		dispose: () => {
