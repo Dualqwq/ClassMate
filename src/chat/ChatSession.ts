@@ -722,6 +722,17 @@ export class ChatSession {
 		});
 	}
 
+	/**
+	 * 外部预填草稿(Journey 面板「求提示」#12a):写后端草稿并广播一次
+	 * 权威草稿 stateSync(includeDraft: true),聊天前端按 composerDraftContract
+	 * 契约采用;学生正在打字时前端 suppress 逻辑自动跳过,不覆盖其输入。
+	 * 只预填不发送——发送权始终在学生(CLAUDE.md 教学边界)。
+	 */
+	public prefillInputDraft(text: string): void {
+		this.setInputDraft(text);
+		this._broadcast({ type: 'stateSync', state: this._state }, { includeDraft: true });
+	}
+
 	public addUserMessage(text: string, options?: { intent?: MessageIntent; isCommandGenerated?: boolean; images?: ChatImage[]; attachments?: ChatAttachment[] }): ChatMessage {
 		const message: ChatMessage = {
 			id: this._generateId(),

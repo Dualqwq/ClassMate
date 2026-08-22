@@ -7,8 +7,10 @@ import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
 import { RunPanel } from './ui/RunPanel';
 import { CoursewarePanel } from './ui/CoursewarePanel';
+import { JourneyPanel } from './ui/JourneyPanel';
 import { RunService } from './run/runService';
 import { CoursewareService } from './courseware/coursewareService';
+import { JourneyService } from './journey/journeyService';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
 import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
@@ -938,6 +940,7 @@ export async function activate(
 	const sessionId = createSessionId();
 	const workspaceId = getWorkspaceId();
 	const debugStore = new DebugJourneyStore(context, workspaceId);
+	context.subscriptions.push(debugStore);
 	chatSession.setDebugStore(debugStore, sessionId, workspaceId);
 	const diagnosticRecorder = new ConversationDiagnosticRecorder(
 		vscode.Uri.joinPath(
@@ -1151,6 +1154,11 @@ export async function activate(
 	const runService = new RunService(context);
 	profiler.mark('run-service-created');
 
+	// Journey 面板(#12a/#14a):调试历程大屏 + 错题本,同一 store 同一派生层;
+	// 数据经读接口 → 派生纯函数 → 节流推送,面板不直接读 store。
+	const journeyService = new JourneyService(debugStore, { chatSession });
+	context.subscriptions.push(journeyService);
+
 	// ADD6 浏览器扩展题目导入：启动本地 HTTP 端点(仅 127.0.0.1)。
 	// 状态栏常驻项让"server 是否已监听、监听哪个端口"对用户一眼可见
 	// (G5 二轮反馈的根因是扩展未激活时 server 根本不存在,浏览器侧无从自查)。
@@ -1280,12 +1288,12 @@ export async function activate(
 			),
 		},
 		{
+			// #12a:调试历程入口升级为大屏面板(与 Chat/Run 同级,route journey)。
+			// 沿用既有命令 id 与其全部入口(命令面板等);sidebar 树保留不动
+			// (Q1 收窄需动 package.json menus,非本轨范围)。
 			id: 'classmate.debugJourney',
-			handler: async () => {
-				await debugJourneyProvider.load();
-				// 重新显示 Debug Journey 视图(closeDebugJourneyTree 会关掉 enabled context)。
-				await vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', true);
-				await vscode.commands.executeCommand(`${DebugJourneyTreeProvider.viewType}.focus`);
+			handler: () => {
+				JourneyPanel.createOrShow(context.extensionUri, journeyService);
 			},
 		},
 		{
