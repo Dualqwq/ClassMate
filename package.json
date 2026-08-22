@@ -43,7 +43,8 @@
     "onCommand:classmate.openDebugNodeDiff",
     "onCommand:classmate.exportDebugNotebook",
     "onCommand:classmate.exportConversationDiagnostics",
-    "onCommand:classmate.setupApiKey"
+    "onCommand:classmate.setupApiKey",
+    "onCommand:classmate.showBrowserExtensionImportStatus"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -148,6 +149,12 @@
         "title": "Set API Key",
         "category": "ClassMate",
         "icon": "$(key)"
+      },
+      {
+        "command": "classmate.showBrowserExtensionImportStatus",
+        "title": "Show Browser Extension Import Status",
+        "category": "ClassMate",
+        "icon": "$(globe)"
       }
     ],
     "configuration": {
@@ -178,6 +185,13 @@
             "type": "string"
           },
           "description": "Language identifiers for which ClassMate features (explain selection, compile/run buttons) are enabled"
+        },
+        "classmate.browserExtension.importPort": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Local HTTP port for the ClassMate browser extension to import problems. 0 means a random free port."
         }
       }
     },

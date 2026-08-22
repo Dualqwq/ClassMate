@@ -44,6 +44,7 @@ import { WorkspaceContextLoader } from './workspace/workspaceContextLoader';
 import { AdapterGraphModelClient } from './graph/modelClient';
 import type { GraphModelClient } from './graph/modelClient';
 import type { LLMTokenUsage } from './llm/types';
+import { startBrowserExtensionImportServer } from './browserExtensionImport/server';
 import type {
     CodeModifiedEvent,
     CompileErrorEvent,
@@ -1105,6 +1106,18 @@ export async function activate(
 	// route 切换;只消费编译产物(compile_result.txt / 源文件推导),不做编译决策。
 	const runService = new RunService(context);
 
+	// ADD6 浏览器扩展题目导入：启动本地 HTTP 端点(仅 127.0.0.1)。
+	void startBrowserExtensionImportServer(context)
+		.then(({ port, dispose }) => {
+			context.subscriptions.push({ dispose });
+			console.log(`ClassMate browser extension import server listening on port ${port}`);
+		})
+		.catch((error: unknown) => {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error('ClassMate browser extension import server failed to start:', message);
+			void vscode.window.showWarningMessage(`ClassMate: 浏览器扩展导入服务启动失败：${message}`);
+		});
+
 	// Register all commands declared in package.json.
 	const commands: { id: string; handler: (...args: unknown[]) => void }[] = [
 		{
@@ -1236,6 +1249,19 @@ export async function activate(
 			},
 		},
 		{ id: 'classmate.setupApiKey', handler: () => setupApiKeyHandlerAsync(context) },
+		{
+			id: 'classmate.showBrowserExtensionImportStatus',
+			handler: () => {
+				const port = context.globalState.get<number>('classmate.browserExtension.importPort');
+				if (port) {
+					void vscode.window.showInformationMessage(
+						`ClassMate 浏览器扩展导入服务运行在 http://127.0.0.1:${port}/import`
+					);
+				} else {
+					void vscode.window.showWarningMessage('ClassMate 浏览器扩展导入服务尚未启动。');
+				}
+			},
+		},
 	];
 
 	for (const { id, handler } of commands) {
