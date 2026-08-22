@@ -12,7 +12,8 @@ import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type
 import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
-import type { ChatReference, LLMConfig, MessageIntent, PersistedChatData } from './chat/types';
+import { ChatSessionStorage } from './chat/chatSessionStorage';
+import type { ChatReference, LLMConfig, MessageIntent } from './chat/types';
 import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
@@ -903,9 +904,9 @@ async function promptToEnableCodeLens(context: vscode.ExtensionContext): Promise
 	}
 }
 
-export function activate(
+export async function activate(
 	context: vscode.ExtensionContext
-): ClassMateDevelopmentApi | undefined {
+): Promise<ClassMateDevelopmentApi | undefined> {
 	console.log('ClassMate extension is now active.');
 
 	void promptToEnableCodeLens(context);
@@ -952,10 +953,15 @@ export function activate(
 	const workspaceProvider = new WorkspaceContextProvider();
 	void workspaceProvider.refresh();
 
-	const chatStorageKey = `classmate.chatConversations.${workspaceId}`;
+	const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+	const chatStorage = new ChatSessionStorage(
+		context.globalStorageUri.fsPath,
+		workspaceUri?.toString()
+	);
+	await chatStorage.migrateFromWorkspaceState(context.workspaceState, workspaceId);
 	chatSession.configurePersistence(
-		context.workspaceState.get<PersistedChatData>(chatStorageKey),
-		(data) => context.workspaceState.update(chatStorageKey, data)
+		await chatStorage.load(),
+		(data) => chatStorage.save(data)
 	);
 	chatSession.setReferenceHandlers(
 		() => {
