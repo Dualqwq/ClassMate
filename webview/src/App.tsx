@@ -464,46 +464,48 @@ const ChatApp: React.FC = () => {
 					</div>
 				)}
 			</header>
-			<div
-				ref={scrollRef}
-				onScroll={handleScroll}
-				className="classmate-messages"
-			>
-				{state.messages.length === 0 && (
-					<div className="welcome-card">
-						<h1>现在卡在哪里？</h1>
-						<p>
-							直接用平时提问的方式说就可以。ClassMate 会优先查看当前题目和代码，
-							再给出适合初学者的下一步。
-						</p>
-						<div className="quick-prompts">
-							{QUICK_PROMPTS.map((prompt) => (
-								<button
-									key={prompt.title}
-									className="quick-prompt"
-									onClick={() => chooseQuickPrompt(prompt.text)}
-								>
-									<strong>{prompt.title}</strong>
-									<span>{prompt.description}</span>
-								</button>
-							))}
+			<div className="messages-shell">
+				<div
+					ref={scrollRef}
+					onScroll={handleScroll}
+					className="classmate-messages"
+				>
+					{state.messages.length === 0 && (
+						<div className="welcome-card">
+							<h1>现在卡在哪里？</h1>
+							<p>
+								直接用平时提问的方式说就可以。ClassMate 会优先查看当前题目和代码，
+								再给出适合初学者的下一步。
+							</p>
+							<div className="quick-prompts">
+								{QUICK_PROMPTS.map((prompt) => (
+									<button
+										key={prompt.title}
+										className="quick-prompt"
+										onClick={() => chooseQuickPrompt(prompt.text)}
+									>
+										<strong>{prompt.title}</strong>
+										<span>{prompt.description}</span>
+									</button>
+								))}
+							</div>
 						</div>
-					</div>
-				)}
-				{state.messages.map((msg) => (
-					<MessageBubble
-						key={msg.id}
-						message={msg}
-						isStreaming={state.isStreaming}
-						isCurrentStream={msg.id === state.currentStreamMessageId}
-						processingStage={
-							msg.id === state.currentStreamMessageId
-								? state.processingStage
-								: null
-						}
-						referenceExtractionPending={msg.id === state.referenceExtractionPendingFor}
-					/>
-				))}
+					)}
+					{state.messages.map((msg) => (
+						<MessageBubble
+							key={msg.id}
+							message={msg}
+							isStreaming={state.isStreaming}
+							isCurrentStream={msg.id === state.currentStreamMessageId}
+							processingStage={
+								msg.id === state.currentStreamMessageId
+									? state.processingStage
+									: null
+							}
+							referenceExtractionPending={msg.id === state.referenceExtractionPendingFor}
+						/>
+					))}
+				</div>
 				{showJumpToLatest && (
 					<button className="jump-latest" onClick={jumpToLatest}>
 						回到最新 ↓
