@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { appendFile } from 'fs/promises';
 import {
     getEventsFileUri,
     getIndexFileUri,
@@ -120,6 +121,12 @@ export class DebugJourneyStore {
     private readonly _workspaceStorage: vscode.Uri;
     private readonly _eventsUri: vscode.Uri;
     private readonly _indexUri: vscode.Uri;
+    /**
+     * 事件追加后的通知(#12a):Journey 面板据此做 500ms 合并窗口的节流重算。
+     * 纯新增的订阅口,不改变 append 的既有语义与返回值。
+     */
+    private readonly _onDidAppend = new vscode.EventEmitter<DebugEvent[]>();
+    public readonly onDidAppend = this._onDidAppend.event;
 
     constructor(context: vscode.ExtensionContext, workspaceId?: string) {
         this._context = context;
@@ -148,15 +155,16 @@ export class DebugJourneyStore {
         await ensureDirectory(this._workspaceStorage);
 
         const sanitized = events.map(sanitizeEvent);
+        // O(1) 追加(schema §2 缺口 7):events.jsonl 在 globalStorage 下是真实
+        // 文件,直接 Node appendFile 只写新增行,不再读全量拼接重写——
+        // 编译/运行是高频写入,原「读全文 + 写全文」会随文件增长线性变慢。
         const lines = sanitized.map((e) => JSON.stringify(e)).join('\n') + '\n';
-
-        const existing = (await readTextFile(this._eventsUri)) ?? '';
-        const updated = existing + lines;
-        await writeTextFile(this._eventsUri, updated);
+        await appendFile(this._eventsUri.fsPath, lines, 'utf-8');
 
         await this._updateIndex(sanitized);
         await this._updateHotCache(sanitized);
         await this._rotateIfNeeded();
+        this._onDidAppend.fire(sanitized);
     }
 
     public async getEvents(filter: DebugEventFilter = {}): Promise<DebugEvent[]> {
@@ -199,6 +207,10 @@ export class DebugJourneyStore {
         } catch {
             return createEmptyIndex();
         }
+    }
+
+    public dispose(): void {
+        this._onDidAppend.dispose();
     }
 
     private async _updateIndex(events: DebugEvent[]): Promise<void> {
