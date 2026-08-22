@@ -173,6 +173,33 @@ describe('Browser extension import', () => {
 			}
 		});
 
+		it('rejects when an explicitly configured port is occupied', async () => {
+			const config = vscode.workspace.getConfiguration('classmate.browserExtension');
+			await config.update('importPort', 59999, vscode.ConfigurationTarget.Global);
+			const occupier = http.createServer();
+			let occupied = false;
+			await new Promise<void>((resolve) => {
+				occupier.once('error', () => resolve());
+				occupier.listen(59999, '127.0.0.1', () => {
+					occupied = true;
+					resolve();
+				});
+			});
+			try {
+				// 显式配置的端口被占时必须把 EADDRINUSE 抛给上层
+				// (extension.ts 据此弹警告 + 状态栏显示离线),不允许静默失败。
+				await assert.rejects(
+					() => startBrowserExtensionImportServer(makeMockExtensionContext()),
+					(error: unknown) => (error as NodeJS.ErrnoException)?.code === 'EADDRINUSE'
+				);
+			} finally {
+				if (occupied) {
+					await new Promise<void>((resolve) => occupier.close(() => resolve()));
+				}
+				await config.update('importPort', undefined, vscode.ConfigurationTarget.Global);
+			}
+		});
+
 		it('rejects non-localhost requests', async () => {
 			const context = makeMockExtensionContext();
 			const { port, dispose } = await startBrowserExtensionImportServer(context);

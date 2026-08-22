@@ -23,6 +23,7 @@
     "debug"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onLanguage:c",
     "onLanguage:cpp",
     "onView:classmate.chatView",

@@ -40,6 +40,8 @@
 ### 3.3 集成点
 
 - `extension.ts` activate 时启动服务器，dispose 时关闭。
+- **激活时机**：`package.json` activationEvents 含 `onStartupFinished`（G5 二轮修复：原先只有 onLanguage/onView/onCommand 触发器，用户装好后若没打开过 C/C++ 文件或面板，activate 不执行、server 根本不存在，浏览器侧导入永远失败）。
+- **状态栏自检**（纯代码，零 manifest 改动）：server 监听中显示 `$(plug) ClassMate 导入:<端口>`，启动失败显示 `$(error) ClassMate 导入离线`；点击执行 `classmate.showBrowserExtensionImportStatus`。
 - 新增命令 `classmate.showBrowserExtensionImportStatus`，显示当前监听端口。
 - `package.json` 注册命令与配置项。
 

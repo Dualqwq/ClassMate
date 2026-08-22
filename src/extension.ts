@@ -1107,13 +1107,25 @@ export async function activate(
 	const runService = new RunService(context);
 
 	// ADD6 浏览器扩展题目导入：启动本地 HTTP 端点(仅 127.0.0.1)。
+	// 状态栏常驻项让"server 是否已监听、监听哪个端口"对用户一眼可见
+	// (G5 二轮反馈的根因是扩展未激活时 server 根本不存在,浏览器侧无从自查)。
+	const importStatusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
+	importStatusItem.name = 'ClassMate 浏览器导入状态';
+	importStatusItem.command = 'classmate.showBrowserExtensionImportStatus';
+	context.subscriptions.push(importStatusItem);
 	void startBrowserExtensionImportServer(context)
 		.then(({ port, dispose }) => {
 			context.subscriptions.push({ dispose });
+			importStatusItem.text = `$(plug) ClassMate 导入:${port}`;
+			importStatusItem.tooltip = `浏览器扩展导入端点 http://127.0.0.1:${port}/import\n点击查看详情`;
+			importStatusItem.show();
 			console.log(`ClassMate browser extension import server listening on port ${port}`);
 		})
 		.catch((error: unknown) => {
 			const message = error instanceof Error ? error.message : String(error);
+			importStatusItem.text = '$(error) ClassMate 导入离线';
+			importStatusItem.tooltip = `浏览器扩展导入服务启动失败：${message}`;
+			importStatusItem.show();
 			console.error('ClassMate browser extension import server failed to start:', message);
 			void vscode.window.showWarningMessage(`ClassMate: 浏览器扩展导入服务启动失败：${message}`);
 		});
