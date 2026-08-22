@@ -144,3 +144,58 @@ bundle 内执行(3 轮合计 62.7 ms，即每轮 ~21 ms)按包归因(可映射�
 - `timing-driver.mjs`(测量驱动)、`timing-probe-host.cjs`(宿主内探针)、`timing-instrument.mjs`(临时插桩器)、`timing-analyze-profile.mjs`(profile 归因)、`timing-dev-extension.js.bak`(dev bundle 备份)
 
 复现方式：`node log/timing-driver.mjs <activate|split|profile> <轮数> <输出.json> [reuse]`(需 worktree 已 `npm run compile:ext`,VS Code 1.128 缓存在主检出 `.vscode-test/`)。
+
+## 8. 2026-08-22 本轮复测（after-0803 @ 3b4eeed，含 Run 面板/GBK 解码等新增功能）
+
+> 测量分支：`perf/activating-profile`（从 `after-0803` 切出）。
+> 测量方式：扩展内建 `ActivationProfiler` + `src/test/activationProfile.test.ts` 在 vscode-test 环境中自动抓取。
+> 构建形态：dev/test bundle（`extension.js` 8.12 MB，与 2026-08-21 dev 包同量级）。
+
+### 8.1 基线数字（单轮干净 profile，vscode-test 隔离用户目录）
+
+| 指标 | 值 |
+|---|---|
+| `activate()` 体 profile total | **122.453 ms** |
+| 外部 `extension.activate()` 墙钟 | 0 ms（本轮测试激活由前置测试触发，profile 仍记录首次真实激活） |
+| 构建版本 | 0.0.5 |
+
+### 8.2 阶段拆分
+
+| Phase | ms |
+|---|---|
+| output-channel-created | 0.036 |
+| code-lens-prompt-fired | 0.883 |
+| chat-session-created | 0.506 |
+| performance-sink-set | 0.023 |
+| diagnostics-ready | 17.995 |
+| workspace-provider-ready | 6.423 |
+| persistence-configured | 0.483 |
+| reference-handlers-set | 0.025 |
+| graph-services-ready | 0.303 |
+| chat-view-registered | 1.364 |
+| debug-journey-registered | 33.918 |
+| llm-config-wired | 17.891 |
+| run-service-created | 0.297 |
+| commands-registered | 37.429 |
+| compile-output-provider-registered | 2.248 |
+| inline-explain-registered | 1.258 |
+| status-bars-ready | 1.237 |
+
+### 8.3 关键观察
+
+- `commands-registered`（37.4 ms）与 `debug-journey-registered`（33.9 ms）占 `activate()` 体的大头；其余阶段均 <20 ms。
+- 与 2026-08-21 同口径 dev 包中位 ≈108 ms 相比，本轮 **+~14 ms**，主要增量来自 Run 面板命令/状态栏、GBK 解码依赖包体积、以及面板状态机新增注册项。
+- bundle 读盘+V8 编译仍是主成本（不在 `activate()` 体内，未计入 profile total），与 §4 结论一致。
+
+### 8.4 实现说明
+
+- 新增 `src/activationProfiler.ts`：提供 `ActivationProfiler` 与 `getActivationProfile()`。
+- `activate()` 内插 16 个 `mark`，在返回前调用 `profiler.finish()`；结果写入已有的 `ClassMate Performance` 输出通道。
+- 生产包（`ExtensionMode.Production`）强制关闭；开发/测试包默认开启，可通过 `classmate.activationProfiling` 设置关闭。
+- 新增 `src/test/activationProfile.test.ts` 自动抓取 profile 并生成 `benchmark/activation-baseline-latest.{json,md}`（已加入 `.gitignore`，每次跑测试刷新）。
+
+### 8.5 目标值建议（待人审拍板）
+
+- 维持现状派：沿用 2026-08-21 拍板，不追进取目标；将当前 dev/test total **≈122 ms** 作为观察基线，prod 等效估计仍 **≈83–95 ms**。
+- 保守门禁派：设 dev/test `activate()` 体 total ≤ **150 ms** 作为回归门禁，阻止同步逻辑明显劣化。
+- 由于 2026-08-21 已决定不做动态 import 改造，本轮不再提出 ≤40 ms 进取目标。

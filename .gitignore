@@ -16,6 +16,8 @@ test.exe
 test.cpp
 live-eval-*.json
 live-eval-*.jsonl
+benchmark/activation-baseline-latest.json
+benchmark/activation-baseline-latest.md
 
 # Secrets and local configuration
 .env

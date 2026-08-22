@@ -29,6 +29,7 @@ import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
+import { ActivationProfiler, getActivationProfile, isActivationProfilingEnabled } from './activationProfiler';
 import { DebugJourneyStore } from './debug/debugJourneyStore';
 import { computeLineDiff } from './debug/diff';
 import { getWorkspaceId } from './debug/storagePath';
@@ -64,6 +65,7 @@ function createSessionId(): string {
  * plaintext API key. Production extension activation returns no such API.
  */
 export interface ClassMateDevelopmentApi {
+	getActivationProfile(): import('./activationProfiler').ActivationProfile | undefined;
 	createLiveEvalModel(
 		onUsage: (usage: LLMTokenUsage, label?: string) => void
 	): Promise<{
@@ -912,14 +914,19 @@ export async function activate(
 ): Promise<ClassMateDevelopmentApi | undefined> {
 	console.log('ClassMate extension is now active.');
 
+	const performanceOutput = vscode.window.createOutputChannel('ClassMate Performance');
+	context.subscriptions.push(performanceOutput);
+	const profiler = new ActivationProfiler(isActivationProfilingEnabled(context), performanceOutput);
+	profiler.mark('output-channel-created');
+
 	void promptToEnableCodeLens(context);
+	profiler.mark('code-lens-prompt-fired');
 
 	const chatSession = ChatSession.getInstance();
 	// 开发态 extensionUri 指向 code/classmate,上一级是 code,上两级才是项目根(智理杯);
 	// 调试输出固定落到 <项目根>/log,不随当前打开的工作区变化。
 	chatSession.setDebugOutputDir(path.resolve(context.extensionUri.fsPath, '..', '..', 'log'));
-	const performanceOutput = vscode.window.createOutputChannel('ClassMate Performance');
-	context.subscriptions.push(performanceOutput);
+	profiler.mark('chat-session-created');
 	chatSession.setPerformanceTraceSink((event, data) => {
 		performanceOutput.appendLine(JSON.stringify({
 			timestamp: new Date().toISOString(),
@@ -927,6 +934,7 @@ export async function activate(
 			data,
 		}));
 	});
+	profiler.mark('performance-sink-set');
 
 	// Initialize the debug journey store and session identifiers.
 	const sessionId = createSessionId();
@@ -948,6 +956,7 @@ export async function activate(
 			(folder) => folder.uri.fsPath
 		) ?? [],
 	});
+	profiler.mark('diagnostics-ready');
 
 	// Track the last known source text per file to detect meaningful edits.
 	const lastKnownSource = new Map<string, string>();
@@ -955,6 +964,7 @@ export async function activate(
 	// Initialize the workspace context provider and load project context.
 	const workspaceProvider = new WorkspaceContextProvider();
 	void workspaceProvider.refresh();
+	profiler.mark('workspace-provider-ready');
 
 	const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
 	const chatStorage = new ChatSessionStorage(
@@ -966,6 +976,7 @@ export async function activate(
 		await chatStorage.load(),
 		(data) => chatStorage.save(data)
 	);
+	profiler.mark('persistence-configured');
 	chatSession.setReferenceHandlers(
 		() => {
 			const editor = workspaceProvider.getContext().activeEditor;
@@ -1015,6 +1026,7 @@ export async function activate(
 			}
 		}
 	);
+	profiler.mark('reference-handlers-set');
 
 	// Initialize the skill-based system prompt builder.
 	const skillDir = vscode.Uri.joinPath(context.extensionUri, 'skill', 'classmate');
@@ -1037,12 +1049,14 @@ export async function activate(
 		problemCardFactsLoader: new ProblemCardFactsLoader(skillContentLoader),
 		coursewareService,
 	});
+	profiler.mark('graph-services-ready');
 
 	// Register the sidebar WebviewView provider.
 	const chatViewProvider = createChatViewProvider(chatSession, context.extensionUri);
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider)
 	);
+	profiler.mark('chat-view-registered');
 
 	// Register the Debug Journey tree view and snapshot provider.
 	registerDebugSnapshotProvider(context);
@@ -1057,6 +1071,7 @@ export async function activate(
 	// by default. It loads data eagerly but only takes space once the user expands
 	// a node, so it stays out of the way until needed.
 	void vscode.commands.executeCommand('setContext', 'classmate.debugJourneyTree.enabled', true);
+	profiler.mark('debug-journey-registered');
 
 	// Track which container a message is currently targeting.
 	// 同步初始 context,让 package.json 的 when 子句在启动时即生效。
@@ -1105,10 +1120,12 @@ export async function activate(
 
 	// Provide API key to ChatSession for LLM calls.
 	chatSession.setOnGetApiKey(() => getApiKey(context));
+	profiler.mark('llm-config-wired');
 
 	// Run 面板(#11):与 Chat Panel 同级的大标签页面板,共享 React bundle +
 	// route 切换;只消费编译产物(compile_result.txt / 源文件推导),不做编译决策。
 	const runService = new RunService(context);
+	profiler.mark('run-service-created');
 
 	// ADD6 浏览器扩展题目导入：启动本地 HTTP 端点(仅 127.0.0.1)。
 	// 状态栏常驻项让"server 是否已监听、监听哪个端口"对用户一眼可见
@@ -1316,9 +1333,11 @@ export async function activate(
 	for (const { id, handler } of commands) {
 		context.subscriptions.push(vscode.commands.registerCommand(id, handler));
 	}
+	profiler.mark('commands-registered');
 
 	// Register the classmate-output virtual document provider for compile/run output.
 	registerCompileOutputProvider(context);
+	profiler.mark('compile-output-provider-registered');
 
 	// Register inline "Explain" button for source code editors (enabled languages only).
 	registerInlineExplainButton(context, {
@@ -1346,6 +1365,7 @@ export async function activate(
 			return [selectedText, COMPILE_OUTPUT_SCHEME, range];
 		},
 	});
+	profiler.mark('inline-explain-registered');
 
 	function isCompileSelectionRange(value: unknown): value is CompileSelectionRange {
 		if (typeof value !== 'object' || value === null) {
@@ -1397,9 +1417,12 @@ export async function activate(
 	chatStatusBarItem.tooltip = 'Open ClassMate chat';
 	chatStatusBarItem.show();
 	context.subscriptions.push(chatStatusBarItem);
+	profiler.mark('status-bars-ready');
+	profiler.finish();
 
 	if (context.extensionMode !== vscode.ExtensionMode.Production) {
 		return {
+			getActivationProfile,
 			createLiveEvalModel: async (onUsage) => {
 				const storedConfig = await getLLMConfig(context);
 				const providerOverride = process.env.CLASSMATE_LIVE_EVAL_PROVIDER;

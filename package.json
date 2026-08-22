@@ -206,6 +206,11 @@
           "minimum": 0,
           "maximum": 65535,
           "description": "Local HTTP port for the ClassMate browser extension to import problems. 0 means a random free port."
+        },
+        "classmate.activationProfiling": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable activation timing profiling in development/test builds. Ignored in production."
         }
       }
     },
