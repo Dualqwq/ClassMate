@@ -44,6 +44,27 @@ export interface CppIndexSourceFile {
 	content: string;
 }
 
+/**
+ * 行内代码语义着色使用的简化类别。由 tree-sitter 符号 kind 映射而来,
+ * 供渲染层(函数/类型/变量/宏)复用,避免再靠本地正则猜测。
+ */
+export type CppSemanticKind = 'func' | 'type' | 'var' | 'macro';
+
+const SEMANTIC_KIND_BY_CPP_KIND: Record<CppSymbol['kind'], CppSemanticKind> = {
+	class: 'type',
+	function: 'func',
+	method: 'func',
+	constructor: 'func',
+	destructor: 'func',
+	operator: 'func',
+	field: 'var',
+	macro: 'macro',
+};
+
+export function cppKindToSemanticKind(kind: CppSymbol['kind']): CppSemanticKind {
+	return SEMANTIC_KIND_BY_CPP_KIND[kind];
+}
+
 let parserReady: Promise<Parser> | undefined;
 
 export interface TreeSitterWasmLocation {

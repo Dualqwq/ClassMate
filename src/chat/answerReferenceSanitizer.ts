@@ -1,5 +1,11 @@
 import type { LoadedWorkspaceItem } from '../workspace/types';
 import type { ReferenceKind } from './types';
+import {
+	buildCppWorkspaceIndex,
+	cppKindToSemanticKind,
+	type CppSymbol,
+	type CppWorkspaceIndex,
+} from '../parser/cppWorkspaceIndex';
 
 /** 提取节点返回的单个候选,经 sanitize 校验后保留。 */
 export interface ExtractedReference {
@@ -123,14 +129,26 @@ function isMemberInitListOccurrence(content: string, index: number): boolean {
 }
 
 /**
- * 语义类型判定:本地高置信证据优先(类/结构体/枚举 → type,定义/调用形 → func,
- * 尾下划线成员变量命名约定 → var,全大写 → macro),LLM 提议兜底。
+ * 语义类型判定:优先复用 Tree-sitter 符号索引的 kind(类→type、方法/函数→func、
+ * 字段→var、宏→macro),索引不可用时回退到本地高置信正则规则。
  */
 export function inferSymbolKind(
 	content: string,
 	symbol: string,
-	proposed?: ReferenceKind
+	proposed?: ReferenceKind,
+	symbols?: CppSymbol[]
 ): ReferenceKind {
+	if (symbols) {
+		const matches = symbols.filter((item) => item.name === symbol);
+		if (matches.length > 0) {
+			// 同名多目标时,类型(class)优先级与旧正则一致;
+			// 其余情况取首个匹配,因为同一作用域内同类重载 kind 相同。
+			const target = matches.some((item) => item.kind === 'class')
+				? matches.find((item) => item.kind === 'class')!
+				: matches[0];
+			return cppKindToSemanticKind(target.kind) as ReferenceKind;
+		}
+	}
 	const typePattern = new RegExp(
 		`\\b(?:struct|union|class|enum(?:\\s+class)?)\\s+${escapeRegExp(symbol)}\\b`
 	);
@@ -292,11 +310,36 @@ export function stripContractNotation(answer: string): string {
 			label.length > 0 ? label : '');
 }
 
-export function sanitizeAnswerReferences(
+export interface SanitizeAnswerReferencesOptions {
+	/** 外部已建好的 Tree-sitter 符号索引;未提供时本函数自行构建。 */
+	index?: CppWorkspaceIndex;
+	/** Tree-sitter wasm 定位基准;不传时按模块相对路径降级查找。 */
+	extensionPath?: string;
+}
+
+export async function sanitizeAnswerReferences(
 	candidates: ExtractedReference[],
-	loadedItems: LoadedWorkspaceItem[]
-): ExtractedReference[] {
+	loadedItems: LoadedWorkspaceItem[],
+	options?: SanitizeAnswerReferencesOptions
+): Promise<ExtractedReference[]> {
 	const itemsByPath = new Map(loadedItems.map((item) => [item.path, item]));
+	let index = options?.index;
+	if (!index) {
+		const codeFiles = loadedItems.filter((item) => item.kind === 'code');
+		index = codeFiles.length > 0
+			? await buildCppWorkspaceIndex(
+				codeFiles.map((item) => ({ path: item.path, content: item.content })),
+				{ extensionPath: options?.extensionPath }
+			)
+			: { symbols: [], degradedFiles: [] };
+	}
+	const symbolsByFile = new Map<string, CppSymbol[]>();
+	for (const symbol of index.symbols) {
+		const bucket = symbolsByFile.get(symbol.file) ?? [];
+		bucket.push(symbol);
+		symbolsByFile.set(symbol.file, bucket);
+	}
+
 	const seen = new Set<string>();
 	const result: ExtractedReference[] = [];
 	for (const candidate of candidates) {
@@ -338,7 +381,8 @@ export function sanitizeAnswerReferences(
 			if (t === 'std' && !s.startsWith('std::')) {
 				t = undefined; // 无 std:: 前缀的裸符号不算标准库
 			}
-			t = inferSymbolKind(content, s, t);
+			const fileSymbols = symbolsByFile.get(candidate.f);
+			t = inferSymbolKind(content, s, t, fileSymbols);
 		}
 		if (s === undefined && l === undefined) {
 			continue; // 什么都没指

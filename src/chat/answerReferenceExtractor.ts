@@ -108,7 +108,7 @@ export async function extractAnswerReferences(
 		signal: options.signal,
 	});
 	const candidates = parseReferenceCandidates(completion.content);
-	const sanitized = sanitizeAnswerReferences(candidates, codeItems);
+	const sanitized = await sanitizeAnswerReferences(candidates, codeItems);
 	const references: ChatReference[] = [];
 	for (const ref of sanitized) {
 		const built = buildAnswerReference(ref, options.workspaceRoot, codeItems);

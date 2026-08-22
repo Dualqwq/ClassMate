@@ -13,6 +13,7 @@ import {
 	type ExtractedReference,
 } from '../chat/answerReferenceSanitizer';
 import type { LoadedWorkspaceItem } from '../workspace/types';
+import type { CppSymbol } from '../parser/cppWorkspaceIndex';
 
 function makeItem(path: string, content: string): LoadedWorkspaceItem {
 	return { path, kind: 'code', content, contentHash: 'h', reason: 'test' };
@@ -42,85 +43,85 @@ const LONG_FILE = makeItem(
 );
 
 describe('answerReferenceSanitizer', () => {
-	it('drops candidates whose file is not in the loaded whitelist', () => {
+	it('drops candidates whose file is not in the loaded whitelist', async () => {
 		const candidates: ExtractedReference[] = [{ f: 'helper.cpp', s: 'sort' }];
-		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		const result = await sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.deepStrictEqual(result, []);
 	});
 
-	it('drops symbols that do not exist in the file', () => {
+	it('drops symbols that do not exist in the file', async () => {
 		const candidates: ExtractedReference[] = [{ f: 'main.cpp', s: 'nonexistentFunc' }];
-		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		const result = await sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.deepStrictEqual(result, []);
 	});
 
-	it('clamps line numbers into range', () => {
+	it('clamps line numbers into range', async () => {
 		// 9999 clamp 到 20 行后,±5 窗口(15-20 行)内没有 foo → 行号回退为 undefined。
 		const candidates: ExtractedReference[] = [{ f: 'long.cpp', s: 'foo', l: 9999 }];
-		const result = sanitizeAnswerReferences(candidates, [LONG_FILE]);
+		const result = await sanitizeAnswerReferences(candidates, [LONG_FILE]);
 		assert.strictEqual(result.length, 1);
 		assert.strictEqual(result[0].l, undefined);
 		assert.strictEqual(result[0].s, 'foo');
 	});
 
-	it('keeps the line only when the symbol is exactly on it', () => {
+	it('keeps the line only when the symbol is exactly on it', async () => {
 		const candidates: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', l: 2 }];
-		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		const result = await sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.strictEqual(result.length, 1);
 		assert.strictEqual(result[0].l, 2);
 
 		// 第 3 行没有 sort,精确校验不过 → 行号回退。
 		const nearby: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', l: 3 }];
-		const nearbyResult = sanitizeAnswerReferences(nearby, [MAIN_CPP]);
+		const nearbyResult = await sanitizeAnswerReferences(nearby, [MAIN_CPP]);
 		assert.strictEqual(nearbyResult[0].l, undefined);
 	});
 
-	it('validates kind: def requires a definition-like occurrence, call requires a call site', () => {
+	it('validates kind: def requires a definition-like occurrence, call requires a call site', async () => {
 		const defCandidate: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', k: 'def' }];
-		const defResult = sanitizeAnswerReferences(defCandidate, [MAIN_CPP]);
+		const defResult = await sanitizeAnswerReferences(defCandidate, [MAIN_CPP]);
 		assert.strictEqual(defResult[0].k, 'def');
 
 		const callCandidate: ExtractedReference[] = [{ f: 'main.cpp', s: 'sort', k: 'call' }];
-		const callResult = sanitizeAnswerReferences(callCandidate, [MAIN_CPP]);
+		const callResult = await sanitizeAnswerReferences(callCandidate, [MAIN_CPP]);
 		assert.strictEqual(callResult[0].k, 'call');
 
 		// sort 在第 8 行被调用,但文件里也有定义;kind=call 仍有效(存在调用)。
 		const falseDef: ExtractedReference[] = [{ f: 'main.cpp', s: 'data', k: 'def' }];
-		const falseDefResult = sanitizeAnswerReferences(falseDef, [MAIN_CPP]);
+		const falseDefResult = await sanitizeAnswerReferences(falseDef, [MAIN_CPP]);
 		// data 只有引用没有定义形态,kind 应被回退为 undefined。
 		assert.strictEqual(falseDefResult[0].k, undefined);
 	});
 
-	it('drops candidates with neither symbol nor line', () => {
+	it('drops candidates with neither symbol nor line', async () => {
 		const candidates: ExtractedReference[] = [{ f: 'main.cpp' }];
-		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		const result = await sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.deepStrictEqual(result, []);
 	});
 
-	it('deduplicates identical references', () => {
+	it('deduplicates identical references', async () => {
 		const candidates: ExtractedReference[] = [
 			{ f: 'main.cpp', s: 'sort', l: 2 },
 			{ f: 'main.cpp', s: 'sort', l: 2 },
 		];
-		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		const result = await sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.strictEqual(result.length, 1);
 	});
 
-	it('scanSymbols collects callable names and excludes control keywords', () => {
+	it('scanSymbols collects callable names and excludes control keywords', async () => {
 		const symbols = scanSymbols(MAIN_CPP.content);
 		assert.ok(symbols.includes('sort'));
 		assert.ok(!symbols.includes('for'));
 		assert.ok(!symbols.includes('return'));
 	});
 
-	it('scanSymbols excludes single-character symbols', () => {
+	it('scanSymbols excludes single-character symbols', async () => {
 		const symbols = scanSymbols('void foo(int a, int n) { a(n); }');
 		assert.ok(!symbols.includes('a'));
 		assert.ok(!symbols.includes('n'));
 		assert.ok(symbols.includes('foo'));
 	});
 
-	it('buildReferenceExtractionInput only includes code files', () => {
+	it('buildReferenceExtractionInput only includes code files', async () => {
 		const input = buildReferenceExtractionInput([
 			makeItem('main.cpp', 'void foo() {}'),
 			{ ...makeItem('README.md', 'Strike (1 energy)'), kind: 'text' },
@@ -131,7 +132,7 @@ describe('answerReferenceSanitizer', () => {
 		);
 	});
 
-	it('scanSymbols collects class/struct/enum type names but not template params', () => {
+	it('scanSymbols collects class/struct/enum type names but not template params', async () => {
 		const content = [
 			'class Player : public Creature {',
 			'struct Node {',
@@ -147,14 +148,14 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(!symbols.includes('T'), 'template<class T> 里的 T 不应被当成类型名');
 	});
 
-	it('hasDefinitionLike recognizes class definitions', () => {
+	it('hasDefinitionLike recognizes class definitions', async () => {
 		assert.ok(hasDefinitionLike('class Player {', 'Player'));
 		assert.ok(hasDefinitionLike('struct Node : Base {', 'Node'));
 		assert.ok(hasDefinitionLike('enum class Kind {', 'Kind'));
 		assert.ok(!hasDefinitionLike('int x = 0;', 'Player'));
 	});
 
-	it('helpers detect definition/call/near-line occurrences', () => {
+	it('helpers detect definition/call/near-line occurrences', async () => {
 		assert.ok(hasDefinitionLike(MAIN_CPP.content, 'sort'));
 		assert.ok(hasCallLike(MAIN_CPP.content, 'sort'));
 		assert.ok(hasSymbolNearLine(MAIN_CPP.content, 'sort', 4));
@@ -164,7 +165,7 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(!hasSymbolOnLine(MAIN_CPP.content, 'sort', 3));
 	});
 
-	it('inferSymbolKind: 本地高置信证据优先于 LLM 提议', () => {
+	it('inferSymbolKind: 本地高置信证据优先于 LLM 提议', async () => {
 		assert.strictEqual(inferSymbolKind(MAIN_CPP.content, 'sort', 'var'), 'func');
 		assert.strictEqual(inferSymbolKind(MAIN_CPP.content, 'main', 'other'), 'func');
 		assert.strictEqual(inferSymbolKind('class Player {', 'Player', 'var'), 'type');
@@ -175,7 +176,7 @@ describe('answerReferenceSanitizer', () => {
 		assert.strictEqual(inferSymbolKind('int count = 0;', 'count'), 'other');
 	});
 
-	it('inferSymbolKind: 构造函数初始化列表里的成员初始化不算函数调用', () => {
+	it('inferSymbolKind: 构造函数初始化列表里的成员初始化不算函数调用', async () => {
 		const content = [
 			'class Player {',
 			'  int energy_;',
@@ -188,19 +189,38 @@ describe('answerReferenceSanitizer', () => {
 		assert.strictEqual(inferSymbolKind('int attack_;', 'attack_', 'other'), 'var');
 	});
 
-	it('sanitizeAnswerReferences 输出语义类型 t', () => {
+	it('inferSymbolKind: 优先复用 Tree-sitter 符号 kind', async () => {
+		const symbols: CppSymbol[] = [
+			{ targetId: 'sym:monster.h::Monster', file: 'monster.h', name: 'Monster', kind: 'class', startLine: 1, endLine: 10 },
+			{ targetId: 'sym:monster.h::Monster:takeTurn', file: 'monster.h', name: 'takeTurn', kind: 'method', container: 'Monster', startLine: 2, endLine: 5 },
+			{ targetId: 'sym:monster.h::Monster:attack_', file: 'monster.h', name: 'attack_', kind: 'field', container: 'Monster', startLine: 3, endLine: 3 },
+			{ targetId: 'sym:monster.h::MAX_SIZE', file: 'monster.h', name: 'MAX_SIZE', kind: 'macro', startLine: 12, endLine: 12 },
+		];
+		// 索引优先:类名在 Tree-sitter 中是 class,应判 type(覆盖 LLM 错误提议 func)。
+		assert.strictEqual(inferSymbolKind('class Monster {', 'Monster', 'func', symbols), 'type');
+		// 方法/函数优先于正则中的"调用形态"。
+		assert.strictEqual(inferSymbolKind('void takeTurn();', 'takeTurn', 'other', symbols), 'func');
+		// 字段优先于尾下划线正则。
+		assert.strictEqual(inferSymbolKind('int attack_;', 'attack_', 'func', symbols), 'var');
+		// 宏优先于全大写正则(也验证树内宏识别)。
+		assert.strictEqual(inferSymbolKind('#define MAX_SIZE 100', 'MAX_SIZE', 'var', symbols), 'macro');
+		// 索引未命中时回退原正则。
+		assert.strictEqual(inferSymbolKind('class Unknown {', 'Unknown', 'other', symbols), 'type');
+	});
+
+	it('sanitizeAnswerReferences 输出语义类型 t', async () => {
 		const candidates: ExtractedReference[] = [
 			{ f: 'main.cpp', s: 'sort', t: 'var' }, // 本地定义证据覆盖 LLM 提议
 			{ f: 'main.cpp', s: 'data', t: 'var' }, // 无本地证据,保留 LLM 提议
 			{ f: 'main.cpp', s: 'main' }, // 无提议,本地推出 func
 		];
-		const result = sanitizeAnswerReferences(candidates, [MAIN_CPP]);
+		const result = await sanitizeAnswerReferences(candidates, [MAIN_CPP]);
 		assert.strictEqual(result[0].t, 'func');
 		assert.strictEqual(result[1].t, 'var');
 		assert.strictEqual(result[2].t, 'func');
 	});
 
-	it('sanitize 将未提议的成员变量判为 var', () => {
+	it('sanitize 将未提议的成员变量判为 var', async () => {
 		const item = makeItem('monster.h', [
 			'class Monster {',
 			'  int attack_;',
@@ -208,11 +228,11 @@ describe('answerReferenceSanitizer', () => {
 			'  void takeTurn() { std::cout << attack_; }',
 			'};',
 		].join('\n'));
-		const result = sanitizeAnswerReferences([{ f: 'monster.h', s: 'attack_' }], [item]);
+		const result = await sanitizeAnswerReferences([{ f: 'monster.h', s: 'attack_' }], [item]);
 		assert.strictEqual(result[0].t, 'var');
 	});
 
-	it('buildReferenceExtractionInput filters symbols not mentioned in the answer', () => {
+	it('buildReferenceExtractionInput filters symbols not mentioned in the answer', async () => {
 		const input = buildReferenceExtractionInput([MAIN_CPP], 'sort 函数的时间复杂度是多少');
 		assert.strictEqual(input.length, 1);
 		const names = input[0].symbols.map((symbol) => symbol.name);
@@ -220,7 +240,7 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(!names.includes('main'), '回答没提 main,不应出现在清单里');
 	});
 
-	it('caps probed lines per symbol at MAX_LINES_PER_SYMBOL', () => {
+	it('caps probed lines per symbol at MAX_LINES_PER_SYMBOL', async () => {
 		const content = Array.from(
 			{ length: 10 },
 			(_, index) => `int r${index} = helper(${index});`
@@ -234,7 +254,7 @@ describe('answerReferenceSanitizer', () => {
 		assert.ok(helper!.lines.length <= 6, `probed too many lines: ${helper!.lines.length}`);
 	});
 
-	it('truncates long line text to MAX_LINE_TEXT_LENGTH', () => {
+	it('truncates long line text to MAX_LINE_TEXT_LENGTH', async () => {
 		const longLine = `int helper(int a) { return a + ${'x'.repeat(160)}; }`;
 		const input = buildReferenceExtractionInput(
 			[makeItem('a.cpp', `${longLine}\nint main() { return helper(1); }`)],
@@ -249,7 +269,7 @@ describe('answerReferenceSanitizer', () => {
 });
 
 describe('contract marker defense (旧提取路径防御)', () => {
-	it('strips {{ref:}} markers and classmate-ref link tails from the answer before extraction', () => {
+	it('strips {{ref:}} markers and classmate-ref link tails from the answer before extraction', async () => {
 		const answer = [
 			'你看 {{ref:sym:monster.h:Monster:takeTurn|takeTurn}} 函数,',
 			'再看 [`sort`](classmate-ref://0) 与补链 [`sort`](classmate-ref://1?i),',
@@ -261,13 +281,13 @@ describe('contract marker defense (旧提取路径防御)', () => {
 		assert.strictEqual(cleaned, '你看 `takeTurn` 函数,再看 `sort` 与补链 `sort`,普通文字 sort 保留。');
 	});
 
-	it('returns plain answers unchanged', () => {
+	it('returns plain answers unchanged', async () => {
 		const answer = '看看 sort 的第 3 行,行内代码 `sort(a, n);` 原样保留。';
 		assert.strictEqual(stripContractNotation(answer), answer);
 	});
 });
 
-	it('strips refblock markers and rendered source lines too', () => {
+	it('strips refblock markers and rendered source lines too', async () => {
 		const answer = [
 			'```cpp',
 			'int x;',
@@ -284,7 +304,7 @@ describe('contract marker defense (旧提取路径防御)', () => {
 	});
 
 describe('stripContractNotation pipe-form markers (run14 竖线笔误)', () => {
-	it('strips pipe-form markers so old extraction sees natural text', () => {
+	it('strips pipe-form markers so old extraction sees natural text', async () => {
 		const cleaned = stripContractNotation(
 			'看 {{ref|sym:card.h:Card:use|use}} 函数,再 {{ref:sym:card.h:Card|Card}} 一起说。'
 		);
