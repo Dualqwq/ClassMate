@@ -665,9 +665,10 @@ label:focus-within {
 	}
 }
 
-/* ADD1: 面板/视图宽度极窄时历史按钮会畸变,直接隐藏 */
+/* ADD1: 面板/视图宽度极窄时历史按钮与回到最新按钮会畸变/重叠,直接隐藏 */
 @media (max-width: 240px) {
-	.history-toggle {
+	.history-toggle,
+	.jump-latest {
 		display: none;
 	}
 }
