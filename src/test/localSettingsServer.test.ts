@@ -69,6 +69,16 @@ describe('local settings server (ADD5)', () => {
 		assert.ok(html.includes(token));
 	});
 
+	it('settings page marks color inputs custom while the user edits them', async () => {
+		const { server, context } = await startServer();
+		const token = await getToken(context);
+		const html = await (await fetch(`${server.url}/?t=${encodeURIComponent(token)}`)).text();
+		// 回归锚点(G5 复测取证):此前没有任何 input 监听把 dataset.custom 置位,
+		// 提交载荷恒为空串 → 服务端存/广播空主题 → 保存颜色完全无效。
+		// 内嵌脚本是 HTML 字符串,行为无法在 server 单测里执行,只能锁存在监听。
+		assert.ok(html.includes("addEventListener('input'"));
+	});
+
 	it('GET /api/config returns config without exposing the apiKey', async () => {
 		const { server, context } = await startServer();
 		const token = await getToken(context);

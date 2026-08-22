@@ -275,6 +275,16 @@ button.saved .btn-check { transform: translateX(0); }
 		return map[id] || '#888888';
 	}
 
+	// 用户手动改色即视为自定义项,提交时携带该字段。此前没有任何监听设置
+	// dataset.custom,提交载荷恒为空串,服务端存了空主题、广播了空主题,
+	// 导致"保存后颜色完全不变"(G5 复测取证)。程序化赋值(loadTheme/reset)
+	// 不触发 input 事件,"重置=清除该字段"的语义不受影响。
+	Object.values(fieldMap).forEach((id) => {
+		$(id).addEventListener('input', () => {
+			$(id).dataset.custom = '1';
+		});
+	});
+
 	$('fallbackEnabled').addEventListener('change', () => {
 		$('fallback-fields').style.display = $('fallbackEnabled').checked ? 'block' : 'none';
 	});
