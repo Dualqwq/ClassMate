@@ -20,6 +20,8 @@ import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
 import { chooseContainer } from './chat/MessageRouter';
 import { setupApiKey, getApiKey } from './config/apiKey';
 import { getLLMConfig, saveLLMConfig, getFallbackLLMConfig, saveFallbackLLMConfig, getFallbackApiKey } from './config/llmConfig';
+import { createLocalSettingsServer, getThemeSettings } from './settings/localSettingsServer';
+import { openLocalSettingsPage } from './settings/localSettings';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { checkGppAvailability, detectMakeTool, findRootMakefile, isCompilableSourceFile, previewGppCommand, spawnGpp, spawnMake } from './compiler/compilerService';
 import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, buildNoCompilableSourceGuidance, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
@@ -1122,6 +1124,22 @@ export async function activate(
 	chatSession.setOnGetApiKey(() => getApiKey(context));
 	profiler.mark('llm-config-wired');
 
+	// ADD5 本地设置页:启动 127.0.0.1 上的本地 HTTP server,token 存 SecretStorage。
+	const localSettingsServer = await createLocalSettingsServer(context, {
+		onThemeSaved: (theme) => chatSession.broadcastThemeUpdate(theme),
+	});
+	context.subscriptions.push({
+		dispose: () => {
+			void localSettingsServer.close();
+		},
+	});
+
+	chatSession.setOnOpenLocalSettings(() => {
+		void openLocalSettingsPage(context, localSettingsServer.url);
+	});
+
+	chatSession.setOnRequestTheme(() => getThemeSettings(context));
+
 	// Run 面板(#11):与 Chat Panel 同级的大标签页面板,共享 React bundle +
 	// route 切换;只消费编译产物(compile_result.txt / 源文件推导),不做编译决策。
 	const runService = new RunService(context);
@@ -1160,6 +1178,10 @@ export async function activate(
 		{
 			id: 'classmate.openChatPanel',
 			handler: () => showChatInContainer(chatSession, context.extensionUri, chatViewProvider, 'panel'),
+		},
+		{
+			id: 'classmate.openLocalSettings',
+			handler: () => openLocalSettingsPage(context, localSettingsServer.url),
 		},
 		{
 			id: 'classmate.focusChatView',

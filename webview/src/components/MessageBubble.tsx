@@ -172,11 +172,11 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 					paddingLeft: intentDisplay ? '11px' : '14px',
 					borderRadius: '12px',
 					background: isUser
-						? 'var(--vscode-button-background)'
-						: 'var(--vscode-editor-inactiveSelectionBackground)',
+						? 'var(--classmate-user-bubble-bg, var(--vscode-button-background))'
+						: 'var(--classmate-assistant-bubble-bg, var(--vscode-editor-inactiveSelectionBackground))',
 					color: isUser
-						? 'var(--vscode-button-foreground)'
-						: 'var(--vscode-foreground)',
+						? 'var(--classmate-user-bubble-fg, var(--vscode-button-foreground))'
+						: 'var(--classmate-assistant-bubble-fg, var(--vscode-foreground))',
 					borderLeft: intentDisplay
 						? `3px solid var(--vscode-button-foreground)`
 						: 'none',

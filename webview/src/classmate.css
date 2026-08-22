@@ -524,7 +524,7 @@ label:focus-within {
 }
 
 .ref-code-link {
-	color: var(--vscode-textLink-foreground);
+	color: var(--classmate-link-color, var(--vscode-textLink-foreground));
 	text-decoration: none;
 	cursor: pointer;
 }

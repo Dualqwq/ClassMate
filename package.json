@@ -30,6 +30,7 @@
     "onView:classmate.debugJourneyTree",
     "onCommand:classmate.openChat",
     "onCommand:classmate.openChatPanel",
+    "onCommand:classmate.openLocalSettings",
     "onCommand:classmate.focusChatView",
     "onCommand:classmate.hideChatView",
     "onCommand:classmate.toggleChatContainer",
@@ -140,6 +141,12 @@
         "title": "Open Chat in Panel",
         "category": "ClassMate",
         "icon": "$(screen-full)"
+      },
+      {
+        "command": "classmate.openLocalSettings",
+        "title": "Open Settings",
+        "category": "ClassMate",
+        "icon": "$(gear)"
       },
       {
         "command": "classmate.focusChatView",

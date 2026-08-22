@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ChatAttachment, ChatImage, ChatState, LLMConfig, MessageIntent } from '../../src/chat/types';
+import type { ChatAttachment, ChatImage, ChatState, ClassMateTheme, LLMConfig, MessageIntent } from '../../src/chat/types';
 import { getInitialState, getContainer, getRoute, sendMessage, subscribeToExtension, type AnyExtensionToWebviewMessage } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
-import { SettingsPanel } from './components/SettingsPanel';
 import { RunPanel } from './RunPanel';
 import { hasAuthoritativeInputDraft } from '../../src/chat/composerDraftContract';
 import './classmate.css';
@@ -65,7 +64,7 @@ const ChatApp: React.FC = () => {
 	const [state, setState] = useState<ChatState>(getInitialState);
 	const [container, setContainer] = useState<'view' | 'panel'>(getContainer);
 	const [llmConfig, setLlmConfig] = useState<LLMConfig | null>(null);
-	const [showSettings, setShowSettings] = useState(false);
+	const [theme, setTheme] = useState<ClassMateTheme>({});
 	const [showHistory, setShowHistory] = useState(false);
 	const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
 	const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
@@ -109,8 +108,9 @@ const ChatApp: React.FC = () => {
 	}, []);
 
 	useEffect(() => {
-		// Request LLM config on mount.
+		// Request LLM config and theme on mount.
 		sendMessage({ type: 'requestLLMConfig' });
+		sendMessage({ type: 'requestTheme' });
 
 		return subscribeToExtension((message: AnyExtensionToWebviewMessage) => {
 			switch (message.type) {
@@ -151,6 +151,9 @@ const ChatApp: React.FC = () => {
 				case 'llmConfig':
 					setLlmConfig(message.config);
 					break;
+				case 'themeUpdate':
+					setTheme(message.theme);
+					break;
 			}
 		});
 	}, []);
@@ -181,6 +184,16 @@ const ChatApp: React.FC = () => {
 		// Re-run autosize after the DOM value changed externally.
 		autosize();
 	}, [state.inputDraft, state.activeConversationId]);
+
+	// Apply custom theme colors to CSS variables so MessageBubble / link styles pick them up.
+	useEffect(() => {
+		const root = document.documentElement;
+		root.style.setProperty('--classmate-user-bubble-bg', theme.userBubbleBackground || '');
+		root.style.setProperty('--classmate-user-bubble-fg', theme.userBubbleForeground || '');
+		root.style.setProperty('--classmate-assistant-bubble-bg', theme.assistantBubbleBackground || '');
+		root.style.setProperty('--classmate-assistant-bubble-fg', theme.assistantBubbleForeground || '');
+		root.style.setProperty('--classmate-link-color', theme.linkColor || '');
+	}, [theme]);
 
 	// Auto-scroll to bottom when new messages arrive or streaming continues,
 	// but only if the user is already near the bottom.
@@ -551,8 +564,8 @@ const ChatApp: React.FC = () => {
 						{container === 'view' ? '⛶' : '☰'}
 					</button>
 					<button
-						onClick={() => setShowSettings(true)}
-						title="模型设置"
+						onClick={() => sendMessage({ type: 'openLocalSettings' })}
+						title="打开 ClassMate 设置"
 						className="icon-button"
 					>
 						⚙
@@ -634,14 +647,6 @@ const ChatApp: React.FC = () => {
 				</div>
 				<div className="composer-help">Enter 发送 · Shift+Enter 换行</div>
 			</div>
-
-			{showSettings && (
-				<SettingsPanel
-					key={`settings-${Date.now()}`}
-					config={llmConfig}
-					onClose={() => setShowSettings(false)}
-				/>
-			)}
 		</div>
 	);
 };

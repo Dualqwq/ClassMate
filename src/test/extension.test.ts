@@ -22,6 +22,7 @@ describe('Extension Test Suite', () => {
 		await extension.activate();
 		const commands = await vscode.commands.getCommands(true);
 		assert.ok(commands.includes('classmate.exportConversationDiagnostics'));
+		assert.ok(commands.includes('classmate.openLocalSettings'));
 		const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'classmate-command-export-'));
 		const outputPath = path.join(directory, 'diagnostics.json');
 

@@ -13,6 +13,15 @@ export interface LLMConfig {
 	};
 }
 
+/** ADD5 本地设置页主题色。空字段表示使用 VS Code 默认变量。 */
+export interface ClassMateTheme {
+	userBubbleBackground?: string;
+	userBubbleForeground?: string;
+	assistantBubbleBackground?: string;
+	assistantBubbleForeground?: string;
+	linkColor?: string;
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 export type MessageIntent =
@@ -163,7 +172,9 @@ export type WebviewToExtensionMessage =
 	| { type: 'deleteConversation'; conversationId: string }
 	| { type: 'openReference'; reference: ChatReference; inferred?: boolean }
 	| { type: 'applyProposedEdit'; messageId: string }
-	| { type: 'cancelResponse' };
+	| { type: 'cancelResponse' }
+	| { type: 'openLocalSettings' }
+	| { type: 'requestTheme' };
 
 // Messages sent from the extension host to the webview frontend.
 export type ExtensionToWebviewMessage =
@@ -172,4 +183,5 @@ export type ExtensionToWebviewMessage =
 	| { type: 'streamStart'; message: ChatMessage }
 	| { type: 'streamEnd'; messageId: string }
 	| { type: 'containerInfo'; container: 'view' | 'panel' }
-	| { type: 'llmConfig'; config: LLMConfig };
+	| { type: 'llmConfig'; config: LLMConfig }
+	| { type: 'themeUpdate'; theme: ClassMateTheme };

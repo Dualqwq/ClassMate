@@ -4,7 +4,7 @@ import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { mkdir } from 'fs/promises';
-import type { ChatAttachment, ChatImage, ChatMessage, ChatReference, ChatState, ExtensionToWebviewMessage, LLMConfig, LLMProvider, MessageIntent, PersistedChatConversation, PersistedChatData, ProposedCodeEdit, WebviewPresenter, WebviewToExtensionMessage } from './types';
+import type { ChatAttachment, ChatImage, ChatMessage, ChatReference, ChatState, ClassMateTheme, ExtensionToWebviewMessage, LLMConfig, LLMProvider, MessageIntent, PersistedChatConversation, PersistedChatData, ProposedCodeEdit, WebviewPresenter, WebviewToExtensionMessage } from './types';
 import type { LLMAdapter, LLMRequest, LLMStreamCallbacks, LLMTokenUsage } from '../llm/types';
 import type { SystemPromptBuilder } from '../prompts/systemPromptBuilder';
 import { buildJourneySummary, type JourneySummary } from '../debug/debugJourneySummary';
@@ -81,6 +81,8 @@ export class ChatSession {
 		apiKey?: string;
 		apiUrl?: string;
 	} | null) => void;
+	private _onOpenLocalSettings?: () => void;
+	private _onRequestTheme?: () => Promise<ClassMateTheme>;
 	private _onGetApiKey?: () => Promise<string | undefined>;
 	private _llmConfig?: LLMConfig;
 	private _currentAdapter?: LLMAdapter;
@@ -601,6 +603,18 @@ export class ChatSession {
 		apiUrl?: string;
 	} | null) => void): void {
 		this._onSaveFallbackLLMConfig = callback;
+	}
+
+	public setOnOpenLocalSettings(callback: () => void): void {
+		this._onOpenLocalSettings = callback;
+	}
+
+	public setOnRequestTheme(callback: () => Promise<ClassMateTheme>): void {
+		this._onRequestTheme = callback;
+	}
+
+	public broadcastThemeUpdate(theme: ClassMateTheme): void {
+		this._broadcast({ type: 'themeUpdate', theme });
 	}
 
 	public setPromptBuilder(builder: SystemPromptBuilder): void {
@@ -1159,6 +1173,14 @@ export class ChatSession {
 				break;
 			case 'cancelResponse':
 				this.cancelCurrentResponse();
+				break;
+			case 'openLocalSettings':
+				this._onOpenLocalSettings?.();
+				break;
+			case 'requestTheme':
+				void this._onRequestTheme?.().then((theme) =>
+					this._broadcast({ type: 'themeUpdate', theme })
+				);
 				break;
 			default:
 				console.log('Unhandled webview message:', message);
