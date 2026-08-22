@@ -11,6 +11,12 @@ export const DEFAULT_THEME: Required<ClassMateTheme> = {
 	assistantBubbleBackground: '',
 	assistantBubbleForeground: '',
 	linkColor: '',
+	refFuncColor: '',
+	refTypeColor: '',
+	refVarColor: '',
+	refMacroColor: '',
+	refStdColor: '',
+	refOtherColor: '',
 };
 
 /**

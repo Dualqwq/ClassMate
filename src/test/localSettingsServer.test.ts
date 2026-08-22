@@ -156,7 +156,7 @@ describe('local settings server (ADD5)', () => {
 		await server.close();
 		const serverWithCallback = await createLocalSettingsServer(context, {
 			onThemeSaved: (theme) => {
-				broadcastedTheme = theme as Record<string, unknown>;
+				broadcastedTheme = theme as unknown as Record<string, unknown>;
 			},
 		});
 		running.push(serverWithCallback);
@@ -165,6 +165,7 @@ describe('local settings server (ADD5)', () => {
 			userBubbleBackground: '#0e639c',
 			assistantBubbleBackground: '#37373d',
 			linkColor: '#4fc1ff',
+			refFuncColor: '#dcdcaa',
 		};
 
 		const saveResponse = await fetch(`${serverWithCallback.url}/api/theme`, {

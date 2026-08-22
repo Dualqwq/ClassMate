@@ -175,6 +175,12 @@ function parseThemeBody(value: unknown): ClassMateTheme {
 		'assistantBubbleBackground',
 		'assistantBubbleForeground',
 		'linkColor',
+		'refFuncColor',
+		'refTypeColor',
+		'refVarColor',
+		'refMacroColor',
+		'refStdColor',
+		'refOtherColor',
 	];
 	for (const key of keys) {
 		const v = body[key];

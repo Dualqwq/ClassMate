@@ -24,6 +24,8 @@ describe('applyClassMateTheme', () => {
 			assistantBubbleBackground: '#37373d',
 			assistantBubbleForeground: '#cccccc',
 			linkColor: '#4fc1ff',
+			refFuncColor: '#dcdcaa',
+			refTypeColor: '#4ec9b0',
 		}, target);
 		assert.deepStrictEqual([...target.values.entries()], [
 			['--classmate-user-bubble-bg', '#0e639c'],
@@ -31,6 +33,12 @@ describe('applyClassMateTheme', () => {
 			['--classmate-assistant-bubble-bg', '#37373d'],
 			['--classmate-assistant-bubble-fg', '#cccccc'],
 			['--classmate-link-color', '#4fc1ff'],
+			['--classmate-ref-func', '#dcdcaa'],
+			['--classmate-ref-type', '#4ec9b0'],
+			['--classmate-ref-var', ''],
+			['--classmate-ref-macro', ''],
+			['--classmate-ref-std', ''],
+			['--classmate-ref-other', ''],
 		]);
 	});
 
@@ -42,6 +50,7 @@ describe('applyClassMateTheme', () => {
 		assert.strictEqual(target.values.get('--classmate-assistant-bubble-bg'), '');
 		assert.strictEqual(target.values.get('--classmate-assistant-bubble-fg'), '');
 		assert.strictEqual(target.values.get('--classmate-link-color'), '');
+		assert.strictEqual(target.values.get('--classmate-ref-func'), '');
 	});
 
 	it('is a no-op without an injected root when no DOM document exists', () => {

@@ -11,6 +11,12 @@ const THEME_VARIABLES: ReadonlyArray<readonly [keyof ClassMateTheme, string]> = 
 	['assistantBubbleBackground', '--classmate-assistant-bubble-bg'],
 	['assistantBubbleForeground', '--classmate-assistant-bubble-fg'],
 	['linkColor', '--classmate-link-color'],
+	['refFuncColor', '--classmate-ref-func'],
+	['refTypeColor', '--classmate-ref-type'],
+	['refVarColor', '--classmate-ref-var'],
+	['refMacroColor', '--classmate-ref-macro'],
+	['refStdColor', '--classmate-ref-std'],
+	['refOtherColor', '--classmate-ref-other'],
 ];
 
 /**

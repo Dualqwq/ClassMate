@@ -184,6 +184,37 @@ button.saved .btn-check { transform: translateX(0); }
 		<input type="color" id="linkColor">
 		<button type="button" class="secondary" data-reset="linkColor">重置</button>
 	</div>
+	<div class="color-row">
+		<label>引用·函数</label>
+		<input type="color" id="refFunc">
+		<button type="button" class="secondary" data-reset="refFuncColor">重置</button>
+	</div>
+	<div class="color-row">
+		<label>引用·类型</label>
+		<input type="color" id="refType">
+		<button type="button" class="secondary" data-reset="refTypeColor">重置</button>
+	</div>
+	<div class="color-row">
+		<label>引用·变量</label>
+		<input type="color" id="refVar">
+		<button type="button" class="secondary" data-reset="refVarColor">重置</button>
+	</div>
+	<div class="color-row">
+		<label>引用·宏</label>
+		<input type="color" id="refMacro">
+		<button type="button" class="secondary" data-reset="refMacroColor">重置</button>
+	</div>
+	<div class="color-row">
+		<label>引用·标准库</label>
+		<input type="color" id="refStd">
+		<button type="button" class="secondary" data-reset="refStdColor">重置</button>
+	</div>
+	<div class="color-row">
+		<label>引用·其他</label>
+		<input type="color" id="refOther">
+		<button type="button" class="secondary" data-reset="refOtherColor">重置</button>
+	</div>
+	<div class="hint">「引用·X」只作用于回答中行内代码的符号引用（函数/类型/变量/宏/标准库），普通超链接不受影响；点「重置」回落内置语义色板。</div>
 	<div class="actions">
 		<button type="submit" id="save-theme"><span class="btn-label">保存主题</span><span class="btn-check">✓</span></button>
 	</div>
@@ -229,6 +260,12 @@ button.saved .btn-check { transform: translateX(0); }
 		assistantBubbleBackground: 'assistantBubbleBg',
 		assistantBubbleForeground: 'assistantBubbleFg',
 		linkColor: 'linkColor',
+		refFuncColor: 'refFunc',
+		refTypeColor: 'refType',
+		refVarColor: 'refVar',
+		refMacroColor: 'refMacro',
+		refStdColor: 'refStd',
+		refOtherColor: 'refOther',
 	};
 	const themeKeys = Object.keys(fieldMap);
 
@@ -265,12 +302,20 @@ button.saved .btn-check { transform: translateX(0); }
 
 	function defaultColor(id) {
 		// Provide sane defaults so color inputs are never empty.
+		// 引用 kind 行的值只是取色器显示占位(Dark+ 语义色);dataset.custom
+		// 为空时提交空串,消费端回落内置色板,与"未设置"语义一致。
 		const map = {
 			userBubbleBg: '#0e639c',
 			userBubbleFg: '#ffffff',
 			assistantBubbleBg: '#37373d',
 			assistantBubbleFg: '#cccccc',
 			linkColor: '#4fc1ff',
+			refFunc: '#dcdcaa',
+			refType: '#4ec9b0',
+			refVar: '#9cdcfe',
+			refMacro: '#c586c0',
+			refStd: '#6a9955',
+			refOther: '#cccccc',
 		};
 		return map[id] || '#888888';
 	}

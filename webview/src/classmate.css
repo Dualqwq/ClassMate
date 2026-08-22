@@ -543,46 +543,51 @@ label:focus-within {
 	outline-offset: 1px;
 }
 
-/* 深色/默认色板(对齐 VS Code Dark+ 语义色) */
+/* 深色/默认色板(对齐 VS Code Dark+ 语义色);ADD5 按 kind 自定义色
+   (--classmate-ref-* 由主题广播写入)优先,未设置回落内置值。 */
 .kind-func {
-	color: #dcdcaa;
+	color: var(--classmate-ref-func, #dcdcaa);
 }
 
 .kind-type {
-	color: #4ec9b0;
+	color: var(--classmate-ref-type, #4ec9b0);
 }
 
 .kind-var {
-	color: #9cdcfe;
+	color: var(--classmate-ref-var, #9cdcfe);
 }
 
 .kind-macro {
-	color: #c586c0;
+	color: var(--classmate-ref-macro, #c586c0);
 }
 
 .kind-std {
-	color: #6a9955;
+	color: var(--classmate-ref-std, #6a9955);
+}
+
+.kind-other {
+	color: var(--classmate-ref-other, inherit);
 }
 
 /* 浅色主题覆盖(Light+ 语义色) */
 .vscode-light .kind-func {
-	color: #795e26;
+	color: var(--classmate-ref-func, #795e26);
 }
 
 .vscode-light .kind-type {
-	color: #267f99;
+	color: var(--classmate-ref-type, #267f99);
 }
 
 .vscode-light .kind-var {
-	color: #001080;
+	color: var(--classmate-ref-var, #001080);
 }
 
 .vscode-light .kind-macro {
-	color: #af00db;
+	color: var(--classmate-ref-macro, #af00db);
 }
 
 .vscode-light .kind-std {
-	color: #008000;
+	color: var(--classmate-ref-std, #008000);
 }
 
 /* 高对比度:不依赖颜色,始终可分辨 */

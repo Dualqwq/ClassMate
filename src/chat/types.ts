@@ -20,6 +20,16 @@ export interface ClassMateTheme {
 	assistantBubbleBackground?: string;
 	assistantBubbleForeground?: string;
 	linkColor?: string;
+	/**
+	 * 行内代码引用按符号语义类型(#25 ReferenceKind)单独配色,作用于
+	 * .kind-<kind> 语义色板;未设的回落内置 Dark+/Light+ 静态值。
+	 */
+	refFuncColor?: string;
+	refTypeColor?: string;
+	refVarColor?: string;
+	refMacroColor?: string;
+	refStdColor?: string;
+	refOtherColor?: string;
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system';
