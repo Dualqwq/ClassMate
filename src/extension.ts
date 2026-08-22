@@ -6,7 +6,9 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
 import { RunPanel } from './ui/RunPanel';
+import { CoursewarePanel } from './ui/CoursewarePanel';
 import { RunService } from './run/runService';
+import { CoursewareService } from './courseware/coursewareService';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
 import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
@@ -1021,6 +1023,7 @@ export async function activate(
 	chatSession.setPromptBuilder(promptBuilder);
 	const skillContentLoader = new SkillContentLoader(skillDir);
 	const problemCardIndexLoader = new ProblemCardIndexLoader(skillContentLoader);
+	const coursewareService = new CoursewareService(context);
 	chatSession.setGraphServices({
 		workspaceProvider,
 		// Tree-sitter wasm 定位基准:VSIX/F5 布局下优先 dist/wasm。
@@ -1032,6 +1035,7 @@ export async function activate(
 		problemCardIndexLoader,
 		problemCardExtractor: new ProblemCardExtractor(skillContentLoader),
 		problemCardFactsLoader: new ProblemCardFactsLoader(skillContentLoader),
+		coursewareService,
 	});
 
 	// Register the sidebar WebviewView provider.
@@ -1165,6 +1169,12 @@ export async function activate(
 			id: 'classmate.openRunPanel',
 			handler: () => {
 				RunPanel.createOrShow(context.extensionUri, runService);
+			},
+		},
+		{
+			id: 'classmate.openCoursewarePanel',
+			handler: () => {
+				CoursewarePanel.createOrShow(context.extensionUri, coursewareService);
 			},
 		},
 		{

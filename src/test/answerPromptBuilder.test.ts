@@ -139,9 +139,10 @@ describe('Answer prompt source-grounding safeguards', () => {
 		assert.match(messages[0].content, /=== ClassMate Answer Mode ===/);
 		assert.match(messages[1].content, /=== Frozen workspace data ===/);
 		assert.match(messages[2].content, /=== Selected Skill Context ===/);
-		assert.match(messages[3].content, /=== Answer plan ===/);
+		assert.match(messages[3].content, /=== Imported courseware context ===/);
+		assert.match(messages[4].content, /=== Answer plan ===/);
 		assert.strictEqual(messages[messages.length - 1].content, 'What is a pointer?');
-		assert.ok(messages.length >= 5, 'expected a stable prefix, snapshot, plan and user message');
+		assert.ok(messages.length >= 6, 'expected a stable prefix, courseware context, snapshot, plan and user message');
 		const snapshot = messages[1].content;
 		assert.match(snapshot, /=== Loaded files \(1-based line numbers\) ===/);
 		assert.match(snapshot, /=== Files present in the workspace but not loaded ===/);

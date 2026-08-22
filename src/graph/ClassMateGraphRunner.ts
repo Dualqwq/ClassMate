@@ -40,6 +40,7 @@ import {
 } from '../chat/answerReferenceFinalizer';
 import type { WorkspaceContextProvider } from '../workspace/workspaceContextProvider';
 import { planEvidenceBackfill } from '../workspace/evidenceBackfill';
+import type { CoursewareService } from '../courseware/coursewareService';
 import type {
 	LoadedWorkspaceItem,
 	MinimalWorkspaceContext,
@@ -107,6 +108,10 @@ export interface ClassMateGraphServices {
 	problemCardIndexLoader: ProblemCardIndexLoader;
 	problemCardExtractor: ProblemCardExtractor;
 	problemCardFactsLoader: ProblemCardFactsLoader;
+	/**
+	 * 课件 GraphRAG 服务；可选，未初始化时 answer prompt 不注入课件上下文。
+	 */
+	coursewareService?: CoursewareService;
 	/**
 	 * 当前工作区根目录的 URI 字符串(vscode.workspace.workspaceFolders[0])。
 	 * 引用契约用它把符号的相对路径拼成可点击的真实文件 URI;
@@ -1465,6 +1470,17 @@ export class ClassMateGraphRunner {
 	 */
 	private async _buildAnswerPrompt(state: WrappedState): Promise<WrappedState> {
 		const current = state.value;
+		let coursewareContext: string | undefined;
+		if (this._services.coursewareService) {
+			try {
+				coursewareContext = await this._services.coursewareService.retrieveFormatted(
+					current.request.userText,
+					4
+				);
+			} catch (error) {
+				this._services.onDebug?.('courseware_retrieval_degraded', String(error));
+			}
+		}
 		const messages = new AnswerPromptBuilder().build({
 			skillCore: await this._services.skillContentLoader.loadText('SKILL.md'),
 			pedagogy: await this._services.skillContentLoader.loadText('references/pedagogy.md'),
@@ -1487,6 +1503,7 @@ export class ClassMateGraphRunner {
 				? buildReferenceTargetCatalog(current.workspaceSymbols.symbols).targets
 				: undefined,
 			userText: current.request.userText,
+			coursewareContext,
 			conversationHistory: current.request.conversationHistory,
 		});
 		// 消费漂移重生成标记:本轮回答基于重载后的快照,标记复位后
@@ -1494,6 +1511,7 @@ export class ClassMateGraphRunner {
 		return nextState(state, {
 			answerMessages: messages,
 			workspaceDriftRegenerate: false,
+			assembledCoursewareContext: coursewareContext,
 		});
 	}
 

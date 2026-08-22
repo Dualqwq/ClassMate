@@ -34,6 +34,8 @@ export interface AnswerPromptInput {
 		startLine: number;
 	}>;
 	userText: string;
+	/** 课件 GraphRAG 检索出的相关片段；无课件或无关时留空。 */
+	coursewareContext?: string;
 	conversationHistory: Array<{
 		role: 'user' | 'assistant';
 		content: string;
@@ -209,6 +211,20 @@ export class AnswerPromptBuilder {
 				content: [
 					'=== Selected Skill Context ===',
 					input.assembledSkillContext || '[No matching Skill section was selected.]',
+				].join('\n\n'),
+			},
+			{
+				// 课件 GraphRAG 上下文:独立来源,放在 skill 与答案计划之间,
+				// 有内容时参与前缀分叉,无内容时保持标题稳定便于缓存。
+				role: 'system',
+				content: [
+					'=== Imported courseware context ===',
+					input.coursewareContext?.trim()
+						? [
+							input.coursewareContext,
+							'The above fragments come from imported course materials. Use them only when they directly help answer the student. Do not mention the retrieval process.',
+						].join('\n\n')
+						: '[No imported courseware context was retrieved for this question.]',
 				].join('\n\n'),
 			},
 			{

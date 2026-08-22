@@ -324,6 +324,9 @@ export interface ClassMateGraphState {
 	assembledProblemCardContext?: string;
 	problemKnowledgeDegraded: boolean;
 
+	/** 课件 GraphRAG 检索出的相关片段，拼入 answer prompt。 */
+	assembledCoursewareContext?: string;
+
 	answerMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
 	answer?: string;
 	/** 引用契约生成的最终引用清单(由正文标记确定)。 */
