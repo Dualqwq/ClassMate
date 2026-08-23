@@ -78,6 +78,10 @@ describe('journey 入口 manifest 完整性(状态机 §4 不变量)', () => {
         ]);
         const authoritativeEntries: Array<{ menu: string; entry: MenuEntry }> = [];
         for (const [menu, entries] of Object.entries(contributes.menus)) {
+            // commandPalette 是命令可见性声明,不属于「小屏按钮」矩阵(§3 入口矩阵只数按钮面)。
+            if (menu === 'commandPalette') {
+                continue;
+            }
             for (const entry of entries) {
                 if (/journey/i.test(entry.command)) {
                     assert.ok(
