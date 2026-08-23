@@ -1,4 +1,5 @@
 import type { ClassMateTheme, LLMConfig } from '../chat/types';
+import { THEME_FIELDS, buildThemePayload } from './themePayload';
 
 export interface SettingsPageData {
 	token: string;
@@ -6,6 +7,9 @@ export interface SettingsPageData {
 	config: LLMConfig;
 	theme: ClassMateTheme;
 }
+
+/** 页脚构建标记(G5 复审第一步核对项):改动设置页/主题链路时递增尾号。 */
+const SETTINGS_PAGE_BUILD = 'build 2026-08-22.1';
 
 export function renderSettingsPageHtml(data: SettingsPageData): string {
 	const { token, port, config, theme } = data;
@@ -231,7 +235,13 @@ button.saved .btn-check { transform: translateX(0); }
 
 <div id="status" class="status"></div>
 
+<footer id="build-marker" class="hint">ClassMate 设置页 · ${SETTINGS_PAGE_BUILD}</footer>
+
 <script>${initialScript}</script>
+<script>
+const THEME_FIELDS = ${JSON.stringify(THEME_FIELDS)};
+const buildThemePayload = ${buildThemePayload.toString()};
+</script>
 <script>
 (function () {
 	const urlParams = new URLSearchParams(location.search);
@@ -254,20 +264,14 @@ button.saved .btn-check { transform: translateX(0); }
 		statusEl.className = 'status ' + (ok ? 'ok' : 'err');
 	}
 
-	const fieldMap = {
-		userBubbleBackground: 'userBubbleBg',
-		userBubbleForeground: 'userBubbleFg',
-		assistantBubbleBackground: 'assistantBubbleBg',
-		assistantBubbleForeground: 'assistantBubbleFg',
-		linkColor: 'linkColor',
-		refFuncColor: 'refFunc',
-		refTypeColor: 'refType',
-		refVarColor: 'refVar',
-		refMacroColor: 'refMacro',
-		refStdColor: 'refStd',
-		refOtherColor: 'refOther',
-	};
-	const themeKeys = Object.keys(fieldMap);
+	// fieldMap 由 themePayload.ts 的单一清单注入生成,不再手抄第二份。
+	const fieldMap = THEME_FIELDS.reduce(
+		(map, entry) => {
+			map[entry[0]] = entry[1];
+			return map;
+		},
+		{}
+	);
 
 	// 保存成功后在按钮上播放勾动画:勾滑入盖住文字,停留约 2.5s 后复原。
 	// 仅在服务端确认保存成功后调用;失败路径保持原有错误提示,不播勾。
@@ -362,11 +366,12 @@ button.saved .btn-check { transform: translateX(0); }
 
 	$('theme-form').addEventListener('submit', async (e) => {
 		e.preventDefault();
-		const body = {};
-		for (const key of themeKeys) {
-			const el = $(fieldMap[key]);
-			body[key] = el.dataset.custom ? el.value : '';
-		}
+		// 载荷构造走与单测同一份 buildThemePayload 实现(见 themePayload.ts)。
+		const body = buildThemePayload(Object.keys(fieldMap).map((key) => ({
+			key: key,
+			value: $(fieldMap[key]).value,
+			custom: !!$(fieldMap[key]).dataset.custom,
+		})));
 		try {
 			const res = await fetch(base + '/api/theme', { method: 'POST', headers, body: JSON.stringify(body) });
 			if (!res.ok) throw new Error(await res.text());

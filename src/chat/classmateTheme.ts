@@ -5,7 +5,8 @@ export interface CssVariableTarget {
 	style: { setProperty(name: string, value: string): void };
 }
 
-const THEME_VARIABLES: ReadonlyArray<readonly [keyof ClassMateTheme, string]> = [
+/** 主题字段 → CSS 自定义属性的唯一映射;webview 消费点由单测做闭环扫描。 */
+export const THEME_VARIABLES: ReadonlyArray<readonly [keyof ClassMateTheme, string]> = [
 	['userBubbleBackground', '--classmate-user-bubble-bg'],
 	['userBubbleForeground', '--classmate-user-bubble-fg'],
 	['assistantBubbleBackground', '--classmate-assistant-bubble-bg'],

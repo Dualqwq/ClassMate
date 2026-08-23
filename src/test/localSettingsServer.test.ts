@@ -6,6 +6,7 @@ import {
 	LOCAL_TOKEN_SECRET_KEY,
 	type LocalSettingsServer,
 } from '../settings/localSettingsServer';
+import { buildThemePayload } from '../settings/themePayload';
 import { getThemeSettings } from '../settings/localSettings';
 
 /** 极简 vscode.ExtensionContext 替身:globalState/secrets 均为内存 Map。 */
@@ -181,6 +182,44 @@ describe('local settings server (ADD5)', () => {
 		});
 		assert.deepStrictEqual(await getResponse.json(), theme);
 		assert.deepStrictEqual(await getThemeSettings(context), theme);
+	});
+
+	it('a page-built payload persists non-empty and broadcasts every changed field', async () => {
+		// 行为级闭环(G5 复测):载荷不再手写,而是由设置页实际使用的
+		// buildThemePayload 产出——模拟"用户改了两处颜色、其余保持重置态"。
+		let broadcastedTheme: Record<string, unknown> | undefined;
+		const { server, context } = await startServer(mockContext(), {
+			onThemeSaved: (theme) => {
+				broadcastedTheme = theme as unknown as Record<string, unknown>;
+			},
+		});
+		const token = await getToken(context);
+
+		const payload = buildThemePayload([
+			{ key: 'userBubbleBackground', value: '#123456', custom: true },
+			{ key: 'linkColor', value: '#ff8800', custom: true },
+			{ key: 'refFuncColor', value: '#dcdcaa', custom: false },
+			{ key: 'assistantBubbleBackground', value: '', custom: true },
+		]);
+
+		const saveResponse = await fetch(`${server.url}/api/theme`, {
+			method: 'POST',
+			headers: { 'X-ClassMate-Token': token, 'Content-Type': 'application/json' },
+			body: JSON.stringify(payload),
+		});
+		assert.strictEqual(saveResponse.status, 200);
+		// 广播载荷必须非空且恰好包含用户真正改过的字段(重置/未触碰的缺席)。
+		assert.deepStrictEqual(broadcastedTheme, {
+			userBubbleBackground: '#123456',
+			linkColor: '#ff8800',
+		});
+
+		// GET 回读(= 重开面板 requestTheme 的读取路径)与持久化一致。
+		const getResponse = await fetch(`${server.url}/api/theme`, {
+			headers: { 'X-ClassMate-Token': token },
+		});
+		assert.deepStrictEqual(await getResponse.json(), broadcastedTheme);
+		assert.deepStrictEqual(await getThemeSettings(context), broadcastedTheme);
 	});
 
 	it('POST /api/config persists provider/model/url and keeps key when omitted', async () => {
