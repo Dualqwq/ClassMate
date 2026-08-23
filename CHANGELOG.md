@@ -2,7 +2,7 @@
 
 ClassMate 的重要变更记录在这里。
 
-## [Unreleased]
+## [0.0.7]
 
 - Journey 面板 dispose 竞态修复(随入口重写的命令路径测试暴露):`JourneyPanel._updatePanelActive` 的 250ms 失活冷却定时器若在面板 dispose 后才到期,回调访问 `panel.active` 抛未捕获 "Webview is disposed",会毒化整个扩展宿主(无关测试/命令随机报错)。现 dispose 时先 clearTimeout,定时器回调内再加 `_isDisposed` 双保险。回归锚点:journeyPanelCommand.test.ts 的关闭后重开用例(创建→关闭→再开)。
 - Include 栈错误归因修复(FE1 复测问题 1):新增 `parseCompilerStderrWithIncludes`(src/error/errorParser.ts)解析 g++「In file included from …」栈(含缩进 from 多层续行),把 `viaIncludes` 引入链挂到紧随其后的头文件诊断上——诊断归属文件始终是诊断行自身位置(真正报错处),单行解析语义不变、既有用例零放宽;两条编译路径(g++/make)改用该解析,journey episode/错题卡跳转指向真实报错文件(`parsed.file`,如 b.h:5)而非主翻译单元,卡片展示「经 a.cpp 引入」,相对路径经 `resolveSourceTarget` 按工作区根解析打开;MSVC included-file 栈格式留后续。单测 errorParser 4 条 + journeyViewModel 头文件归属 1 条。
