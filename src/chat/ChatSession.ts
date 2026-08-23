@@ -83,6 +83,8 @@ export class ChatSession {
 	} | null) => void;
 	private _onOpenLocalSettings?: () => void;
 	private _onRequestTheme?: () => Promise<ClassMateTheme>;
+	/** 最近一次广播的主题;attach 时补推给新挂载的面板,消除错过广播/竞态窗口。 */
+	private _currentTheme?: ClassMateTheme;
 	private _onGetApiKey?: () => Promise<string | undefined>;
 	private _llmConfig?: LLMConfig;
 	private _currentAdapter?: LLMAdapter;
@@ -614,6 +616,8 @@ export class ChatSession {
 	}
 
 	public broadcastThemeUpdate(theme: ClassMateTheme): void {
+		// 缓存为当前主题:此后任何新 attach 的面板都会立即补推(见 attach)。
+		this._currentTheme = theme;
 		this._broadcast({ type: 'themeUpdate', theme });
 	}
 
@@ -658,6 +662,12 @@ export class ChatSession {
 		// attach 时前端刚挂载,需要把当前对话的 inputDraft 投影过去。
 		presenter.postMessage({ type: 'stateSync', state: this._state });
 		presenter.postMessage({ type: 'containerInfo', container: this._getPresenterContainer(presenter) });
+		// 主题不依赖前端 requestTheme 的异步往返:attach 时把最近一次广播的
+		// 主题直接补推。新开/重挂的面板立即着色,不再有"错过广播"或
+		// "requestTheme 早于 _onRequestTheme 注册"的竞态窗口。
+		if (this._currentTheme) {
+			presenter.postMessage({ type: 'themeUpdate', theme: this._currentTheme });
+		}
 	}
 
 	private _getPresenterContainer(presenter: WebviewPresenter): 'view' | 'panel' {

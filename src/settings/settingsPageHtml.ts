@@ -327,11 +327,15 @@ const buildThemePayload = ${buildThemePayload.toString()};
 	// 用户手动改色即视为自定义项,提交时携带该字段。此前没有任何监听设置
 	// dataset.custom,提交载荷恒为空串,服务端存了空主题、广播了空主题,
 	// 导致"保存后颜色完全不变"(G5 复测取证)。程序化赋值(loadTheme/reset)
-	// 不触发 input 事件,"重置=清除该字段"的语义不受影响。
+	// 不触发这些事件,"重置=清除该字段"的语义不受影响。
+	// input 与 change 双监听:不同浏览器/输入方式(系统色板、吸管、预设
+	// 色块)至少会发其中一种,双保险确保任何真实交互都能置位。
 	Object.values(fieldMap).forEach((id) => {
-		$(id).addEventListener('input', () => {
+		const markCustom = () => {
 			$(id).dataset.custom = '1';
-		});
+		};
+		$(id).addEventListener('input', markCustom);
+		$(id).addEventListener('change', markCustom);
 	});
 
 	$('fallbackEnabled').addEventListener('change', () => {

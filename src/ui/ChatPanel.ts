@@ -131,7 +131,12 @@ export class ChatPanel implements WebviewPresenter {
 	}
 
 	public postMessage(message: unknown): void {
-		void this._panel.webview.postMessage(message);
+		// 送达失败(面板销毁中/webview 未就绪)不再静默:主题推送"看起来成功
+		// 却没生效"的复诊依赖这条线索(G5 第五轮)。
+		this._panel.webview.postMessage(message).then(
+			undefined,
+			(error) => console.warn('[ClassMate] chat panel postMessage failed', error)
+		);
 	}
 
 	public dispose(): void {

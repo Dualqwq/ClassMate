@@ -1142,6 +1142,9 @@ export async function activate(
 	});
 
 	chatSession.setOnRequestTheme(() => getThemeSettings(context));
+	// 启动即把持久化主题 seed 为"当前主题":此后首个/每个面板 attach 时都会
+	// 被补推,不依赖前端 requestTheme 的异步往返时序。
+	void getThemeSettings(context).then((theme) => chatSession.broadcastThemeUpdate(theme));
 
 	// Run 面板(#11):与 Chat Panel 同级的大标签页面板,共享 React bundle +
 	// route 切换;只消费编译产物(compile_result.txt / 源文件推导),不做编译决策。

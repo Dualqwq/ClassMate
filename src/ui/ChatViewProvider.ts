@@ -82,7 +82,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, WebviewPres
 
 	public postMessage(message: unknown): void {
 		if (this._view) {
-			void this._view.webview.postMessage(message);
+			// 送达失败不再静默(见 ChatPanel.postMessage 同款理由)。
+			this._view.webview.postMessage(message).then(
+				undefined,
+				(error) => console.warn('[ClassMate] chat view postMessage failed', error)
+			);
 		}
 	}
 

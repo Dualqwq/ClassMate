@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as vm from 'vm';
 import { describe, it } from 'mocha';
 import { renderSettingsPageHtml } from '../settings/settingsPageHtml';
+import { THEME_FIELDS } from '../settings/themePayload';
 import type { LLMConfig } from '../chat/types';
 
 const BASE_CONFIG: LLMConfig = { provider: 'claude', model: 'claude-sonnet-4-7-20251001', apiKeySet: false };
@@ -122,6 +123,13 @@ describe('settings page script (行为级执行)', () => {
 		colorInput.fire('input');
 		assert.strictEqual(colorInput.dataset.custom, '1');
 
+		// change 双保险(G5 第五轮):不同浏览器/输入方式可能只发 change,
+		// 监听对两种事件都要置位。
+		const other = page.get('userBubbleFg');
+		other.value = '#00ff00';
+		other.fire('change');
+		assert.strictEqual(other.dataset.custom, '1');
+
 		// 未触碰的字段保持非自定义(初始回填不触发 input)。
 		assert.strictEqual(page.get('userBubbleBg').dataset.custom ?? '', '');
 
@@ -133,10 +141,36 @@ describe('settings page script (行为级执行)', () => {
 			(request) => request.options.method === 'POST' && request.url.endsWith('/api/theme')
 		);
 		assert.ok(themePost, 'theme form did not POST /api/theme');
+		// 两个字段(input 触发 + change 触发)都必须进载荷。
 		assert.deepStrictEqual(JSON.parse(themePost.options.body ?? '{}'), {
 			assistantBubbleBackground: '#ff0000',
+			userBubbleForeground: '#00ff00',
 		});
 	});
+
+	// 全字段参数化(G5 第五轮取证):此前只用 assistantBubbleBackground 一个
+	// 字段驱动过链路,用户改的恰好是另两个字段——逐字段盲区只有全字段
+	// 驱动能消灭。任何字段在 DOM→监听→载荷任一环掉链子都会在此现形。
+	for (const [themeKey, inputId] of THEME_FIELDS) {
+		it(`drives the full chain for ${String(themeKey)} (input #${inputId})`, async () => {
+			const page = runPageScripts();
+
+			page.get(inputId).value = '#11aa55';
+			page.get(inputId).fire('input');
+			page.get('theme-form').fire('submit', { preventDefault: () => undefined });
+			await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+			const themePost = page.requests.find(
+				(request) => request.options.method === 'POST' && request.url.endsWith('/api/theme')
+			);
+			assert.ok(themePost, `${String(themeKey)}: theme form did not POST /api/theme`);
+			assert.deepStrictEqual(
+				JSON.parse(themePost.options.body ?? '{}'),
+				{ [themeKey]: '#11aa55' },
+				`${String(themeKey)}: saved payload does not carry the changed color`
+			);
+		});
+	}
 
 	it('shows the visible build marker for manual verification', () => {
 		const html = renderSettingsPageHtml({

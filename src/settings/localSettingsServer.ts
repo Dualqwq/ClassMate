@@ -256,6 +256,11 @@ export async function createLocalSettingsServer(
 
 			if (request.method === 'POST' && requestUrl.pathname === '/api/theme') {
 				const theme = parseThemeBody(await readJsonBody(request));
+				if (Object.keys(theme).length === 0) {
+					// 全重置是合法空载荷;但"改了色却存出空载荷"正是 G5 五轮复测
+					// 的症状形态,留一条宿主 console 线索供复诊。
+					console.warn('[ClassMate] theme save produced an empty payload; check settings page field wiring');
+				}
 				await saveThemeSettings(context, theme);
 				options.onThemeSaved?.(theme);
 				sendJson(response, 200, theme);
