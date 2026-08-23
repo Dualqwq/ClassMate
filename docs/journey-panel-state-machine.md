@@ -53,7 +53,8 @@ route 由各 HTML 模板硬编码注入(Chat→`chat`、Run→`run`、Journey→
 
 ```
 classmate.debugJourney 命令(extension.ts 注册一次)
-  └─ handler: JourneyPanel.createOrShow(context.extensionUri, journeyService)
+  └─ handler: openJourneyPanel(context.extensionUri, journeyService)
+       └─ JourneyPanel.createOrShow(...)
        ├─ hasCurrent()? → _currentPanel.reveal(activeColumn, preserveFocus=false)
        │                  (不重建、不重发 HTML;数据仍由 onDidAppend 节流刷新)
        ├─ resolveNewPanelColumn(...)      ← B1 分组决策(不盖源码)
