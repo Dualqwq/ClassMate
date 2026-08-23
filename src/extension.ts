@@ -27,7 +27,7 @@ import { openLocalSettingsPage } from './settings/localSettings';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { checkGppAvailability, detectMakeTool, findRootMakefile, isCompilableSourceFile, previewGppCommand, spawnGpp, spawnMake } from './compiler/compilerService';
 import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, buildNoCompilableSourceGuidance, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
-import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
+import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection, parseCompilerStderrWithIncludes } from './error/errorParser';
 import type { CompileSelectionRange } from './error/errorParser';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { createSkillLoader } from './prompts/promptLoader';
@@ -396,10 +396,9 @@ async function recordCompileOutcome(
 	result: { exitCode: number | null; stderr: string; durationMs: number }
 ): Promise<void> {
 	if (result.exitCode !== 0) {
-		const parsedErrors = result.stderr
-			.split('\n')
-			.map((line) => extractErrorLocation(line))
-			.filter((err): err is NonNullable<typeof err> => err !== undefined);
+		// 带include栈传播的解析:头文件错误的归属是诊断行自己的文件,
+		// 并携带 viaIncludes 链路(journey 跳转/展示用)。
+		const parsedErrors = parseCompilerStderrWithIncludes(result.stderr);
 
 		const event: CompileErrorEvent = {
 			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -677,10 +676,7 @@ async function runCodeHandlerAsync(
 				.join('\n');
 			await showCompileOutput(output);
 
-			const parsedErrors = compileResult.stderr
-				.split('\n')
-				.map((line) => extractErrorLocation(line))
-				.filter((err): err is NonNullable<typeof err> => err !== undefined);
+			const parsedErrors = parseCompilerStderrWithIncludes(compileResult.stderr);
 
 			const event: CompileErrorEvent = {
 				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,

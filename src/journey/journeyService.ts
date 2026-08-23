@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import type { ChatSession } from '../chat/ChatSession';
 import type {
@@ -164,7 +165,15 @@ export class JourneyService {
     /** [在代码里看]:ADD2 统一分组打开并定位行,不经过面板组(#18 零闪屏)。 */
     private async openFile(uri: string, line?: number): Promise<void> {
         try {
-            const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(uri));
+            const target = resolveSourceTarget(
+                uri,
+                vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+            );
+            if (!target) {
+                void vscode.window.showWarningMessage('这是一个相对路径引用,请确认文件在工作区内。');
+                return;
+            }
+            const document = await vscode.workspace.openTextDocument(target);
             const lastLine = Math.max(0, document.lineCount - 1);
             const targetLine = Math.min(lastLine, Math.max(0, (line ?? 1) - 1));
             await showTextDocumentRespectingPanels(document, {
@@ -192,4 +201,29 @@ export class JourneyService {
     private post(message: JourneyExtensionToWebviewMessage): void {
         this._presenter?.postMessage(message);
     }
+}
+
+/**
+ * 诊断输出里的文件位置 → 可打开的 file URI。
+ * g++ 输出可能是绝对路径(C:\ws\b.h、/usr/include/x.h)、相对路径(b.h、
+ * include/b.h)或已是 file:// URI(事件级字段)。相对路径以当前工作区根解析;
+ * 解不出时不给假位置(undefined)。
+ */
+export function resolveSourceTarget(
+    fileOrUri: string,
+    workspaceRootFsPath?: string
+): vscode.Uri | undefined {
+    if (/^file:\/\//i.test(fileOrUri)) {
+        return vscode.Uri.parse(fileOrUri);
+    }
+    if (path.isAbsolute(fileOrUri)) {
+        return vscode.Uri.file(fileOrUri);
+    }
+    if (workspaceRootFsPath) {
+        return vscode.Uri.joinPath(
+            vscode.Uri.file(workspaceRootFsPath),
+            ...fileOrUri.split(/[\\/]/)
+        );
+    }
+    return undefined;
 }

@@ -52,6 +52,11 @@ export const MistakeCard: React.FC<{ card: MistakeCardVM }> = ({ card }) => {
 			<div className="journey-episode-summary">
 				最近:{formatLastSeen(card.lastSeenAt)}
 				{card.frequency > 1 ? ` · 本题累计 ${card.frequency} 次` : ''}
+				{card.viaIncludes && card.viaIncludes.length > 0 && (
+					<span className="journey-via-includes">
+						{' '}· 经 {card.viaIncludes.slice().reverse().join(' → ')} 引入
+					</span>
+				)}
 			</div>
 
 			<div className="journey-review-box">

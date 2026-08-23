@@ -16,6 +16,13 @@ export interface ParsedError {
     code?: string;
     /** True if this line is a "In file included from" context note from Clang/GCC. */
     isIncludeContext?: boolean;
+    /**
+     * Include 栈(仅由 parseCompilerStderr 的多行传播填充):该诊断所在头文件
+     * 被引入的链路,从最内层到最外层,如 ["b.h:6", "a.cpp:1"]。
+     * 归属文件(file)始终是诊断行自己的位置——真正报错处;本字段只描述
+     * "怎么 include 到这里的"。单行 extractErrorLocation 不填。
+     */
+    viaIncludes?: string[];
     /** Optional source range for diagnostics that span multiple tokens. */
     range?: SourceRange;
 }
@@ -249,6 +256,102 @@ export function parseCompilerStderr(stderr: string): ParsedError[] {
         }
     }
     return errors;
+}
+
+/** "In file included from a.cpp:1:" 开行(多层栈的非末行以 "," 结尾)。 */
+const INCLUDE_FROM_PATTERN = /^In file included from\s+(.+?):(\d+)(?::(\d+))?[,:]?\s*$/;
+/** g++ 多层 include 栈的续行(缩进 + "from b.h:6,"/"from b.h:6:")。 */
+const INCLUDE_CONTINUATION_PATTERN = /^\s+from\s+(.+?):(\d+)(?::(\d+))?[,:]?\s*$/;
+
+/** 主翻译单元扩展名:这些文件的诊断不需要 include 栈,遇到即清栈。 */
+function isMainTranslationUnit(file: string | undefined): boolean {
+    if (!file) {
+        return false;
+    }
+    return /\.(c|cpp|cc|cxx|C|c\+\+|m|mm)$/i.test(file);
+}
+
+function formatIncludeFrame(file: string, line: number, column?: number): string {
+    return `${file}:${line}${column !== undefined ? `:${column}` : ''}`;
+}
+
+/**
+ * Parse compiler stderr with include-stack propagation.
+ *
+ * g++ 对头文件错误先输出 include 栈再给诊断:
+ *   In file included from c.h:2,
+ *                    from b.h:6,
+ *                    from a.cpp:1:
+ *   x.h:3:10: error: ...
+ * 本函数把栈快照挂到紧随其后的 error/warning 诊断上(viaIncludes,从最内层
+ * 到最外层);诊断的归属 file 始终是诊断行自己的位置(真正报错处),不归给
+ * 主翻译单元。MSVC 的 included-file 栈格式本项目主场景(g++/MinGW)之外,
+ * 暂不支持,留后续。
+ *
+ * 栈生命周期:遇 "In file included from" 重置;续行追加;error/warning 诊断
+ * 消费当前栈(保留给同组后续诊断);主翻译单元(.c/.cpp/…)的诊断清栈——
+ * 它不属于头文件链。单条目解析语义与 parseCompilerStderr 完全一致。
+ */
+export function parseCompilerStderrWithIncludes(stderr: string): ParsedError[] {
+    const errors: ParsedError[] = [];
+    let includeStack: string[] = [];
+
+    for (const rawLine of stderr.split('\n')) {
+        const trimmed = rawLine.trim();
+
+        const fromMatch = INCLUDE_FROM_PATTERN.exec(trimmed);
+        if (fromMatch) {
+            includeStack = [
+                formatIncludeFrame(
+                    fromMatch[1],
+                    parseInt(fromMatch[2], 10),
+                    fromMatch[3] ? parseInt(fromMatch[3], 10) : undefined
+                ),
+            ];
+            // 该行本身仍按原语义产出 isIncludeContext note 条目。
+            pushParsed(errors, extractErrorLocation(rawLine));
+            continue;
+        }
+
+        const contMatch = INCLUDE_CONTINUATION_PATTERN.exec(rawLine);
+        if (contMatch && includeStack.length > 0) {
+            includeStack.push(
+                formatIncludeFrame(
+                    contMatch[1],
+                    parseInt(contMatch[2], 10),
+                    contMatch[3] ? parseInt(contMatch[3], 10) : undefined
+                )
+            );
+            continue;
+        }
+
+        const parsed = extractErrorLocation(rawLine);
+        if (!parsed) {
+            continue;
+        }
+
+        if (
+            (parsed.severity === 'error' || parsed.severity === 'warning') &&
+            includeStack.length > 0
+        ) {
+            if (isMainTranslationUnit(parsed.file)) {
+                // 主单元诊断不挂头文件链,并结束当前栈。
+                includeStack = [];
+            } else {
+                parsed.viaIncludes = [...includeStack];
+            }
+        }
+        pushParsed(errors, parsed);
+    }
+
+    return errors;
+}
+
+/** 统一入口:extractErrorLocation 成功则收下,失败忽略。 */
+function pushParsed(errors: ParsedError[], parsed: ParsedError | undefined): void {
+    if (parsed) {
+        errors.push(parsed);
+    }
 }
 
 /**

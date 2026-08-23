@@ -1188,3 +1188,7 @@ label:focus-within {
 	max-height: 220px;
 	overflow-y: auto;
 }
+
+.journey-via-includes {
+	color: var(--vscode-descriptionForeground);
+}

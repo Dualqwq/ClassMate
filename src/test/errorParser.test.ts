@@ -5,6 +5,7 @@ import {
 	extractFirstDiagnosticLine,
 	normalizeCompileOutputSelection,
 	parseCompilerStderr,
+	parseCompilerStderrWithIncludes,
 	type CompileSelectionRange,
 } from '../error/errorParser';
 
@@ -513,6 +514,72 @@ describe('Error Parser', () => {
 			assert.ok(result?.displayText.includes('cin >> a[i];'));
 			assert.ok(result?.displayText.includes('for(int i = 0;i < n;i+) {'));
 			assert.ok(result?.displayText.includes('ans += (a[i] >= m)'));
+		});
+	});
+	describe('parseCompilerStderrWithIncludes (include 栈归因)', () => {
+		const SINGLE_LEVEL_STDERR = [
+			'In file included from a.cpp:1:',
+			"b.h:5:10: error: expected ';' before '}' token",
+			'   5 | struct Card {',
+			'     |              ^',
+			"a.cpp:7:1: error: 'x' was not declared in this scope",
+		].join('\n');
+
+		it('头文件错误归属最深处的头文件,并保留 include 链元数据', () => {
+			const parsed = parseCompilerStderrWithIncludes(SINGLE_LEVEL_STDERR);
+			const headerError = parsed.find((e) => e.severity === 'error' && e.file?.endsWith('b.h'));
+			assert.ok(headerError, '应解析出 b.h 的错误');
+			assert.strictEqual(headerError.file, 'b.h');
+			assert.strictEqual(headerError.line, 5);
+			assert.deepStrictEqual(headerError.viaIncludes, ['a.cpp:1']);
+
+			// 主翻译单元自己的错误不带链路,且清掉旧栈。
+			const mainError = parsed.find((e) => e.file === 'a.cpp' && e.severity === 'error');
+			assert.ok(mainError);
+			assert.strictEqual(mainError.viaIncludes, undefined);
+		});
+
+		it('同一栈下的多条头文件诊断都携带链路;新栈重置旧栈', () => {
+			const stderr = [
+				'In file included from a.cpp:1:',
+				"b.h:5:10: error: expected ';' before '}' token",
+				"b.h:9:3: error: 'y' was not declared in this scope",
+				'In file included from other.cpp:3:',
+				"c.h:2:8: warning: unused variable 'z'",
+				'b.h:12:5: error: stale should follow the nearest stack',
+			].join('\n');
+			const parsed = parseCompilerStderrWithIncludes(stderr);
+
+			const bErrors = parsed.filter((e) => e.severity === 'error' && e.file === 'b.h');
+			assert.strictEqual(bErrors.length, 3);
+			assert.deepStrictEqual(bErrors[0].viaIncludes, ['a.cpp:1']);
+			assert.deepStrictEqual(bErrors[1].viaIncludes, ['a.cpp:1']);
+			const cWarning = parsed.find((e) => e.severity === 'warning');
+			assert.ok(cWarning);
+			assert.deepStrictEqual(cWarning.viaIncludes, ['other.cpp:3']);
+			// "In file included from" 重置旧栈:后续诊断跟随最近的栈。
+			assert.deepStrictEqual(bErrors[2].viaIncludes, ['other.cpp:3']);
+		});
+
+		it('多层嵌套 include(缩进 from 续行)按从内到外记录', () => {
+			const stderr = [
+				'In file included from c.h:2,',
+				'                 from b.h:6,',
+				'                 from a.cpp:1:',
+				"x.h:3:10: error: 'Card' does not name a type",
+			].join('\n');
+			const parsed = parseCompilerStderrWithIncludes(stderr);
+			const error = parsed.find((e) => e.severity === 'error');
+			assert.ok(error);
+			assert.strictEqual(error.file, 'x.h');
+			assert.deepStrictEqual(error.viaIncludes, ['c.h:2', 'b.h:6', 'a.cpp:1']);
+		});
+
+		it('与 parseCompilerStderr 的条目集合一致(只增不改既有语义)', () => {
+			assert.deepStrictEqual(
+				parseCompilerStderrWithIncludes(SINGLE_LEVEL_STDERR).map((e) => [e.file, e.line, e.message]),
+				parseCompilerStderr(SINGLE_LEVEL_STDERR).map((e) => [e.file, e.line, e.message])
+			);
 		});
 	});
 });

@@ -40,13 +40,20 @@ export interface JourneyEntryVM {
 
 /** 时间线一张 episode 卡 = 一个错误的完整生命周期。 */
 export interface JourneyEpisodeVM {
-    /** 起始 compile_error 事件 id;[在代码里看]/[求提示] 以此定位。 */
+    /** 起始 compile_error 事件 id;[求提示] 等以此定位。 */
     errorEventId: string;
     /** 首条错误原文 message(现象行)。 */
     message: string;
+    /**
+     * 跳转位置:优先诊断真实报错文件(parsed.file,含头文件错误场景),
+     * 事件级 fileUri(主翻译单元)只作兜底——否则头文件错误会错跳到
+     * include 它的 .cpp。
+     */
     fileUri?: string;
     fileName?: string;
     line?: number;
+    /** 该错误的 include 引入链路(从最内层到最外层,如 ["b.h:6","a.cpp:1"])。 */
+    viaIncludes?: string[];
     firstSeenAt: number;
     resolvedAt?: number;
     resolved: boolean;
@@ -84,9 +91,11 @@ export interface MistakeCardVM {
     resolvedCount: number;
     unresolvedCount: number;
     lastSeenAt: number;
-    /** [在代码里看] 定位:代表性错误的位置。 */
+    /** [在代码里看] 定位:代表性错误的位置(真实报错文件)。 */
     fileUri?: string;
     line?: number;
+    /** 代表性错误的 include 引入链路(卡片展示「经 X 引入」)。 */
+    viaIncludes?: string[];
 }
 
 /** journey:sync 一次推送的整体视图模型(两个页签共用)。 */
@@ -210,12 +219,16 @@ function buildEntriesForLifecycle(
 function representativePosition(
     card: KnowledgeCard,
     sortedEvents: DebugEvent[]
-): { fileUri?: string; line?: number } {
+): { fileUri?: string; line?: number; viaIncludes?: string[] } {
     const parsed = pickRepresentativeError(card, sortedEvents);
     if (!parsed) {
         return {};
     }
-    return { fileUri: parsed.file, line: parsed.line };
+    return {
+        fileUri: parsed.file,
+        line: parsed.line,
+        ...(parsed.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
+    };
 }
 
 /**
@@ -235,12 +248,16 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
         const parsed = errorEvent.parsedErrors.find(
             (p) => p.severity === 'error' || p.severity === 'warning'
         );
+        // 跳转位置优先诊断真实报错文件:头文件错误(parsed.file=b.h)不能
+        // 用事件级 fileUri(主单元 a.cpp),否则定位到错误的文件+行。
+        const locationFile = parsed?.file ?? errorEvent.fileUri;
         episodes.push({
             errorEventId: errorEvent.id,
             message: parsed?.message ?? '',
-            fileUri: errorEvent.fileUri,
-            fileName: baseFileName(errorEvent.fileUri),
+            fileUri: locationFile,
+            fileName: baseFileName(locationFile),
             line: parsed?.line,
+            ...(parsed?.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
             firstSeenAt: lifecycle.firstSeenAt,
             resolvedAt: lifecycle.resolvedAt,
             resolved: lifecycle.resolvedAt !== undefined,

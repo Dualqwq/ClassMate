@@ -82,6 +82,11 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 				{episode.resolved
 					? `编译 ${episode.attemptsBeforeResolve} 次后修好`
 					: '还没有等到修复'}
+				{episode.viaIncludes && episode.viaIncludes.length > 0 && (
+					<span className="journey-via-includes">
+						· 经 {episode.viaIncludes.slice().reverse().join(' → ')} 引入
+					</span>
+				)}
 			</div>
 			<div className="journey-entry-list">
 				{episode.entries.map((entry) => (

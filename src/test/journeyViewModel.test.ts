@@ -4,6 +4,7 @@ import {
     buildJourneyViewModel,
     type MistakeCardVM,
 } from '../journey/journeyViewModel';
+import { parseCompilerStderrWithIncludes } from '../error/errorParser';
 import type {
     CodeModifiedEvent,
     CompileErrorEvent,
@@ -181,5 +182,30 @@ describe('buildJourneyViewModel', () => {
         assert.match(card.fixes[0].diff, /int x/);
         assert.strictEqual(card.fileUri, 'file:///w/main.cpp');
         assert.strictEqual(card.line, 12);
+    });
+
+    it('头文件错误跳转位置指向真实报错文件(parsed.file),而非主翻译单元', () => {
+        const headerError = compileError({
+            id: 'h1',
+            timestamp: 1_000,
+            fileUri: 'file:///w/a.cpp',
+            stderr: [
+                'In file included from a.cpp:1:',
+                "b.h:5:10: error: expected ';' before '}' token",
+            ].join('\n'),
+            parsedErrors: parseCompilerStderrWithIncludes([
+                'In file included from a.cpp:1:',
+                "b.h:5:10: error: expected ';' before '}' token",
+            ].join('\n')),
+        });
+        const view = buildJourneyViewModel([headerError]);
+
+        assert.strictEqual(view.episodes.length, 1);
+        const episode = view.episodes[0];
+        // 归属与跳转都指向 b.h(真正报错处),事件级 fileUri(a.cpp)不参与定位。
+        assert.strictEqual(episode.fileUri, 'b.h');
+        assert.strictEqual(episode.fileName, 'b.h');
+        assert.strictEqual(episode.line, 5);
+        assert.deepStrictEqual(episode.viaIncludes, ['a.cpp:1']);
     });
 });
