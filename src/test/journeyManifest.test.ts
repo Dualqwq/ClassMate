@@ -67,21 +67,31 @@ describe('journey 入口 manifest 完整性(状态机 §4 不变量)', () => {
     });
 
     it('不变量2:一切 journey 菜单入口只收敛到 classmate.debugJourney', () => {
-        const journeyEntries: Array<{ menu: string; entry: MenuEntry }> = [];
+        // journey 相关既有命令全集:权威入口 + 树自身的刷新/关闭/树项 diff。
+        // 新增任何平行 journey 命令都必须先改本白名单与状态机文档,防止绕开
+        // 权威入口另起路径(状态机 §4 不变量 2)。
+        const JOURNEY_COMMAND_ALLOWLIST = new Set([
+            'classmate.debugJourney',
+            'classmate.refreshDebugJourneyTree',
+            'classmate.closeDebugJourneyTree',
+            'classmate.openDebugNodeDiff',
+        ]);
+        const authoritativeEntries: Array<{ menu: string; entry: MenuEntry }> = [];
         for (const [menu, entries] of Object.entries(contributes.menus)) {
             for (const entry of entries) {
-                if (/debugjourney/i.test(entry.command)) {
-                    journeyEntries.push({ menu, entry });
-                    assert.strictEqual(
-                        entry.command,
-                        'classmate.debugJourney',
-                        'journey 入口禁止引用平级新命令,必须收敛到权威命令'
+                if (/journey/i.test(entry.command)) {
+                    assert.ok(
+                        JOURNEY_COMMAND_ALLOWLIST.has(entry.command),
+                        `菜单 ${menu} 引用了白名单之外的 journey 命令 ${entry.command}`
                     );
+                }
+                if (entry.command === 'classmate.debugJourney') {
+                    authoritativeEntries.push({ menu, entry });
                 }
             }
         }
         // 状态机 §3 入口矩阵:五个小屏入口全部在场(命令面板本身不经菜单)。
-        const locations = journeyEntries.map(({ menu }) => menu).sort();
+        const locations = authoritativeEntries.map(({ menu }) => menu).sort();
         assert.deepStrictEqual(locations, [
             'editor/title',
             'view/item/context',

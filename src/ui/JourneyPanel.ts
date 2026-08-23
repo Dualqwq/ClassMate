@@ -134,6 +134,12 @@ export class JourneyPanel {
 			return;
 		}
 		this._isDisposed = true;
+		// 失活冷却定时器可能在 dispose 后才到期,回调里访问 panel.active 会抛
+		// "Webview is disposed" 并毒化整个扩展宿主(未捕获异常);先清再拆。
+		if (this._inactiveTimeout) {
+			clearTimeout(this._inactiveTimeout);
+			this._inactiveTimeout = undefined;
+		}
 		JourneyPanel._currentPanel = undefined;
 		this._journeyService.detach();
 		this._panel.dispose();
@@ -216,6 +222,11 @@ export class JourneyPanel {
 		if (!this._inactiveTimeout) {
 			this._inactiveTimeout = setTimeout(() => {
 				this._inactiveTimeout = undefined;
+				// dispose 竞态兜底:定时器到期时面板可能已销毁(双保险,
+				// dispose 里也会清),此时不得再触碰 panel.active。
+				if (this._isDisposed) {
+					return;
+				}
 				this._panelWasActive = this._panel.active;
 			}, 250);
 		}
