@@ -306,11 +306,6 @@
           "when": "view == classmate.debugJourneyTree && classmate.chatContainer == 'hidden'"
         },
         {
-          "command": "classmate.debugJourney",
-          "group": "navigation@0",
-          "when": "view == classmate.chatView"
-        },
-        {
           "command": "classmate.openChatPanel",
           "group": "navigation@1",
           "when": "view == classmate.chatView"
