@@ -1081,8 +1081,10 @@ export function activate(
 					apiUrl: process.env.CLASSMATE_LIVE_EVAL_API_URL
 						?? storedConfig.apiUrl,
 				};
-				const apiKey = await getApiKey(context)
-					?? process.env.CLASSMATE_LIVE_EVAL_API_KEY;
+				// 真实评测使用本次进程临时传入的密钥，避免测试用户目录中的旧密钥覆盖本次输入。
+				// 正常安装版不会设置该环境变量，仍然只读取 VS Code SecretStorage。
+				const apiKey = process.env.CLASSMATE_LIVE_EVAL_API_KEY
+					?? await getApiKey(context);
 				if (!apiKey) {
 					throw new Error('ClassMate API key is not configured in VS Code SecretStorage.');
 				}

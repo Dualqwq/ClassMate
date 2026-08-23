@@ -141,6 +141,42 @@ export const answerValidationResultSchema = z.object({
 	shouldRegenerate: z.boolean(),
 }).strict();
 
+const boundedFact = z.string().trim().min(1).max(300);
+
+/** Short wire format returned by the problem-constraint extraction call. */
+export const problemConstraintsWireSchema = z.object({
+	h: z.array(boundedFact).max(12).default([]),
+	o: z.array(boundedFact).max(10).default([]),
+	l: z.array(boundedFact).max(10).default([]),
+	e: z.array(boundedFact).max(10).default([]),
+	u: z.array(boundedFact).max(8).default([]),
+	p: z.array(z.string().trim().min(1).max(500)).max(12).default([]),
+}).strict();
+
+export const correctnessIssueCategorySchema = z.enum([
+	'constraint_ignored',
+	'wrong_algorithm',
+	'invalid_example',
+	'arithmetic_inconsistency',
+	'unsupported_claim',
+	'invented_interface',
+	'code_answer_mismatch',
+	'incomplete_solution',
+	'other',
+]);
+
+/** Short wire format returned by the lightweight correctness checker. */
+export const correctnessVerificationWireSchema = z.object({
+	p: z.boolean(),
+	s: z.enum(['none', 'minor', 'major']),
+	i: z.array(z.object({
+		c: correctnessIssueCategorySchema,
+		d: z.string().trim().min(1).max(500),
+		f: z.string().trim().min(1).max(500),
+	}).strict()).max(8).default([]),
+	a: z.string().trim().max(16_000).optional(),
+}).strict();
+
 export function parseJsonObject(text: string): unknown {
 	const trimmed = text.trim();
 	try {

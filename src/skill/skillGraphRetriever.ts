@@ -5,10 +5,30 @@ function normalize(value: string): string {
 	return value.toLocaleLowerCase().replace(/\s+/g, '');
 }
 
-function containsEither(left: string, right: string): boolean {
+/**
+ * Scores one natural-language query against one catalog phrase.
+ *
+ * An exact phrase is much stronger evidence than a short word contained in a
+ * long student question. Without this distinction, a question such as
+ * “直方图为什么用栈” gives the generic word “栈” the same weight as the exact
+ * histogram alias and may retrieve an unrelated stack topic first.
+ */
+function matchStrength(left: string, right: string): number {
 	const a = normalize(left);
 	const b = normalize(right);
-	return a.length > 0 && b.length > 0 && (a.includes(b) || b.includes(a));
+	if (a.length === 0 || b.length === 0) {
+		return 0;
+	}
+	if (a === b) {
+		return 1;
+	}
+	if (b.includes(a)) {
+		return Math.max(0.7, a.length / b.length);
+	}
+	if (a.includes(b)) {
+		return Math.max(0.15, b.length / a.length);
+	}
+	return 0;
 }
 
 function ratio(matched: number, total: number): number {
@@ -17,15 +37,25 @@ function ratio(matched: number, total: number): number {
 
 function scoreNode(node: SkillNode, query: SkillRetrievalQuery): SkillCandidate {
 	const searchable = [node.title, ...node.concepts, ...node.aliases];
-	const matchedConcepts = query.concepts.filter((concept) =>
-		searchable.some((candidate) => containsEither(concept, candidate))
-	);
+	const conceptMatches = query.concepts.map((concept) => ({
+		concept,
+		strength: Math.max(
+			0,
+			...searchable.map((candidate) => matchStrength(concept, candidate))
+		),
+	}));
+	const matchedConcepts = conceptMatches
+		.filter((match) => match.strength > 0)
+		.map((match) => match.concept);
 	const matchedPurposes = query.purposes.filter((purpose) => node.purposes.includes(purpose));
 	const requestTypeMatch = node.requestTypes.includes(query.requestType) ? 1 : 0;
 	const learnerLevelMatch = node.learnerLevels.includes(query.learnerLevel)
 		|| node.learnerLevels.includes('unknown') ? 1 : 0;
 
-	const conceptMatch = ratio(matchedConcepts.length, query.concepts.length);
+	const conceptMatch = query.concepts.length === 0
+		? 0
+		: conceptMatches.reduce((sum, match) => sum + match.strength, 0)
+			/ query.concepts.length;
 	const purposeMatch = ratio(matchedPurposes.length, query.purposes.length);
 	const score =
 		conceptMatch * 0.45 +

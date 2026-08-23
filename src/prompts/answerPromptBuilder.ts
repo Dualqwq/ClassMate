@@ -1,4 +1,4 @@
-import type { AnswerPlan } from '../graph/types';
+import type { AnswerPlan, ProblemConstraints } from '../graph/types';
 import type { LLMAttachment, LLMImage, LLMMessage } from '../llm/types';
 import type { LoadedProblemCardFacts } from '../problemKnowledge/types';
 import type { WorkspaceContextSnapshot } from '../workspace/types';
@@ -7,6 +7,7 @@ export interface AnswerPromptInput {
 	skillCore: string;
 	pedagogy: string;
 	answerPlan: AnswerPlan;
+	problemConstraints?: ProblemConstraints;
 	assembledSkillContext: string;
 	assembledProblemCardContext?: string;
 	problemCardFacts?: LoadedProblemCardFacts;
@@ -96,6 +97,11 @@ export class AnswerPromptBuilder {
 				content: [
 					'=== Answer plan ===',
 					JSON.stringify(input.answerPlan),
+					'=== Extracted problem constraints ===',
+					input.problemConstraints
+						? JSON.stringify(input.problemConstraints)
+						: '[No separate constraint extraction was required.]',
+					'Every factual conclusion, algorithm suggestion, example, and code interface must be consistent with these constraints. Treat uncertainItems as unknown instead of guessing.',
 					'=== Selected Skill Context ===',
 					input.assembledSkillContext || '[No matching Skill section was selected.]',
 					exactProblemSnapshotMatched

@@ -202,9 +202,11 @@ describe('ClassMate LangGraph runner', () => {
 				'load_problem_card',
 				'retrieve_skill',
 				'freeze_context',
+				'extract_constraints',
 				'build_answer_prompt',
 				'answer',
 				'validate',
+				'correctness_check',
 			]
 		);
 		assert.deepStrictEqual(progressNodes, result.nodeTimings.map((timing) => timing.node));
@@ -552,5 +554,135 @@ describe('ClassMate LangGraph runner', () => {
 		assert.ok(debugEvents.some((item) =>
 			item.event === 'route_and_plan_invalid_skill_requests'
 		));
+	});
+
+	it('extracts constraints and checks a high-risk answer before delivering it', async () => {
+		const events: string[] = [];
+		let constraintCalls = 0;
+		let checkCalls = 0;
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return { content: mergedPlan('runtime_error_help', [{
+						target: 'main.cpp',
+						required: true,
+						reason: '检查越界',
+					}]) };
+				}
+				if (text.includes('ClassMate Problem Constraint Extraction')) {
+					constraintCalls++;
+					events.push('constraints');
+					return { content: JSON.stringify({
+						h: ['下标必须位于数组范围内'],
+						o: ['访问数组元素'],
+						l: ['数组长度为 n'],
+						e: ['负数下标不能访问数组'],
+						u: [],
+						p: ['main.cpp', '../outside.txt'],
+					}) };
+				}
+				if (text.includes('ClassMate Lightweight Correctness Check')) {
+					checkCalls++;
+					events.push('check');
+					return { content: JSON.stringify({ p: true, s: 'none', i: [] }) };
+				}
+				events.push('answer');
+				return { content: '进入循环前先拒绝负数下标，避免指针一直向后移动。' };
+			},
+		};
+		const minimal: MinimalWorkspaceContext = {
+			catalog: {
+				files: [{
+					path: 'main.cpp',
+					uri: 'file:///main.cpp',
+					kind: 'code',
+					size: 80,
+					modifiedAt: 1,
+				}],
+				questionFiles: [],
+			},
+		};
+		const services = createServices(model, minimal, async () => [{
+			path: 'main.cpp',
+			kind: 'code',
+			content: 'while (n != index) { n++; current = current->next; }',
+			contentHash: 'main-hash',
+			reason: 'test',
+		}]);
+		services.onAnswerToken = (token) => {
+			if (token) { events.push('emit'); }
+		};
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'correctness-pass',
+			conversationId: 'correctness-pass',
+			userText: 'at(-1) 为什么会一直循环？',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(constraintCalls, 1);
+		assert.strictEqual(checkCalls, 1);
+		assert.strictEqual(result.state.correctnessVerification?.passed, true);
+		assert.deepStrictEqual(result.state.problemConstraints?.evidencePaths, ['main.cpp']);
+		assert.ok(events.indexOf('check') < events.indexOf('emit'));
+	});
+
+	it('regenerates a high-risk answer once when the correctness check finds an error', async () => {
+		let answerCalls = 0;
+		let checkCalls = 0;
+		let delivered = '';
+		const model: GraphModelClient = {
+			async complete(messages: LLMMessage[]) {
+				const text = messages.map((message) => message.content).join('\n');
+				if (text.includes('ClassMate RouteAndPlan Mode')) {
+					return { content: mergedPlan('runtime_error_help') };
+				}
+				if (text.includes('ClassMate Problem Constraint Extraction')) {
+					return { content: JSON.stringify({
+						h: ['不能访问负数下标'], o: [], l: [], e: [], u: [], p: [],
+					}) };
+				}
+				if (text.includes('ClassMate Lightweight Correctness Check')) {
+					checkCalls++;
+					if (checkCalls === 1) {
+						return { content: JSON.stringify({
+							p: false,
+							s: 'major',
+							i: [{
+								c: 'constraint_ignored',
+								d: '回答允许了负数下标。',
+								f: '进入循环前拒绝负数下标。',
+							}],
+						}) };
+					}
+					return { content: JSON.stringify({ p: true, s: 'none', i: [] }) };
+				}
+				answerCalls++;
+				return { content: answerCalls === 1
+					? '负数下标可以继续向后找。'
+					: '进入循环前先判断 index 是否小于 0；若小于 0 就直接报错或返回。' };
+			},
+		};
+		const minimal: MinimalWorkspaceContext = {
+			catalog: { files: [], questionFiles: [] },
+		};
+		const services = createServices(model, minimal, async () => []);
+		services.onAnswerToken = (token) => { delivered += token; };
+
+		const result = await new ClassMateGraphRunner(services).run({
+			requestId: 'correctness-retry',
+			conversationId: 'correctness-retry',
+			userText: 'at(-1) 为什么会崩？',
+			requestSource: 'conversation',
+			conversationHistory: [],
+		});
+
+		assert.strictEqual(answerCalls, 2);
+		assert.strictEqual(checkCalls, 2);
+		assert.ok(!delivered.includes('可以继续向后找'));
+		assert.strictEqual(delivered, result.answer);
+		assert.strictEqual(result.state.correctnessVerification?.passed, true);
 	});
 });

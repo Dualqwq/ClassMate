@@ -155,6 +155,46 @@ export interface AnswerValidationResult {
 	shouldRegenerate: boolean;
 }
 
+/**
+ * 从已加载题面和代码中提取出的短约束表。
+ * 它只保存回答正确性真正需要的事实，不复制整个工作区正文。
+ */
+export interface ProblemConstraints {
+	hardConstraints: string[];
+	requiredOperations: string[];
+	inputLimits: string[];
+	expectedBehaviors: string[];
+	uncertainItems: string[];
+	evidencePaths: string[];
+}
+
+export type CorrectnessIssueCategory =
+	| 'constraint_ignored'
+	| 'wrong_algorithm'
+	| 'invalid_example'
+	| 'arithmetic_inconsistency'
+	| 'unsupported_claim'
+	| 'invented_interface'
+	| 'code_answer_mismatch'
+	| 'incomplete_solution'
+	| 'other';
+
+export interface CorrectnessIssue {
+	category: CorrectnessIssueCategory;
+	description: string;
+	correction: string;
+}
+
+/** 轻量检查器对候选回答的结构化判定。 */
+export interface CorrectnessVerification {
+	checked: boolean;
+	passed: boolean;
+	severity: 'none' | 'minor' | 'major';
+	issues: CorrectnessIssue[];
+	correctedAnswer?: string;
+	degraded?: boolean;
+}
+
 export interface ClassMateRequest {
 	requestId: string;
 	conversationId: string;
@@ -192,6 +232,11 @@ export interface ClassMateGraphState {
 	loadedWorkspaceItems: LoadedWorkspaceItem[];
 	workspaceSnapshot?: WorkspaceContextSnapshot;
 	conversationWorkspaceContext?: ConversationWorkspaceContext;
+	problemConstraints?: ProblemConstraints;
+	constraintExtractionDegraded: boolean;
+	correctnessCheckRequired: boolean;
+	correctnessVerification?: CorrectnessVerification;
+	answerDelivered: boolean;
 
 	learnerState?: LearnerState;
 	answerPlan?: AnswerPlan;
