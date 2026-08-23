@@ -9,7 +9,7 @@ export interface SettingsPageData {
 }
 
 /** 页脚构建标记(G5 复审第一步核对项):改动设置页/主题链路时递增尾号。 */
-const SETTINGS_PAGE_BUILD = 'build 2026-08-23.2';
+const SETTINGS_PAGE_BUILD = 'build 2026-08-23.3';
 
 export function renderSettingsPageHtml(data: SettingsPageData): string {
 	const { token, port, config, theme } = data;

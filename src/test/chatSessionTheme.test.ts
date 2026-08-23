@@ -66,4 +66,25 @@ describe('ChatSession theme cache and attach replay', () => {
 		const themeUpdate = latePanel.received.find((message) => message.type === 'themeUpdate');
 		assert.deepStrictEqual((themeUpdate as { theme: unknown }).theme, { linkColor: '#222222' });
 	});
+
+	it('broadcasts to every attached presenter (view and panel surfaces alike)', () => {
+		// G5 第七轮表面覆盖:广播必须同时命中所有存活 chat 表面,
+		// 不能只投给先注册的那个(否则另一表面的用户永不变色)。
+		const session = ChatSession.getInstance();
+		const sidebar = new FakePresenter();
+		const editorPanel = new FakePresenter();
+		session.attach(sidebar);
+		session.attach(editorPanel);
+
+		session.broadcastThemeUpdate({ userBubbleBackground: '#ff8800' });
+
+		assert.ok(
+			sidebar.received.some((message) => message.type === 'themeUpdate'),
+			'sidebar surface missed the broadcast'
+		);
+		assert.ok(
+			editorPanel.received.some((message) => message.type === 'themeUpdate'),
+			'editor panel surface missed the broadcast'
+		);
+	});
 });

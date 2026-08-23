@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ChatAttachment, ChatImage, ChatState, LLMConfig, MessageIntent } from '../../src/chat/types';
-import { applyClassMateTheme, THEME_VARIABLES } from '../../src/chat/classmateTheme';
+import { applyClassMateTheme } from '../../src/chat/classmateTheme';
 import { getInitialState, getContainer, getRoute, sendMessage, subscribeToExtension, type AnyExtensionToWebviewMessage } from './vscodeApi';
 import { MessageBubble } from './components/MessageBubble';
 import { RunPanel } from './RunPanel';
@@ -151,26 +151,12 @@ const ChatApp: React.FC = () => {
 				case 'llmConfig':
 					setLlmConfig(message.config);
 					break;
-				case 'themeUpdate': {
-					// 主题不经 React state:直接写根节点 CSS 自定义属性,浏览器把
-					// 变化传播到所有 var() 引用处,已有控件零重渲染、零重挂载。
+				case 'themeUpdate':
+					// 幂等兜底:原生页面脚本(getChatWebviewHtml 注入)已先行应用并
+					// 负责 ack 回执;这里重复应用无害,仅覆盖 bundle 晚于首条消息
+					// 到达前原生层尚未监听的极端时序。
 					applyClassMateTheme(message.theme);
-					// 回执宿主落 [ClassMate Theme] 日志,闭环可观测(G5 第六轮)。
-					let variableCount = 0;
-					for (const [, variable] of THEME_VARIABLES) {
-						if (document.documentElement.style.getPropertyValue(variable)) {
-							variableCount += 1;
-						}
-					}
-					sendMessage({
-						type: 'themeApplied',
-						variableCount,
-						sampleVariable: '--classmate-user-bubble-bg',
-						sampleValue: getComputedStyle(document.documentElement)
-							.getPropertyValue('--classmate-user-bubble-bg'),
-					});
 					break;
-				}
 			}
 		});
 	}, []);

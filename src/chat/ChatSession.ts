@@ -1204,8 +1204,9 @@ export class ChatSession {
 				break;
 			case 'themeApplied':
 				// webview 回执:CSS 变量已在页面生效,主题链路闭环终点。
+				// surface 区分来源表面(view=侧边栏 / panel=编辑器面板)。
 				themeLog(
-					`webview ack: applied ${message.variableCount} variable(s); ${message.sampleVariable} = ${message.sampleValue || '(empty)'}`
+					`webview ack(${message.surface ?? 'unknown'}): applied ${message.variableCount} variable(s); ${message.sampleVariable} = ${message.sampleValue || '(empty)'}`
 				);
 				break;
 			default:

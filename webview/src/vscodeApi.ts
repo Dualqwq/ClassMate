@@ -9,6 +9,21 @@ declare const acquireVsCodeApi: () => {
 // module-level instance so send/subscribe never trigger it again.
 const vscode = acquireVsCodeApi();
 
+// 原生页面脚本(getChatWebviewHtml 注入的主题监听)经此桥回发 ack:
+// acquireVsCodeApi 全局仅允许调用一次,这里把发送能力挂到 window 供
+// bundle 之外的脚本使用,并冲销其在 bundle 加载前积压的回执(G5 第七轮)。
+(window as unknown as { __classmatePostMessage?: (message: unknown) => void }).__classmatePostMessage =
+	(message: unknown) => {
+		vscode.postMessage(message);
+	};
+const pendingAcks = (window as unknown as { __classmatePendingAcks?: unknown[] }).__classmatePendingAcks;
+if (pendingAcks) {
+	for (const message of pendingAcks) {
+		vscode.postMessage(message);
+	}
+	delete (window as unknown as { __classmatePendingAcks?: unknown[] }).__classmatePendingAcks;
+}
+
 declare global {
 	interface Window {
 		__CLASSMATE_INITIAL_STATE__?: ChatState;
