@@ -121,3 +121,4 @@ ClassMate 的重要变更记录在这里。
 ## [0.0.1]
 
 - 初始原型。
+- Journey 错误/警告分级呈现与筛选(FE1 复测):①指纹语义字段补 severity(eventEnvelope 四元组 file/line/severity/message)——同一位置的 error 与 warning 是不同事件,写入幂等与消费折叠都不得互相吞并;②episode 按「事件+签名+级别」折叠成卡,不同级别各自成卡,episode/MistakeCard VM 贯通 severity 字段,卡片头加分级徽章(错误红/警告黄,主题语义变量);③时间线条目计数拆分「N 个错误 · M 个警告」;④debugJourneyTree 树项分级图标(含 error 级标 error,纯 warning 标 warning,codicon);⑤JourneyFilterBar 增加级别多选 chips,与类型/文件/只看未解决正交组合、纯前端即时生效;⑥指标条「已修好 X · 还有 Y 没解决(错误 A · 警告 B)」跟随当前筛选(summarizeEpisodesBySeverity),记录总数与求助比例保持全量口径。单测:envelope severity 区分 1 条/viewModel 级别成卡+计数拆分 2 条/filters 级别过滤与汇总 1 条/tree 分级图标 1 条。

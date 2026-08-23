@@ -42,8 +42,9 @@ export function stableStringify(value: unknown): string {
 /**
  * 事件的语义负载:只含「这条事件说了什么」,排除 id/timestamp/durationMs/
  * exitCode 等易变或每次必然不同的字段——同一条逻辑错误重复到达时指纹不变。
- * parsedErrors 只取 error/warning 的 (file,line,message) 三元组(与 journey
- * 归因同一口径);code_modified 用 before/after 内容哈希区分不同修改。
+ * parsedErrors 只取 error/warning 的 (file,line,severity,message) 四元组
+ * (severity 参与指纹:同一位置的 error 与 warning 是不同事件,不得互相去重
+ * 或折叠);code_modified 用 before/after 内容哈希区分不同修改。
  */
 function semanticPayload(event: DebugEvent): unknown {
     switch (event.type) {
@@ -53,7 +54,7 @@ function semanticPayload(event: DebugEvent): unknown {
                 fileUri: event.fileUri,
                 errors: event.parsedErrors
                     .filter((p) => p.severity === 'error' || p.severity === 'warning')
-                    .map((p) => [p.file ?? '', p.line ?? -1, p.message]),
+                    .map((p) => [p.file ?? '', p.line ?? -1, p.severity ?? 'error', p.message]),
             };
         case 'compile_success':
             return { type: event.type, fileUri: event.fileUri };

@@ -57,6 +57,12 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 				<span className={`journey-status-badge ${episode.resolved ? 'ok' : 'pending'}`}>
 					{episode.resolved ? '✓ 已解决' : '✗ 还没解决'}
 				</span>
+				<span
+					className={`journey-sev-badge journey-sev-${episode.severity ?? 'error'}`}
+					title={(episode.severity ?? 'error') === 'warning' ? '警告级别的问题' : '错误级别的问题'}
+				>
+					{(episode.severity ?? 'error') === 'warning' ? '⚠ 警告' : '✗ 错误'}
+				</span>
 				<span className="journey-episode-message" title={episode.message}>
 					{episode.message || '(没有解析出具体错误信息)'}
 				</span>

@@ -10,6 +10,12 @@ export interface ErrorSignature {
     code?: string;
     knowledgeTags: string[];
     file?: string;
+    /**
+     * 诊断级别(error/warning;note/remark 不取)。不参与 signaturesMatch
+     * 判等(生命周期匹配仍按归一化 message 跨级别判定),仅供派生层按级别
+     * 折叠成卡与展示使用——同一位置的 error 与 warning 是不同的卡。
+     */
+    severity?: 'error' | 'warning';
 }
 
 /**
@@ -40,6 +46,10 @@ export function createErrorSignature(
         code: options?.includeCode ? parsedError.code : undefined,
         knowledgeTags: matchErrorToKnowledge(parsedError.message).map((m) => m.tag),
         file: options?.includeFile ? parsedError.file : undefined,
+        severity:
+            parsedError.severity === 'error' || parsedError.severity === 'warning'
+                ? parsedError.severity
+                : undefined,
     };
 }
 

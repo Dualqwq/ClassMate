@@ -118,6 +118,56 @@ describe('Debug Journey tree nodes', () => {
         assert.strictEqual(nodes[2].label, 'Other files');
     });
 
+    it('分级图标:含 error 级诊断标 error,纯 warning 事件标 warning', () => {
+        const ts = new Date('2026-07-13T10:00:00Z').getTime();
+        const mixedError: DebugEvent = {
+            id: 'mix',
+            type: 'compile_error',
+            timestamp: ts,
+            sessionId: 's1',
+            workspaceId: 'ws',
+            fileUri: 'file:///mixed.cpp',
+            stderr: 'mixed',
+            parsedErrors: [
+                { raw: 'r1', file: 'a.cpp', line: 1, severity: 'error', message: 'e' },
+                { raw: 'r2', file: 'a.cpp', line: 2, severity: 'warning', message: 'w' },
+            ],
+            exitCode: 1,
+            durationMs: 10,
+        };
+        const pureWarning: DebugEvent = {
+            id: 'warn-only',
+            type: 'compile_error',
+            timestamp: ts + 1_000,
+            sessionId: 's1',
+            workspaceId: 'ws',
+            fileUri: 'file:///warnonly.cpp',
+            stderr: 'warnonly',
+            parsedErrors: [
+                { raw: 'r', file: 'b.cpp', line: 1, severity: 'warning', message: 'w' },
+            ],
+            exitCode: 1,
+            durationMs: 10,
+        };
+        const nodes = buildDebugJourneyNodes([mixedError, pureWarning]);
+
+        // 文件按名称排序:mixed.cpp 在前,warnonly.cpp 在后;各一层日期+事件。
+        const mixedNode = nodes[0].children[0].children[0];
+        const warnNode = nodes[1].children[0].children[0];
+        assert.strictEqual(mixedNode.type, 'compileErrorNode');
+        assert.strictEqual(
+            (mixedNode.iconPath as vscode.ThemeIcon).id,
+            'error',
+            '只要有 error 级诊断就用 error 图标'
+        );
+        assert.strictEqual(warnNode.type, 'compileErrorNode');
+        assert.strictEqual(
+            (warnNode.iconPath as vscode.ThemeIcon).id,
+            'warning',
+            '纯 warning 事件用 warning 图标'
+        );
+    });
+
     it('carries before/after snapshots on code modified nodes', () => {
         const ts = new Date('2026-07-13T10:00:00Z').getTime();
         const events: DebugEvent[] = [

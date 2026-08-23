@@ -37,6 +37,12 @@ export const MistakeCard: React.FC<{ card: MistakeCardVM }> = ({ card }) => {
 				<span className={`journey-status-badge ${unresolved ? 'pending' : 'ok'}`}>
 					{unresolved ? '未解决' : '已解决'}
 				</span>
+				<span
+					className={`journey-sev-badge journey-sev-${card.severity ?? 'error'}`}
+					title={(card.severity ?? 'error') === 'warning' ? '警告级别的问题' : '错误级别的问题'}
+				>
+					{(card.severity ?? 'error') === 'warning' ? '⚠ 警告' : '✗ 错误'}
+				</span>
 				{card.frequency > 1 && (
 					<span
 						className="journey-chain-badge"

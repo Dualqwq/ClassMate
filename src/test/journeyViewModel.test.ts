@@ -286,4 +286,68 @@ describe('buildJourneyViewModel', () => {
             "expected ';' before '}' token",
         ].sort());
     });
+
+    it('级别区分:同一位置同文案的 error 与 warning 各自成卡,severity 贯通', () => {
+        const view = buildJourneyViewModel([
+            compileError({
+                id: 'sev-mix',
+                timestamp: 1_000,
+                parsedErrors: [
+                    {
+                        raw: "a.cpp:5:10: error: 'x' is unused",
+                        file: 'a.cpp',
+                        line: 5,
+                        severity: 'error',
+                        message: "'x' is unused",
+                    },
+                    {
+                        raw: "a.cpp:5:10: warning: 'x' is unused",
+                        file: 'a.cpp',
+                        line: 5,
+                        severity: 'warning',
+                        message: "'x' is unused",
+                    },
+                ],
+            }),
+        ]);
+
+        assert.strictEqual(view.episodes.length, 2, '同位置同文案不同级别不得折叠成一张卡');
+        const bySeverity = new Map(view.episodes.map((e) => [e.severity, e]));
+        assert.strictEqual(bySeverity.get('error')?.line, 5);
+        assert.strictEqual(bySeverity.get('error')?.message, "'x' is unused");
+        assert.strictEqual(bySeverity.get('warning')?.line, 5);
+        assert.strictEqual(bySeverity.get('warning')?.resolved, false);
+    });
+
+    it('计数拆分:混合级别条目写「E 个错误 · W 个警告」', () => {
+        const parsedErrors = [
+            {
+                raw: 'a.cpp:1:1: error: e1',
+                file: 'a.cpp',
+                line: 1,
+                severity: 'error' as const,
+                message: 'e1',
+            },
+            {
+                raw: 'a.cpp:2:1: error: e2',
+                file: 'a.cpp',
+                line: 2,
+                severity: 'error' as const,
+                message: 'e2',
+            },
+            {
+                raw: 'a.cpp:3:1: warning: w1',
+                file: 'a.cpp',
+                line: 3,
+                severity: 'warning' as const,
+                message: 'w1',
+            },
+        ];
+        const view = buildJourneyViewModel([
+            compileError({ id: 'mixed-count', timestamp: 1_000, parsedErrors }),
+        ]);
+        const compileEntry = view.episodes[0].entries.find((e) => e.kind === 'compile_error');
+        assert.ok(compileEntry);
+        assert.strictEqual(compileEntry.label, '编译失败(2 个错误 · 1 个警告)');
+    });
 });

@@ -61,6 +61,11 @@ export interface JourneyEpisodeVM {
     line?: number;
     /** 该错误的 include 引入链路(从最内层到最外层,如 ["b.h:6","a.cpp:1"])。 */
     viaIncludes?: string[];
+    /**
+     * 诊断级别(error/warning):折叠按「事件+签名+级别」成卡,
+     * 同一位置的 error 与 warning 是两张卡。旧视图模型缺省按 error 呈现。
+     */
+    severity?: 'error' | 'warning';
     firstSeenAt: number;
     resolvedAt?: number;
     resolved: boolean;
@@ -103,6 +108,8 @@ export interface MistakeCardVM {
     line?: number;
     /** 代表性错误的 include 引入链路(卡片展示「经 X 引入」)。 */
     viaIncludes?: string[];
+    /** 代表性错误的诊断级别(error/warning),卡片分级徽章用。 */
+    severity?: 'error' | 'warning';
 }
 
 /** journey:sync 一次推送的整体视图模型(两个页签共用)。 */
@@ -126,10 +133,17 @@ const HINT_INTENT_LABELS: Record<string, string> = {
     code_edit: '请改代码',
 };
 
-function countDiagnosableErrors(parsedErrors: ParsedError[]): number {
-    return parsedErrors.filter(
-        (p) => p.severity === 'error' || p.severity === 'warning'
-    ).length;
+/**
+ * 学生化计数:错误与警告分开写(如「3 个错误 · 2 个警告」);无警告时
+ * 保持「N 个错误」的简洁形态。
+ */
+function describeDiagnosticCounts(parsedErrors: ParsedError[]): string {
+    const errors = parsedErrors.filter((p) => p.severity === 'error').length;
+    const warnings = parsedErrors.filter((p) => p.severity === 'warning').length;
+    if (warnings === 0) {
+        return `${errors} 个错误`;
+    }
+    return `${errors} 个错误 · ${warnings} 个警告`;
 }
 
 function countChangedLines(diff: string): number {
@@ -157,7 +171,7 @@ function buildEntriesForLifecycle(
         eventId: errorEvent.id,
         kind: 'compile_error',
         timestamp: errorEvent.timestamp,
-        label: `编译失败(${countDiagnosableErrors(errorEvent.parsedErrors)} 个错误)`,
+        label: `编译失败(${describeDiagnosticCounts(errorEvent.parsedErrors)})`,
     });
 
     const windowEnd = lifecycle.resolvedAt ?? Number.MAX_SAFE_INTEGER;
@@ -215,7 +229,7 @@ function buildEntriesForLifecycle(
                 eventId: event.id,
                 kind: 'compile_error',
                 timestamp: event.timestamp,
-                label: `再次编译失败(${countDiagnosableErrors(event.parsedErrors)} 个错误)`,
+                label: `再次编译失败(${describeDiagnosticCounts(event.parsedErrors)})`,
             });
         }
     }
@@ -234,6 +248,9 @@ function representativePosition(
     return {
         fileUri: parsed.file,
         line: parsed.line,
+        ...(parsed.severity === 'error' || parsed.severity === 'warning'
+            ? { severity: parsed.severity }
+            : {}),
         ...(parsed.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
     };
 }
@@ -299,7 +316,11 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
 
         const bySignature = new Map<string, ErrorLifecycle[]>();
         for (const lifecycle of eventLifecycles) {
-            const key = signatureKey(lifecycle.signature, { mode: 'fuzzy' });
+            // 折叠键含级别:同一位置的 error 与 warning 是不同的卡(签名
+            // normalizedMessage 相同也不合并);跨事件重试史照旧各自成卡。
+            const key = `${signatureKey(lifecycle.signature, { mode: 'fuzzy' })}::${
+                lifecycle.signature.severity ?? ''
+            }`;
             const group = bySignature.get(key);
             if (group) {
                 group.push(lifecycle);
@@ -322,7 +343,8 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
                 attemptsBeforeResolve: Math.max(...members.map((l) => l.attemptsBeforeResolve)),
             };
             // 卡面与跳转用该签名自己的诊断行:头文件错误指向真实报错文件
-            // (parsed.file=b.h),而非主翻译单元的事件级 fileUri(a.cpp)。
+            // (parsed.file=b.h),而非主翻译单元的事件级 fileUri(a.cpp);
+            // 级别取签名自带 severity(折叠键已按 error/warning 分组)。
             const parsed = findParsedForSignature(errorEvent, representative.signature);
             const locationFile = parsed?.file ?? errorEvent.fileUri;
             episodes.push({
@@ -332,6 +354,9 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
                 fileName: baseFileName(locationFile),
                 line: parsed?.line,
                 ...(parsed?.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
+                severity:
+                    foldedLifecycle.signature.severity ??
+                    (parsed?.severity === 'warning' ? 'warning' : 'error'),
                 firstSeenAt: foldedLifecycle.firstSeenAt,
                 resolvedAt: foldedLifecycle.resolvedAt,
                 resolved: foldedLifecycle.resolvedAt !== undefined,
@@ -409,6 +434,8 @@ function findParsedForSignature(
     return errorEvent.parsedErrors.find(
         (p) =>
             (p.severity === 'error' || p.severity === 'warning') &&
+            // 级别一致才可作为该签名的代表行:error 组不得拿 warning 行当门面。
+            (!signature.severity || p.severity === signature.severity) &&
             signatureKey(
                 createErrorSignature(p, { includeCode: false, includeFile: false }),
                 { mode: 'fuzzy' }

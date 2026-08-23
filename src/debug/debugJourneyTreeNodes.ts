@@ -76,6 +76,8 @@ export function buildDiffTooltip(before: string, after: string): vscode.Markdown
 function buildCompileErrorNode(event: CompileErrorEvent): DebugJourneyNode {
     const errors = event.parsedErrors.filter((p) => p.severity === 'error' || p.severity === 'warning');
     const firstMessage = errors[0]?.message ?? 'Unknown compile error';
+    // 分级图标:事件里只要有 error 级诊断就标 error,纯 warning 才标 warning。
+    const hasErrors = errors.some((p) => p.severity === 'error');
     const summaryLines: string[] = [];
     for (const p of errors.slice(0, 8)) {
         const location = `${p.file ?? '?'}:${p.line ?? '?'}:${p.column ?? '?'}`;
@@ -91,7 +93,7 @@ function buildCompileErrorNode(event: CompileErrorEvent): DebugJourneyNode {
         label: firstMessage,
         description: formatTimeDescription(event.timestamp),
         tooltip: new vscode.MarkdownString(summaryLines.join('\n')),
-        iconPath: new vscode.ThemeIcon('error'),
+        iconPath: new vscode.ThemeIcon(hasErrors ? 'error' : 'warning'),
         collapsibleState: vscode.TreeItemCollapsibleState.None,
         // 树项行内「打开大屏」动作(view/item/context)以此 when 匹配。
         contextValue: 'compileErrorNode',

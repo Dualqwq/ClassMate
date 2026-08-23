@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { JourneyViewModel } from '../../../src/journey/journeyViewModel';
 import { sendMessage, subscribeToExtension } from '../vscodeApi';
-import { EMPTY_FILTER, buildTimelineSections, collectFileOptions, type JourneyFilterState } from '../../../src/journey/journeyFilters';
+import { EMPTY_FILTER, buildTimelineSections, collectFileOptions, summarizeEpisodesBySeverity, type JourneyFilterState } from '../../../src/journey/journeyFilters';
 import { JourneyMetricsBar } from './JourneyMetricsBar';
 import { JourneyFilterBar } from './JourneyFilterBar';
 import { JourneyTimeline } from './JourneyTimeline';
@@ -38,6 +38,17 @@ export const JourneyView: React.FC = () => {
 	}, []);
 
 	const isEmpty = !view || (view.episodes.length === 0 && view.mistakeCards.length === 0);
+
+	// 时间线分节一次计算:列表与「跟随筛选」的分级指标共用同一份可见集,
+	// 保证指标条数字与学生当前看到的卡片一致(级别/类型/文件/未解决全正交)。
+	const timelineSections =
+		view && !isEmpty && tab === 'timeline' ? buildTimelineSections(view, filter) : null;
+	const severitySummary = timelineSections
+		? summarizeEpisodesBySeverity([
+				...timelineSections.unresolved,
+				...timelineSections.byDay.flatMap((group) => group.episodes),
+		  ])
+		: undefined;
 
 	return (
 		<div className="classmate-app journey-panel">
@@ -86,17 +97,19 @@ export const JourneyView: React.FC = () => {
 				</div>
 			) : view ? (
 				tab === 'timeline' ? (
-					<>
-						<JourneyMetricsBar metrics={view.metrics} />
-						<JourneyFilterBar
-							filter={filter}
-							onChange={setFilter}
-							fileOptions={collectFileOptions(view)}
-						/>
-						<div className="journey-scroll">
-							<JourneyTimeline {...buildTimelineSections(view, filter)} />
-						</div>
-					</>
+					timelineSections && (
+						<>
+							<JourneyMetricsBar metrics={view.metrics} severitySummary={severitySummary} />
+							<JourneyFilterBar
+								filter={filter}
+								onChange={setFilter}
+								fileOptions={collectFileOptions(view)}
+							/>
+							<div className="journey-scroll">
+								<JourneyTimeline {...timelineSections} />
+							</div>
+						</>
+					)
 				) : (
 					<div className="journey-scroll">
 						<MistakeBookTab cards={view.mistakeCards} />

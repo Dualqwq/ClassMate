@@ -4,6 +4,7 @@ import {
     buildTimelineSections,
     collectFileOptions,
     sortMistakeCards,
+    summarizeEpisodesBySeverity,
     EMPTY_FILTER,
     type JourneyFilterState,
 } from '../journey/journeyFilters';
@@ -147,6 +148,62 @@ describe('journeyFilters (webview 本地过滤纯函数)', () => {
             { value: 'file:///w/a.cpp', label: 'a.cpp' },
             { value: 'file:///w/b.cpp', label: 'b.cpp' },
         ]);
+    });
+
+    it('级别过滤与类型/文件/未解决正交组合,汇总跟随可见集', () => {
+        const view = viewOf([
+            episode({ errorEventId: 'err-un', severity: 'error', resolved: false }),
+            episode({ errorEventId: 'warn-un', severity: 'warning', resolved: false, firstSeenAt: NOW - 2_000 }),
+            episode({ errorEventId: 'warn-ok', severity: 'warning' }),
+        ]);
+
+        // 只看错误:警告卡(含已解决)全部隐藏。
+        const errorsOnly = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, levels: ['error'] },
+            NOW
+        );
+        const errorIds = [
+            ...errorsOnly.unresolved,
+            ...errorsOnly.byDay.flatMap((g) => g.episodes),
+        ].map((e) => e.errorEventId);
+        assert.deepStrictEqual(errorIds, ['err-un']);
+
+        // 只看警告 + 只看未解决 正交:只剩 warn-un。
+        const warningsUnresolved = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, levels: ['warning'], unresolvedOnly: true },
+            NOW
+        );
+        assert.deepStrictEqual(
+            warningsUnresolved.unresolved.map((e) => e.errorEventId),
+            ['warn-un']
+        );
+
+        // 全部级别:三张卡都可见;分级汇总跟随当前筛选。
+        const all = buildTimelineSections(view, { ...EMPTY_FILTER }, NOW);
+        const visibleAll = [...all.unresolved, ...all.byDay.flatMap((g) => g.episodes)];
+        assert.strictEqual(visibleAll.length, 3);
+        let summary = summarizeEpisodesBySeverity(visibleAll);
+        assert.deepStrictEqual(summary, {
+            resolved: 1,
+            unresolved: 2,
+            unresolvedErrors: 1,
+            unresolvedWarnings: 1,
+        });
+
+        // 指标跟随筛选:切到「只看警告」后,未解决=1 且全是警告。
+        const visibleWarnings = [
+            ...warningsUnresolved.unresolved,
+            ...warningsUnresolved.byDay.flatMap((g) => g.episodes),
+        ];
+        summary = summarizeEpisodesBySeverity(visibleWarnings);
+        assert.deepStrictEqual(summary, {
+            resolved: 0,
+            unresolved: 1,
+            unresolvedErrors: 0,
+            unresolvedWarnings: 1,
+        });
     });
 
     it('错题本排序:推荐序保持视图模型顺序,recent 按 lastSeenAt 倒序', () => {

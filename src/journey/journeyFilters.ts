@@ -17,11 +17,21 @@ export const ENTRY_TYPE_LABELS: Record<JourneyEntryVM['kind'], string> = {
     run_error: '运行',
 };
 
+/** 级别多选档位(错误/警告),与类型/文件/未解决过滤器正交。 */
+export const SEVERITY_LEVEL_LABELS = {
+    error: '错误',
+    warning: '警告',
+} as const;
+
+export type SeverityLevel = keyof typeof SEVERITY_LEVEL_LABELS;
+
 export type JourneyEntryKind = keyof typeof ENTRY_TYPE_LABELS;
 
 export interface JourneyFilterState {
     /** 选中的条目类型;全选 = 全部档位。 */
     types: JourneyEntryKind[];
+    /** 选中的诊断级别;全选 = 错误与警告都显示。 */
+    levels: SeverityLevel[];
     /** 'all' 或具体 fileUri。 */
     file: string;
     unresolvedOnly: boolean;
@@ -29,6 +39,7 @@ export interface JourneyFilterState {
 
 export const EMPTY_FILTER: JourneyFilterState = {
     types: Object.keys(ENTRY_TYPE_LABELS) as JourneyEntryKind[],
+    levels: Object.keys(SEVERITY_LEVEL_LABELS) as SeverityLevel[],
     file: 'all',
     unresolvedOnly: false,
 };
@@ -39,8 +50,13 @@ export interface EpisodeDayGroup {
     episodes: JourneyEpisodeVM[];
 }
 
-/** episode 是否通过文件与未解决过滤(条目类型过滤只作用于条目列表)。 */
+/** episode 是否通过级别/文件/未解决过滤(条目类型过滤只作用于条目列表)。 */
 function episodeMatchesFilter(episode: JourneyEpisodeVM, filter: JourneyFilterState): boolean {
+    // 级别:VM 未带 severity 的旧数据按 error 兜底。
+    const level = episode.severity ?? 'error';
+    if (!filter.levels.includes(level)) {
+        return false;
+    }
     if (filter.unresolvedOnly && episode.resolved) {
         return false;
     }
@@ -120,6 +136,27 @@ export function collectFileOptions(view: JourneyViewModel): Array<{ value: strin
     return [...files.entries()]
         .map(([value, label]) => ({ value, label }))
         .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/**
+ * 指标条分级汇总(跟随当前筛选):对「当前可见」的 episode 按级别拆
+ * 已解决/未解决计数。调用方传入 buildTimelineSections 输出里的全部可见卡
+ * (未解决置顶 + 已按日折叠),保证指标条数字与列表所见一致。
+ */
+export function summarizeEpisodesBySeverity(episodes: JourneyEpisodeVM[]): {
+    resolved: number;
+    unresolved: number;
+    unresolvedErrors: number;
+    unresolvedWarnings: number;
+} {
+    const resolved = episodes.filter((e) => e.resolved).length;
+    const unresolvedList = episodes.filter((e) => !e.resolved);
+    return {
+        resolved,
+        unresolved: unresolvedList.length,
+        unresolvedErrors: unresolvedList.filter((e) => (e.severity ?? 'error') === 'error').length,
+        unresolvedWarnings: unresolvedList.filter((e) => e.severity === 'warning').length,
+    };
 }
 
 export type MistakeSortMode = 'recommended' | 'recent';

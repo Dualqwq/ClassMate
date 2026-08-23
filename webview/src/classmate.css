@@ -1192,3 +1192,43 @@ label:focus-within {
 .journey-via-includes {
 	color: var(--vscode-descriptionForeground);
 }
+
+/* 诊断级别徽章(error/warning)与级别过滤 chips:错误红、警告黄,
+   颜色取 VS Code 主题语义变量,随主题联动。 */
+.journey-sev-badge {
+	flex-shrink: 0;
+	font-size: 11px;
+	padding: 1px 7px;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+
+.journey-sev-badge.journey-sev-error {
+	background: color-mix(in srgb, var(--vscode-editorError-foreground) 15%, transparent);
+	color: var(--vscode-editorError-foreground);
+}
+
+.journey-sev-badge.journey-sev-warning {
+	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 16%, transparent);
+	color: var(--vscode-editorWarning-foreground);
+}
+
+.journey-metric-split {
+	color: var(--vscode-descriptionForeground);
+}
+
+.journey-filter-levels {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.journey-sev-chip-error.on {
+	border-color: var(--vscode-editorError-foreground);
+	color: var(--vscode-editorError-foreground);
+}
+
+.journey-sev-chip-warning.on {
+	border-color: var(--vscode-editorWarning-foreground);
+	color: var(--vscode-editorWarning-foreground);
+}

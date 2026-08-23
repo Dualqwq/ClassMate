@@ -54,6 +54,18 @@ describe('eventEnvelope (v2 信封语义指纹)', () => {
         );
     });
 
+    it('同一位置的 error 与 warning 是不同事件(severity 参与指纹)', () => {
+        const asError = computeEventFingerprint(compileErrorEvent());
+        const asWarning = computeEventFingerprint(
+            compileErrorEvent({
+                parsedErrors: [
+                    { raw: 'raw', file: 'b.h', line: 5, severity: 'warning', message: 'x' },
+                ],
+            })
+        );
+        assert.notStrictEqual(asError, asWarning, 'error 与 warning 不得互相去重或折叠');
+    });
+
     it('compile_success 与 code_modified 的指纹口径稳定且互异', () => {
         const ok1: CompileSuccessEvent = { id: 'o1', type: 'compile_success', timestamp: 1, sessionId: 's', workspaceId: 'w', fileUri: 'file:///w/a.cpp', exitCode: 0, durationMs: 1 };
         const ok2: CompileSuccessEvent = { id: 'o2', type: 'compile_success', timestamp: 77_777, sessionId: 's', workspaceId: 'w', fileUri: 'file:///w/a.cpp', exitCode: 0, durationMs: 2 };
