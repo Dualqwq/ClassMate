@@ -14,29 +14,51 @@ import { JourneyService } from '../journey/journeyService';
  * viewType === 'classmate.journeyPanel' 的 TabInputWebview 标签。
  */
 
+/** Tab API 对自定义 webview 面板 viewType 有 mainThreadWebview- 前缀(版本相关)。 */
+function isJourneyTab(tab: vscode.Tab): boolean {
+    const input = tab.input;
+    if (!(input instanceof vscode.TabInputWebview)) {
+        return false;
+    }
+    return (
+        input.viewType === 'classmate.journeyPanel' ||
+        input.viewType.endsWith('-classmate.journeyPanel')
+    );
+}
+
 function countJourneyTabs(): number {
     return vscode.window.tabGroups.all
         .flatMap((group) => group.tabs)
-        .filter((tab) => {
-            const input = tab.input;
-            return (
-                input instanceof vscode.TabInputWebview &&
-                input.viewType === 'classmate.journeyPanel'
-            );
-        }).length;
+        .filter((tab) => isJourneyTab(tab)).length;
 }
 
 async function waitUntil(
     condition: () => boolean,
-    timeoutMs = 10_000
+    timeoutMs = 10_000,
+    diagnose?: () => string
 ): Promise<void> {
     const start = Date.now();
     while (!condition()) {
         if (Date.now() - start > timeoutMs) {
-            assert.fail('waitUntil 超时');
+            assert.fail(`waitUntil 超时${diagnose ? `:${diagnose()}` : ''}`);
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
+}
+
+function dumpTabs(): string {
+    return JSON.stringify(
+        vscode.window.tabGroups.all.flatMap((group) =>
+            group.tabs.map((tab) => ({
+                label: tab.label,
+                inputKind: tab.input?.constructor?.name ?? String(tab.input),
+                viewType:
+                    tab.input instanceof vscode.TabInputWebview
+                        ? tab.input.viewType
+                        : undefined,
+            }))
+        )
+    );
 }
 
 async function closeAllJourneyPanels(): Promise<void> {
@@ -70,8 +92,17 @@ function createStubContext(): vscode.ExtensionContext {
 describe('classmate.debugJourney 命令路径(状态机 §3 权威入口)', () => {
     it('命令面板路径:执行后大屏标签创建;重复执行 reveal 不重建(标签数不变)', async () => {
         await closeAllJourneyPanels();
-        await vscode.commands.executeCommand('classmate.debugJourney');
-        await waitUntil(() => countJourneyTabs() === 1);
+        let cmdError: string | undefined;
+        try {
+            await vscode.commands.executeCommand('classmate.debugJourney');
+        } catch (error) {
+            cmdError = String(error);
+        }
+        await waitUntil(
+            () => countJourneyTabs() >= 1,
+            10_000,
+            () => `cmdError=${cmdError ?? '无'};tabs=${dumpTabs()}`
+        );
         assert.strictEqual(countJourneyTabs(), 1, '执行命令后应恰好有一个大屏标签');
 
         // 已打开再执行 = reveal 聚焦,不得重建(标签数不变、无第二实例)。
