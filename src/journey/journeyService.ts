@@ -72,11 +72,11 @@ export class JourneyService {
     }
 
     /** 面板 attach/detach;同一时刻至多一个 Journey 面板(与 RunPanel 同口径)。 */
-    public attach(presenter: {
+    public async attach(presenter: {
         postMessage(message: JourneyExtensionToWebviewMessage): void;
-    }): void {
+    }): Promise<void> {
         this._presenter = presenter;
-        void this.pushState();
+        await this.pushState();
     }
 
     public detach(): void {

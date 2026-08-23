@@ -74,7 +74,7 @@ describe('JourneyService', () => {
         const service = new JourneyService(store, { confirmClear: async () => false });
         const presenter = createPresenter();
         // attach 本身就会推一次初始 sync;requestState 再补推一次。
-        service.attach(presenter);
+        await service.attach(presenter);
 
         await service.handleMessage({ type: 'journey:requestState' });
 
@@ -98,7 +98,7 @@ describe('JourneyService', () => {
             },
         });
         const presenter = createPresenter();
-        service.attach(presenter);
+        await service.attach(presenter);
 
         await service.handleMessage({ type: 'journey:clearAll' });
 
@@ -114,7 +114,7 @@ describe('JourneyService', () => {
         await store.append(sampleEvent(1_000));
         const service = new JourneyService(store, { confirmClear: async () => false });
         const presenter = createPresenter();
-        service.attach(presenter);
+        await service.attach(presenter);
 
         await service.handleMessage({ type: 'journey:clearAll' });
 

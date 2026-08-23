@@ -122,7 +122,7 @@ export class JourneyPanel {
 			null,
 			this._disposables
 		);
-		this._journeyService.attach(this);
+		void this._journeyService.attach(this);
 	}
 
 	public postMessage(message: unknown): void {
