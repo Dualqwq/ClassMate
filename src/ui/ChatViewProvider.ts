@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { WebviewPresenter, WebviewToExtensionMessage } from '../chat/types';
 import { getChatWebviewHtml } from './getChatWebviewHtml';
 import { ChatSession } from '../chat/ChatSession';
+import { themeLog } from '../chat/themeDiagnostics';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, WebviewPresenter {
 	public static readonly viewType = 'classmate.chatView';
@@ -82,10 +83,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, WebviewPres
 
 	public postMessage(message: unknown): void {
 		if (this._view) {
-			// 送达失败不再静默(见 ChatPanel.postMessage 同款理由)。
+			const messageType = (message as { type?: string }).type ?? 'unknown';
+			// 送达失败不再静默;主题消息落 [ClassMate Theme] 送达结果。
 			this._view.webview.postMessage(message).then(
-				undefined,
-				(error) => console.warn('[ClassMate] chat view postMessage failed', error)
+				(delivered) => {
+					if (messageType === 'themeUpdate') {
+						themeLog(`view "Chat Sidebar": themeUpdate delivered=${delivered}`);
+					}
+				},
+				(error) => {
+					console.warn('[ClassMate] chat view postMessage failed', error);
+					if (messageType === 'themeUpdate') {
+						themeLog(`view "Chat Sidebar": themeUpdate FAILED (${String(error)})`);
+					}
+				}
 			);
 		}
 	}

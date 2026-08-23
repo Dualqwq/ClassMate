@@ -1,5 +1,6 @@
 import { formatDebugLog, formatRawDebugLog } from './debugLogFormatter';
 import { parseDebugCommand, resolveDebugOutputPath } from './debugCommand';
+import { themeLog, themeLogError } from './themeDiagnostics';
 import type { DebugEventIndex } from '../debug/debugJourneyStore';
 import * as vscode from 'vscode';
 import * as path from 'path';
@@ -618,6 +619,14 @@ export class ChatSession {
 	public broadcastThemeUpdate(theme: ClassMateTheme): void {
 		// 缓存为当前主题:此后任何新 attach 的面板都会立即补推(见 attach)。
 		this._currentTheme = theme;
+		const fieldCount = Object.keys(theme).length;
+		if (this._presenters.size === 0) {
+			themeLogError(
+				`broadcast themeUpdate (${fieldCount} field(s)) found 0 presenter(s) — no chat panel/view is attached; colors cannot reach any webview`
+			);
+		} else {
+			themeLog(`broadcast themeUpdate (${fieldCount} field(s)) to ${this._presenters.size} presenter(s)`);
+		}
 		this._broadcast({ type: 'themeUpdate', theme });
 	}
 
@@ -666,6 +675,7 @@ export class ChatSession {
 		// 主题直接补推。新开/重挂的面板立即着色,不再有"错过广播"或
 		// "requestTheme 早于 _onRequestTheme 注册"的竞态窗口。
 		if (this._currentTheme) {
+			themeLog(`attach replay themeUpdate (${Object.keys(this._currentTheme).length} field(s))`);
 			presenter.postMessage({ type: 'themeUpdate', theme: this._currentTheme });
 		}
 	}
@@ -1188,8 +1198,14 @@ export class ChatSession {
 				this._onOpenLocalSettings?.();
 				break;
 			case 'requestTheme':
-				void this._onRequestTheme?.().then((theme) =>
-					this._broadcast({ type: 'themeUpdate', theme })
+				// 走 broadcastThemeUpdate:统一缓存当前主题并落日志(此前直接
+				// _broadcast 会绕过缓存,attach 补推拿到的是过期值)。
+				void this._onRequestTheme?.().then((theme) => this.broadcastThemeUpdate(theme));
+				break;
+			case 'themeApplied':
+				// webview 回执:CSS 变量已在页面生效,主题链路闭环终点。
+				themeLog(
+					`webview ack: applied ${message.variableCount} variable(s); ${message.sampleVariable} = ${message.sampleValue || '(empty)'}`
 				);
 				break;
 			default:

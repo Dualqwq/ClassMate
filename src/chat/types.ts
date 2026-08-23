@@ -184,6 +184,8 @@ export type WebviewToExtensionMessage =
 	| { type: 'applyProposedEdit'; messageId: string }
 	| { type: 'cancelResponse' }
 	| { type: 'openLocalSettings' }
+	/** webview 应用完主题 CSS 变量后的回执(闭环可观测,G5 第六轮)。 */
+	| { type: 'themeApplied'; variableCount: number; sampleVariable: string; sampleValue: string }
 	| { type: 'requestTheme' };
 
 // Messages sent from the extension host to the webview frontend.
