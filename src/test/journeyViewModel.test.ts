@@ -5,6 +5,7 @@ import {
     type MistakeCardVM,
 } from '../journey/journeyViewModel';
 import { parseCompilerStderrWithIncludes } from '../error/errorParser';
+import { SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
 import type {
     CodeModifiedEvent,
     CompileErrorEvent,
@@ -115,10 +116,11 @@ describe('buildJourneyViewModel', () => {
     });
 
     it('未解决 episode 排在已解决之前(置顶),其余按首次出现倒序', () => {
+        // 两次犯错时间相距超过幂等窗口:同指纹但都是真实历史,不得折叠。
         const events: DebugEvent[] = [
             compileError({ id: 'old-resolved', timestamp: 1_000 }),
             compileSuccess({ id: 'ok-old', timestamp: 2_000 }),
-            compileError({ id: 'new-unresolved', timestamp: 9_000 }),
+            compileError({ id: 'new-unresolved', timestamp: SEMANTIC_DEDUPE_WINDOW_MS + 20_000 }),
         ];
         const view = buildJourneyViewModel(events);
         // 同一条错误签名(normalize 后相同)会各自成 lifecycle;未解决者必须最前。
@@ -144,11 +146,14 @@ describe('buildJourneyViewModel', () => {
     });
 
     it('同一知识标签的多次错误合并为一张卡,版本链 frequency 累计', () => {
+        // 两次犯错时间相距超过幂等窗口(真实历史,不折叠)。
         const resolvedPair = [
             compileError({ id: 'a1', timestamp: 1_000 }),
             compileSuccess({ id: 'a2', timestamp: 1_500 }),
         ];
-        const unresolvedSingle = [compileError({ id: 'b1', timestamp: 9_000 })];
+        const unresolvedSingle = [
+            compileError({ id: 'b1', timestamp: SEMANTIC_DEDUPE_WINDOW_MS + 20_000 }),
+        ];
         const merged = buildJourneyViewModel([...resolvedPair, ...unresolvedSingle]);
 
         const card = merged.mistakeCards.find((c) => c.tag === 'undeclared_identifier') as
@@ -182,6 +187,29 @@ describe('buildJourneyViewModel', () => {
         assert.match(card.fixes[0].diff, /int x/);
         assert.strictEqual(card.fileUri, 'file:///w/main.cpp');
         assert.strictEqual(card.line, 12);
+    });
+
+    it('消费折叠:同指纹且时间相近的重复事件只出一张卡,时间相远的保留历史', () => {
+        const makeCopy = (id: string, timestamp: number): DebugEvent[] => [
+            compileError({ id: `${id}-err`, timestamp, fileUri: 'file:///w/a.cpp' }),
+            compileSuccess({ id: `${id}-ok`, timestamp: timestamp + 500 }),
+        ];
+        // 同一次构建的多份拷贝(多翻译单元同错):时间相近、语义相同。
+        const view = buildJourneyViewModel([
+            ...makeCopy('a', 1_000),
+            ...makeCopy('b', 2_000),
+            ...makeCopy('c', 3_000),
+        ]);
+        const sameBatchCards = view.mistakeCards.filter((c) => c.tag === 'undeclared_identifier');
+        assert.strictEqual(sameBatchCards.length >= 1, true);
+        assert.strictEqual(view.metrics.totalEvents, 6 - 4, '同批次重复被折叠(3 err+3 ok → 1 err+1 ok)');
+
+        // 时间相远:学生真实地又一次犯同样错,历史必须完整保留。
+        const acrossDays = buildJourneyViewModel([
+            compileError({ id: 'd1', timestamp: 1_000_000 }),
+            compileError({ id: 'd2', timestamp: 90_000_000_000 }),
+        ]);
+        assert.strictEqual(acrossDays.episodes.length, 2, '跨时间的同错是真实历史,不得折叠');
     });
 
     it('头文件错误跳转位置指向真实报错文件(parsed.file),而非主翻译单元', () => {

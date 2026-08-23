@@ -6,6 +6,11 @@ import {
     getWorkspaceId,
     getWorkspaceStorageUri,
 } from './storagePath';
+import {
+    computeEventFingerprint,
+    EVENT_SCHEMA_VERSION,
+    SEMANTIC_DEDUPE_WINDOW_MS,
+} from './eventEnvelope';
 import type { DebugEvent, DebugEventFilter } from './types';
 
 const EVENTS_STORAGE_KEY = 'classmate.debugJourney.events.v1';
@@ -91,7 +96,10 @@ function parseEvents(text: string): DebugEvent[] {
             continue;
         }
         try {
-            events.push(JSON.parse(trimmed) as DebugEvent);
+            const raw = JSON.parse(trimmed) as DebugEvent;
+            // 版本迁移(读视图):v1 旧格式无信封字段,补 schemaVersion=1 后
+            // 照常返回,不重写文件、不炸消费端。
+            events.push(raw.schemaVersion === undefined ? { ...raw, schemaVersion: 1 } : raw);
         } catch {
             // Ignore malformed lines.
         }
@@ -115,12 +123,26 @@ function eventMatchesFilter(event: DebugEvent, filter: DebugEventFilter): boolea
     return true;
 }
 
+/**
+ * 幂等跳过的适用类型:错误类事件(compile_error/run_error)。它们是唯一
+ * 存在「同一结果被多个触发源各写一次」结构性风险的类型;其余类型要么天然
+ * 一次性(求助),要么有内容变化守卫(编辑),快速重复是学生真实动作。
+ */
+const IDEMPOTENT_SKIP_TYPES: ReadonlySet<DebugEvent['type']> = new Set([
+    'compile_error',
+    'run_error',
+]);
+
 export class DebugJourneyStore {
     private readonly _context: vscode.ExtensionContext;
     private readonly _workspaceId: string;
     private readonly _workspaceStorage: vscode.Uri;
     private readonly _eventsUri: vscode.Uri;
     private readonly _indexUri: vscode.Uri;
+    /** 可注入时钟(单测控制幂等窗口)。 */
+    private readonly _now: () => number;
+    /** 最近写入的语义指纹 → 写入时刻;窗口内同指纹重复 append 直接跳过。 */
+    private readonly _recentFingerprints = new Map<string, number>();
     /**
      * 事件追加后的通知(#12a):Journey 面板据此做 500ms 合并窗口的节流重算。
      * 纯新增的订阅口,不改变 append 的既有语义与返回值。
@@ -128,8 +150,9 @@ export class DebugJourneyStore {
     private readonly _onDidAppend = new vscode.EventEmitter<DebugEvent[]>();
     public readonly onDidAppend = this._onDidAppend.event;
 
-    constructor(context: vscode.ExtensionContext, workspaceId?: string) {
+    constructor(context: vscode.ExtensionContext, workspaceId?: string, options?: { now?: () => number }) {
         this._context = context;
+        this._now = options?.now ?? (() => Date.now());
         this._workspaceId = workspaceId ?? getWorkspaceId();
         this._workspaceStorage = getWorkspaceStorageUri(
             context.globalStorageUri,
@@ -152,9 +175,37 @@ export class DebugJourneyStore {
             return;
         }
 
+        // v2 信封 + 幂等窗口(复测问题 2):每条事件固化 schemaVersion 与语义
+        // 指纹;错误类事件(compile_error/run_error)在短窗口内同指纹重复到达
+        // (同一编译结果的多触发源重放)直接跳过,不落盘、不触发 onDidAppend。
+        // 幂等跳过只收窄在错误类:成功/编辑/求助类各有天然一次性或内容守卫,
+        // 且学生短时间内的真实重试不该在写入边界被吞掉——消费侧还有按指纹的
+        // 折叠兜底(journeyViewModel.foldByFingerprint)。
+        const now = this._now();
+        for (const [fingerprint, seenAt] of this._recentFingerprints) {
+            if (now - seenAt > SEMANTIC_DEDUPE_WINDOW_MS) {
+                this._recentFingerprints.delete(fingerprint);
+            }
+        }
+        const sanitized: DebugEvent[] = [];
+        for (const event of events) {
+            const fingerprint = event.fingerprint ?? computeEventFingerprint(event);
+            const idempotentEligible = IDEMPOTENT_SKIP_TYPES.has(event.type);
+            if (idempotentEligible) {
+                const seenAt = this._recentFingerprints.get(fingerprint);
+                if (seenAt !== undefined && now - seenAt <= SEMANTIC_DEDUPE_WINDOW_MS) {
+                    continue;
+                }
+                this._recentFingerprints.set(fingerprint, now);
+            }
+            sanitized.push({ ...sanitizeEvent(event), schemaVersion: EVENT_SCHEMA_VERSION, fingerprint });
+        }
+        if (sanitized.length === 0) {
+            return;
+        }
+
         await ensureDirectory(this._workspaceStorage);
 
-        const sanitized = events.map(sanitizeEvent);
         // O(1) 追加(schema §2 缺口 7):events.jsonl 在 globalStorage 下是真实
         // 文件,直接 Node appendFile 只写新增行,不再读全量拼接重写——
         // 编译/运行是高频写入,原「读全文 + 写全文」会随文件增长线性变慢。
@@ -211,6 +262,7 @@ export class DebugJourneyStore {
 
     public dispose(): void {
         this._onDidAppend.dispose();
+        this._recentFingerprints.clear();
     }
 
     private async _updateIndex(events: DebugEvent[]): Promise<void> {

@@ -3,6 +3,8 @@ import { describe, it, beforeEach } from 'mocha';
 import * as vscode from 'vscode';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
 import { isCompileError, type DebugEvent } from '../debug/types';
+import { SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
+import { getEventsFileUri, getWorkspaceStorageUri } from '../debug/storagePath';
 
 function createStubContext(globalStorageUri: vscode.Uri): vscode.ExtensionContext {
     const state = new Map<string, unknown>();
@@ -128,6 +130,8 @@ describe('DebugJourneyStore', () => {
                     timestamp: round,
                     sessionId: 'session',
                     workspaceId: 'test-workspace',
+                    // 语义可区分(不同文件):v2 幂等只吞同指纹重复,不吞新事件。
+                    fileUri: `file:///w/f${round}.cpp`,
                     exitCode: 0,
                     durationMs: 10,
                 },
@@ -154,6 +158,7 @@ describe('DebugJourneyStore', () => {
                     timestamp: 1,
                     sessionId: 'session',
                     workspaceId: 'test-workspace',
+                    fileUri: 'file:///w/a.cpp',
                     exitCode: 0,
                     durationMs: 10,
                 },
@@ -163,6 +168,7 @@ describe('DebugJourneyStore', () => {
                     timestamp: 2,
                     sessionId: 'session',
                     workspaceId: 'test-workspace',
+                    fileUri: 'file:///w/b.cpp',
                     exitCode: 0,
                     durationMs: 10,
                 },
@@ -171,5 +177,68 @@ describe('DebugJourneyStore', () => {
         } finally {
             disposable.dispose();
         }
+    });
+
+    it('v2 信封:同语义事件在幂等窗口内重复 append 只落一条', async () => {
+        let now = 50_000;
+        const windowedStore = new DebugJourneyStore(context, 'test-workspace', { now: () => now });
+        const makeEvent = (id: string): DebugEvent => ({
+            id,
+            type: 'compile_error',
+            // 时间戳是易变字段,不参与指纹;两次"复制"只差 id/timestamp。
+            timestamp: now,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/a.cpp',
+            stderr: 'b.h:5:10: error: x',
+            parsedErrors: [{ raw: 'r', file: 'b.h', line: 5, severity: 'error', message: 'x' }],
+            exitCode: 1,
+            durationMs: 100,
+        });
+
+        await windowedStore.append(makeEvent('first'));
+        now += 500;
+        await windowedStore.append(makeEvent('duplicate'));
+        now += 500;
+        await windowedStore.append(makeEvent('duplicate-again'));
+
+        const events = await windowedStore.getEvents();
+        assert.strictEqual(events.length, 1, '窗口内同指纹重复必须被跳过');
+        assert.strictEqual(events[0].id, 'first');
+
+        // 窗口外(学生真实地又编了一次同样的错):正常落盘。
+        now += SEMANTIC_DEDUPE_WINDOW_MS + 1_000;
+        await windowedStore.append(makeEvent('later-real'));
+        assert.strictEqual((await windowedStore.getEvents()).length, 2);
+
+        // 写入事件带 v2 信封。
+        const stored = await windowedStore.getEvents();
+        assert.strictEqual(stored.every((e) => e.schemaVersion === 2), true);
+        assert.ok(stored.every((e) => typeof e.fingerprint === 'string' && e.fingerprint.length > 0));
+        windowedStore.dispose();
+    });
+
+    it('旧格式迁移:无信封的历史行照读不炸并标记 schemaVersion=1', async () => {
+        const legacyLine = JSON.stringify({
+            id: 'legacy-1',
+            type: 'compile_success',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            exitCode: 0,
+            durationMs: 10,
+        });
+        // 直写 events.jsonl 模拟旧版本数据(appendFile 到空文件即首行)。
+        const bytes = Buffer.from(legacyLine + '\n', 'utf-8');
+        await vscode.workspace.fs.writeFile(
+            getEventsFileUri(getWorkspaceStorageUri(context.globalStorageUri, 'test-workspace')),
+            bytes
+        );
+
+        const events = await store.getEvents();
+        assert.strictEqual(events.length, 1);
+        assert.strictEqual(events[0].id, 'legacy-1');
+        assert.strictEqual(events[0].schemaVersion, 1);
+        assert.strictEqual((events[0] as { fingerprint?: string }).fingerprint, undefined);
     });
 });

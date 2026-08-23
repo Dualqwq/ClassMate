@@ -15,6 +15,13 @@ export interface BaseDebugEvent {
     sessionId: string;
     workspaceId: string;
     fileUri?: string;
+    /**
+     * v2 信封(复测问题 2):写入时由 DebugJourneyStore 固化。旧格式事件无
+     * 这两个字段,读取视图统一按 schemaVersion=1 迁移,消费端照读不炸。
+     */
+    schemaVersion?: 1 | 2;
+    /** 语义指纹(eventEnvelope.computeEventFingerprint),幂等去重与折叠键。 */
+    fingerprint?: string;
 }
 
 export interface CompileErrorEvent extends BaseDebugEvent {

@@ -1,5 +1,11 @@
 import type { ParsedError } from '../error/errorParser';
 import { computeDebugMetrics } from '../debug/analytics';
+import { computeEventFingerprint, SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
+import {
+    createErrorSignature,
+    signatureKey,
+    type ErrorSignature,
+} from '../debug/errorFingerprint';
 import { buildErrorLifecycles, type ErrorLifecycle } from '../debug/errorLifecycle';
 import {
     generateKnowledgeCard,
@@ -14,6 +20,7 @@ import {
     isCompileSuccess,
     isHintRequested,
     isRunError,
+    type CompileErrorEvent,
     type DebugEvent,
 } from '../debug/types';
 
@@ -232,38 +239,106 @@ function representativePosition(
 }
 
 /**
+ * 语义折叠(消费侧兜底,复测问题 2):同指纹且时间相近的事件视为同一条
+ * 逻辑错误的重复拷贝,只保留其中一条(取最新);时间相远的同指纹事件是
+ * 学生真实的「又一次犯」,必须完整保留——否则时间线与版本链历史会被
+ * 误吞。窗口口径与写入侧幂等窗口一致。
+ */
+function foldByFingerprint(events: DebugEvent[]): DebugEvent[] {
+    const kept: DebugEvent[] = [];
+    for (const event of events) {
+        const key = event.fingerprint ?? computeEventFingerprint(event);
+        const duplicateIndex = kept.findIndex((existing) => {
+            const existingKey =
+                existing.fingerprint ?? computeEventFingerprint(existing);
+            return (
+                existingKey === key &&
+                Math.abs(existing.timestamp - event.timestamp) <= SEMANTIC_DEDUPE_WINDOW_MS
+            );
+        });
+        if (duplicateIndex === -1) {
+            kept.push(event);
+            continue;
+        }
+        if (kept[duplicateIndex].timestamp <= event.timestamp) {
+            kept[duplicateIndex] = event;
+        }
+    }
+    return kept;
+}
+
+/**
  * 事件数组 → Journey 面板完整视图模型(纯函数)。
  * 未解决 episode 天然置顶;错题卡沿用 mergeAndSortKnowledgeCards 的排序。
  */
 export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
-    const sortedEvents = [...events].sort((a, b) => a.timestamp - b.timestamp);
+    const sortedEvents = [...foldByFingerprint(events)].sort((a, b) => a.timestamp - b.timestamp);
     const lifecycles = buildErrorLifecycles(sortedEvents);
 
-    const episodes: JourneyEpisodeVM[] = [];
+    // ×8 根因修复(消费派生折叠):buildErrorLifecycles 对同一 compile_error
+    // 事件的每条 error/warning 解析行各建一个 lifecycle,而卡片渲染若统一取
+    // 「事件首条 message」,一次编译报 N 条诊断就会复制出 N 张一模一样的卡。
+    // 先按事件分组(保持首次出现序),组内再按 fuzzy 签名折叠:同签名重复
+    // 只出一张卡,不同签名是不同的错、各显自己的 message 与位置。
+    const lifecyclesByEvent = new Map<string, ErrorLifecycle[]>();
     for (const lifecycle of lifecycles) {
-        const errorEvent = sortedEvents.find((e) => e.id === lifecycle.errorEventId);
+        const group = lifecyclesByEvent.get(lifecycle.errorEventId);
+        if (group) {
+            group.push(lifecycle);
+        } else {
+            lifecyclesByEvent.set(lifecycle.errorEventId, [lifecycle]);
+        }
+    }
+
+    const episodes: JourneyEpisodeVM[] = [];
+    for (const [errorEventId, eventLifecycles] of lifecyclesByEvent) {
+        const errorEvent = sortedEvents.find((e) => e.id === errorEventId);
         if (!errorEvent || !isCompileError(errorEvent)) {
             continue;
         }
-        const parsed = errorEvent.parsedErrors.find(
-            (p) => p.severity === 'error' || p.severity === 'warning'
-        );
-        // 跳转位置优先诊断真实报错文件:头文件错误(parsed.file=b.h)不能
-        // 用事件级 fileUri(主单元 a.cpp),否则定位到错误的文件+行。
-        const locationFile = parsed?.file ?? errorEvent.fileUri;
-        episodes.push({
-            errorEventId: errorEvent.id,
-            message: parsed?.message ?? '',
-            fileUri: locationFile,
-            fileName: baseFileName(locationFile),
-            line: parsed?.line,
-            ...(parsed?.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
-            firstSeenAt: lifecycle.firstSeenAt,
-            resolvedAt: lifecycle.resolvedAt,
-            resolved: lifecycle.resolvedAt !== undefined,
-            attemptsBeforeResolve: lifecycle.attemptsBeforeResolve,
-            entries: buildEntriesForLifecycle(lifecycle, errorEvent, sortedEvents),
-        });
+
+        const bySignature = new Map<string, ErrorLifecycle[]>();
+        for (const lifecycle of eventLifecycles) {
+            const key = signatureKey(lifecycle.signature, { mode: 'fuzzy' });
+            const group = bySignature.get(key);
+            if (group) {
+                group.push(lifecycle);
+            } else {
+                bySignature.set(key, [lifecycle]);
+            }
+        }
+
+        for (const members of bySignature.values()) {
+            const representative = members[0];
+            // 折叠组的解决口径:整组签名都消失才算解决,窗口取最后消散时点,
+            // 尝试次数取组内最大——与「这个错修了几次才好」的学生直觉一致。
+            const resolvedAts = members
+                .map((l) => l.resolvedAt)
+                .filter((t): t is number => t !== undefined);
+            const allResolved = resolvedAts.length === members.length;
+            const foldedLifecycle: ErrorLifecycle = {
+                ...representative,
+                resolvedAt: allResolved ? Math.max(...resolvedAts) : undefined,
+                attemptsBeforeResolve: Math.max(...members.map((l) => l.attemptsBeforeResolve)),
+            };
+            // 卡面与跳转用该签名自己的诊断行:头文件错误指向真实报错文件
+            // (parsed.file=b.h),而非主翻译单元的事件级 fileUri(a.cpp)。
+            const parsed = findParsedForSignature(errorEvent, representative.signature);
+            const locationFile = parsed?.file ?? errorEvent.fileUri;
+            episodes.push({
+                errorEventId: errorEvent.id,
+                message: parsed?.message ?? '',
+                fileUri: locationFile,
+                fileName: baseFileName(locationFile),
+                line: parsed?.line,
+                ...(parsed?.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
+                firstSeenAt: foldedLifecycle.firstSeenAt,
+                resolvedAt: foldedLifecycle.resolvedAt,
+                resolved: foldedLifecycle.resolvedAt !== undefined,
+                attemptsBeforeResolve: foldedLifecycle.attemptsBeforeResolve,
+                entries: buildEntriesForLifecycle(foldedLifecycle, errorEvent, sortedEvents),
+            });
+        }
     }
 
     const unresolved = episodes
@@ -274,11 +349,13 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
         .sort((a, b) => b.firstSeenAt - a.firstSeenAt);
 
     const metricsBase = computeDebugMetrics(sortedEvents, lifecycles);
-    const resolvedLifecycles = lifecycles.filter((l) => l.resolvedAt !== undefined);
+    // 求解状态类指标用折叠后的 episode 口径,与学生看到的卡数一致;
+    // 求助比例/独立修复率是事件级比值,不受折叠影响。
+    const resolvedEpisodeCount = resolvedEpisodes.length;
     const avgFixAttemptsResolved =
-        resolvedLifecycles.length > 0
-            ? resolvedLifecycles.reduce((sum, l) => sum + l.attemptsBeforeResolve, 0) /
-              resolvedLifecycles.length
+        resolvedEpisodeCount > 0
+            ? resolvedEpisodes.reduce((sum, e) => sum + e.attemptsBeforeResolve, 0) /
+              resolvedEpisodeCount
             : 0;
 
     // 错题卡:与既有导出通路(buildKnowledgeCards)同一组合成逻辑,只是输入
@@ -309,8 +386,8 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
         generatedAt: Date.now(),
         metrics: {
             totalEvents: sortedEvents.length,
-            resolvedErrors: resolvedLifecycles.length,
-            unresolvedErrors: lifecycles.length - resolvedLifecycles.length,
+            resolvedErrors: resolvedEpisodeCount,
+            unresolvedErrors: episodes.length - resolvedEpisodeCount,
             avgFixAttempts: avgFixAttemptsResolved,
             helpSeekingRatio: metricsBase.helpSeekingRatio,
             independentFixRatio: metricsBase.independentFixRatio,
@@ -318,4 +395,23 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
         episodes: [...unresolved, ...resolvedEpisodes],
         mistakeCards,
     };
+}
+
+/**
+ * 在事件的解析诊断里找该签名的代表行(fuzzy:归一化 message 相同即同错),
+ * 供折叠后的 episode 卡展示真实 message 与跳转位置。
+ */
+function findParsedForSignature(
+    errorEvent: CompileErrorEvent,
+    signature: ErrorSignature
+): ParsedError | undefined {
+    const key = signatureKey(signature, { mode: 'fuzzy' });
+    return errorEvent.parsedErrors.find(
+        (p) =>
+            (p.severity === 'error' || p.severity === 'warning') &&
+            signatureKey(
+                createErrorSignature(p, { includeCode: false, includeFile: false }),
+                { mode: 'fuzzy' }
+            ) === key
+    );
 }
