@@ -93,8 +93,6 @@ function buildCompileErrorNode(event: CompileErrorEvent): DebugJourneyNode {
         tooltip: new vscode.MarkdownString(summaryLines.join('\n')),
         iconPath: new vscode.ThemeIcon('error'),
         collapsibleState: vscode.TreeItemCollapsibleState.None,
-        // 树项行内「打开大屏」动作(view/item/context)以此 when 匹配。
-        contextValue: 'compileErrorNode',
         eventId: event.id,
         fileUri: event.fileUri,
         event,
