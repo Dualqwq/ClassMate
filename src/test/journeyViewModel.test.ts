@@ -236,4 +236,54 @@ describe('buildJourneyViewModel', () => {
         assert.strictEqual(episode.line, 5);
         assert.deepStrictEqual(episode.viaIncludes, ['a.cpp:1']);
     });
+
+    it('×8 根因:同一编译事件的多条同签名诊断只出一张 episode 卡', () => {
+        // 学生场景:未声明的函数被调用了 8 次,g++ 逐调用点各报一条同签名错误。
+        const parsedErrors = Array.from({ length: 8 }, (_, i) => ({
+            raw: `a.cpp:${10 + i}:5: error: 'foo' was not declared in this scope`,
+            file: 'a.cpp',
+            line: 10 + i,
+            column: 5,
+            severity: 'error' as const,
+            message: "'foo' was not declared in this scope",
+        }));
+        const view = buildJourneyViewModel([compileError({ id: 'multi', timestamp: 1_000, parsedErrors })]);
+
+        assert.strictEqual(view.episodes.length, 1, '同一事件的同签名诊断必须折叠为一张卡');
+        assert.strictEqual(view.metrics.unresolvedErrors, 1, '指标口径与学生看到的卡数一致');
+        assert.strictEqual(view.metrics.resolvedErrors, 0);
+        assert.strictEqual(view.episodes[0].entries[0].label, '编译失败(8 个错误)');
+    });
+
+    it('同一事件的不同签名各自成卡,消息互不张冠李戴', () => {
+        const view = buildJourneyViewModel([
+            compileError({
+                id: 'mixed',
+                timestamp: 1_000,
+                parsedErrors: [
+                    {
+                        raw: "a.cpp:3:5: error: 'x' was not declared in this scope",
+                        file: 'a.cpp',
+                        line: 3,
+                        severity: 'error',
+                        message: "'x' was not declared in this scope",
+                    },
+                    {
+                        raw: "a.cpp:9:1: error: expected ';' before '}' token",
+                        file: 'a.cpp',
+                        line: 9,
+                        severity: 'error',
+                        message: "expected ';' before '}' token",
+                    },
+                ],
+            }),
+        ]);
+
+        assert.strictEqual(view.episodes.length, 2, '不同签名是不同的错,不得合并');
+        const messages = view.episodes.map((e) => e.message).sort();
+        assert.deepStrictEqual(messages, [
+            "'x' was not declared in this scope",
+            "expected ';' before '}' token",
+        ].sort());
+    });
 });
