@@ -7,7 +7,7 @@ import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
 import { RunPanel } from './ui/RunPanel';
 import { CoursewarePanel } from './ui/CoursewarePanel';
-import { JourneyPanel } from './ui/JourneyPanel';
+import { openJourneyPanel } from './ui/JourneyPanel';
 import { RunService } from './run/runService';
 import { CoursewareService } from './courseware/coursewareService';
 import { JourneyService } from './journey/journeyService';
@@ -1285,11 +1285,12 @@ export async function activate(
 		},
 		{
 			// #12a:调试历程入口升级为大屏面板(与 Chat/Run 同级,route journey)。
-			// 沿用既有命令 id 与其全部入口(命令面板等);sidebar 树保留不动
-			// (Q1 收窄需动 package.json menus,非本轨范围)。
+			// 唯一权威入口 openJourneyPanel(state-machine §3):命令面板与全部
+			// 小屏菜单按钮都收敛到这条命令;sidebar 树保留不动(Q1 收窄需动
+			// package.json menus,已按 docs/journey-panel-state-machine.md 落)。
 			id: 'classmate.debugJourney',
 			handler: () => {
-				JourneyPanel.createOrShow(context.extensionUri, journeyService);
+				openJourneyPanel(context.extensionUri, journeyService);
 			},
 		},
 		{

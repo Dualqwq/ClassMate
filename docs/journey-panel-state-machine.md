@@ -91,8 +91,9 @@ classmate.debugJourney 命令(extension.ts 注册一次)
    `classmate.debugJourney` 这一个 command id;不允许为按钮新建平级命令。
 3. **引用必须存在**:menus 引用的每个 command 必须已在 contributes.commands
    声明且被 extension.ts 注册(有 manifest 完整性单测锁定)。
-4. **不绕过分组注册表**:大屏创建必须经 `JourneyPanel.createOrShow`
-   (内部完成 registerClassMatePanel);禁止绕过它直接 createWebviewPanel。
+4. **不绕过分组注册表**:大屏创建必须经权威入口 `openJourneyPanel`
+   (内部收敛到单例 `JourneyPanel.createOrShow`,完成 registerClassMatePanel);
+   禁止绕过它们直接 createWebviewPanel。
 5. **handler 只做打开**:handler 内不做一次性初始化以外的事(服务在 activate
    构造一次);禁止在 handler 里写全局状态/重复 attach。
 6. **菜单声明与视图匹配**:view/title 条目的 when 必须写 `view == <已注册视图>`;

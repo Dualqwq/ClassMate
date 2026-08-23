@@ -6,6 +6,22 @@ import type { JourneyWebviewToExtensionMessage } from '../chat/types';
 import type { JourneyService } from '../journey/journeyService';
 
 /**
+ * 大屏唯一权威入口(docs/journey-panel-state-machine.md §3/§4 不变量 2、4):
+ * 命令面板与一切小屏入口(编辑器工具栏/Journey 树标题栏/ChatView 标题栏/
+ * 树项动作)都只允许经本函数打开大屏;内部收敛到单例 createOrShow——
+ * 已打开时 reveal 聚焦不重建,未创建时按 B1 分组决策落列并登记注册表。
+ * 禁止绕过本函数(或 createOrShow)直接创建 Journey 面板。
+ */
+export function openJourneyPanel(
+	extensionUri: vscode.Uri,
+	journeyService: JourneyService,
+	options?: { preserveFocus?: boolean }
+): void {
+	JourneyPanel.createOrShow(extensionUri, journeyService, options);
+}
+
+
+/**
  * Journey 面板(#12a):与 Chat Panel / Run Panel 同级的大标签页 WebviewPanel,
  * 常驻(retainContextWhenHidden),关闭后重开状态仍在(数据每次 attach 重取)。
  *

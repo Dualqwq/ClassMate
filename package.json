@@ -296,9 +296,19 @@
       ],
       "view/title": [
         {
+          "command": "classmate.debugJourney",
+          "group": "navigation@0",
+          "when": "view == classmate.debugJourneyTree"
+        },
+        {
           "command": "classmate.openChat",
           "group": "navigation@0",
           "when": "view == classmate.debugJourneyTree && classmate.chatContainer == 'hidden'"
+        },
+        {
+          "command": "classmate.debugJourney",
+          "group": "navigation@0",
+          "when": "view == classmate.chatView"
         },
         {
           "command": "classmate.openChatPanel",
@@ -333,6 +343,11 @@
       ],
       "view/item/context": [
         {
+          "command": "classmate.debugJourney",
+          "group": "inline@2",
+          "when": "view == classmate.debugJourneyTree && viewItem == compileErrorNode"
+        },
+        {
           "command": "classmate.openDebugNodeDiff",
           "group": "inline@1",
           "when": "view == classmate.debugJourneyTree && viewItem == codeModifiedNode"
@@ -341,6 +356,11 @@
           "command": "classmate.openDebugNodeDiff",
           "group": "9_debugJourney@1",
           "when": "view == classmate.debugJourneyTree && viewItem == codeModifiedNode"
+        },
+        {
+          "command": "classmate.debugJourney",
+          "group": "9_debugJourney@2",
+          "when": "view == classmate.debugJourneyTree && viewItem == compileErrorNode"
         }
       ],
       "editor/title": [
@@ -352,6 +372,11 @@
         {
           "command": "classmate.openRunPanel",
           "group": "navigation@2",
+          "when": "editorLangId == c || editorLangId == cpp"
+        },
+        {
+          "command": "classmate.debugJourney",
+          "group": "navigation@3",
           "when": "editorLangId == c || editorLangId == cpp"
         }
       ],
