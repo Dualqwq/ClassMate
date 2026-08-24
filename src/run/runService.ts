@@ -2,10 +2,13 @@ import * as path from 'path';
 import { stat } from 'fs/promises';
 import * as vscode from 'vscode';
 import { getCompileOutputContent } from '../compiler/outputPanel';
+import type { DebugJourneyStore } from '../debug/debugJourneyStore';
+import type { RunErrorEvent, RunSuccessEvent } from '../debug/types';
 import { RunHistoryStore, truncateOutput } from '../storage/runHistoryStore';
 import { discoverExecutable } from './executableDiscovery';
 import { runExecutable } from './runner';
 import { runInIntegratedTerminal } from './runTerminal';
+import { classifyRunError } from './runErrorClassifier';
 import type {
 	ExecutableSource,
 	RunExtensionToWebviewMessage,
@@ -25,6 +28,8 @@ const AUTO_DISCOVER_INTERVAL_MS = 2000;
 export class RunService {
 	private readonly _context: vscode.ExtensionContext;
 	private readonly _store: RunHistoryStore;
+	private readonly _debugStore?: DebugJourneyStore;
+	private readonly _sessionId?: string;
 	private _presenter: { postMessage(message: RunExtensionToWebviewMessage): void } | undefined;
 	private _running = false;
 	private _currentStartedAt: number | undefined;
@@ -35,8 +40,13 @@ export class RunService {
 	private _notice: string | undefined;
 	private _discoverInterval: ReturnType<typeof setInterval> | undefined;
 
-	constructor(context: vscode.ExtensionContext) {
+	constructor(
+		context: vscode.ExtensionContext,
+		options?: { debugStore?: DebugJourneyStore; sessionId?: string }
+	) {
 		this._context = context;
+		this._debugStore = options?.debugStore;
+		this._sessionId = options?.sessionId;
 		const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
 		this._store = new RunHistoryStore(context.globalStorageUri.fsPath, workspaceUri);
 	}
@@ -207,6 +217,8 @@ export class RunService {
 			console.warn('[ClassMate] failed to persist run history', error);
 		}
 
+		await this._recordRunOutcome(record);
+
 		this._running = false;
 		this._currentStartedAt = undefined;
 		this._lastResult = record;
@@ -214,6 +226,61 @@ export class RunService {
 			this._interactiveHint = { exePath: executable.path };
 		}
 		await this.pushState();
+	}
+
+	/**
+	 * 把运行结果写入 DebugJourneyStore，供 Journey 面板时间线展示。
+	 * 未注入 debugStore 时（单测场景）直接跳过，不影响 Run 面板本身行为。
+	 */
+	private async _recordRunOutcome(record: RunRecord): Promise<void> {
+		if (!this._debugStore) {
+			return;
+		}
+
+		const fileUri = vscode.Uri.file(record.exePath).toString();
+		const baseEvent = {
+			id: record.id,
+			timestamp: record.startedAt ?? Date.now(),
+			sessionId: this._sessionId ?? 'unknown',
+			workspaceId: this._debugStore.workspaceId,
+			fileUri,
+			exitCode: record.exitCode,
+			durationMs: record.durationMs,
+		};
+
+		if (record.exitCode === 0 && !record.timedOut && !record.needsInteractiveInput) {
+			const event: RunSuccessEvent = {
+				...baseEvent,
+				type: 'run_success',
+			};
+			try {
+				await this._debugStore.append(event);
+			} catch (error) {
+				console.warn('[ClassMate] failed to append run_success to debug journey', error);
+			}
+			return;
+		}
+
+		const classification = classifyRunError({
+			exitCode: record.exitCode,
+			stdout: record.stdout,
+			stderr: record.stderr,
+			timedOut: record.timedOut,
+			needsInteractiveInput: record.needsInteractiveInput,
+		});
+		const event: RunErrorEvent = {
+			...baseEvent,
+			type: 'run_error',
+			executablePath: record.exePath,
+			stdout: record.stdout,
+			stderr: record.stderr,
+			kind: classification.kind,
+		};
+		try {
+			await this._debugStore.append(event);
+		} catch (error) {
+			console.warn('[ClassMate] failed to append run_error to debug journey', error);
+		}
 	}
 
 	/** 组装面板快照:当前选中 + 上次结果 + 按 exe 分组的历史(新的在前)。 */

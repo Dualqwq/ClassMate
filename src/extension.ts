@@ -1147,7 +1147,7 @@ export async function activate(
 
 	// Run 面板(#11):与 Chat Panel 同级的大标签页面板,共享 React bundle +
 	// route 切换;只消费编译产物(compile_result.txt / 源文件推导),不做编译决策。
-	const runService = new RunService(context);
+	const runService = new RunService(context, { debugStore, sessionId });
 	profiler.mark('run-service-created');
 
 	// Journey 面板(#12a/#14a):调试历程大屏 + 错题本,同一 store 同一派生层;

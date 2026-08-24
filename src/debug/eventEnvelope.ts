@@ -58,6 +58,8 @@ function semanticPayload(event: DebugEvent): unknown {
             };
         case 'compile_success':
             return { type: event.type, fileUri: event.fileUri };
+        case 'run_success':
+            return { type: event.type, fileUri: event.fileUri };
         case 'code_modified':
             return {
                 type: event.type,
@@ -77,6 +79,7 @@ function semanticPayload(event: DebugEvent): unknown {
                 type: event.type,
                 executablePath: event.executablePath,
                 exitCode: event.exitCode,
+                kind: event.kind,
             };
     }
 }

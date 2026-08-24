@@ -67,6 +67,7 @@ export interface CodeModifiedEvent extends BaseDebugEvent {
 export type DebugEvent =
     | CompileErrorEvent
     | CompileSuccessEvent
+    | RunSuccessEvent
     | RunErrorEvent
     | HintRequestedEvent
     | CodeModifiedEvent;
@@ -92,6 +93,10 @@ export function isHintRequested(event: DebugEvent): event is HintRequestedEvent 
 
 export function isCodeModified(event: DebugEvent): event is CodeModifiedEvent {
     return event.type === 'code_modified';
+}
+
+export function isRunSuccess(event: DebugEvent): event is RunSuccessEvent {
+    return event.type === 'run_success';
 }
 
 export function isRunError(event: DebugEvent): event is RunErrorEvent {
