@@ -143,6 +143,16 @@ describe('knowledge cards', () => {
         }
     });
 
+    it('does not teach that valid pointer subscripting is illegal', () => {
+        const concept = getKnowledgeConcept('pointer_dereference_mismatch');
+        assert.ok(concept);
+        assert.ok(!concept.summary.includes('以数组方式解引用指针都会报错'));
+        assert.ok(concept.summary.includes('合法指针可以使用 []'));
+        assert.ok(concept.summary.includes('对非指针、非数组值使用 -> 或 [] 会报错'));
+        assert.strictEqual(concept.commonCauses[2], '对非指针、非数组类型使用 []');
+        assert.strictEqual(concept.suggestedFixes[2], '使用 [] 前确认该类型支持下标运算');
+    });
+
     it('does not classify a non-operator no-match diagnostic as an operand mismatch', () => {
         const matches = matchErrorToKnowledge("no match for call to 'foo'");
         assert.ok(!matches.some((match) => match.tag === 'operator_operand_mismatch'));
