@@ -1213,6 +1213,17 @@ label:focus-within {
 	color: var(--vscode-editorWarning-foreground);
 }
 
+/* run_success 独立卡的中性级别徽章与过滤 chip(蓝色,非错误语义)。 */
+.journey-sev-badge.journey-sev-info {
+	background: color-mix(in srgb, var(--vscode-charts-blue, #3794ff) 15%, transparent);
+	color: var(--vscode-charts-blue, #3794ff);
+}
+
+.journey-sev-chip-info.on {
+	border-color: var(--vscode-charts-blue, #3794ff);
+	color: var(--vscode-charts-blue, #3794ff);
+}
+
 .journey-metric-split {
 	color: var(--vscode-descriptionForeground);
 }
@@ -1231,4 +1242,19 @@ label:focus-within {
 .journey-sev-chip-warning.on {
 	border-color: var(--vscode-editorWarning-foreground);
 	color: var(--vscode-editorWarning-foreground);
+}
+
+/* run 错误分类过滤 chips(#12b):选中「运行出错」类型时出现的第二行。 */
+.journey-filter-run-kinds {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+/* 错题本「按题目」分组的组头(#14b)。 */
+.journey-mistake-group-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--vscode-descriptionForeground);
+	margin: 8px 0 4px;
 }

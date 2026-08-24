@@ -1,4 +1,5 @@
 import type { JourneyEntryVM, JourneyEpisodeVM, JourneyViewModel, MistakeCardVM } from './journeyViewModel';
+import { RUN_ERROR_KINDS, RUN_ERROR_KIND_LABELS, type RunErrorKind } from '../run/runErrorKind';
 
 /**
  * Journey 面板的过滤/分组纯函数(#12a)。
@@ -14,24 +15,34 @@ export const ENTRY_TYPE_LABELS: Record<JourneyEntryVM['kind'], string> = {
     compile_success: '编译成功',
     code_modified: '编辑',
     hint_requested: '求助',
-    run_error: '运行',
+    run_error: '运行出错',
+    run_success: '运行成功',
 };
 
-/** 级别多选档位(错误/警告),与类型/文件/未解决过滤器正交。 */
+/** 级别多选档位(错误/警告/信息),与类型/文件/未解决过滤器正交。 */
 export const SEVERITY_LEVEL_LABELS = {
     error: '错误',
     warning: '警告',
+    info: '信息',
 } as const;
 
 export type SeverityLevel = keyof typeof SEVERITY_LEVEL_LABELS;
 
 export type JourneyEntryKind = keyof typeof ENTRY_TYPE_LABELS;
 
+export { RUN_ERROR_KINDS, RUN_ERROR_KIND_LABELS };
+export type RunErrorKindFilter = RunErrorKind;
+
 export interface JourneyFilterState {
     /** 选中的条目类型;全选 = 全部档位。 */
     types: JourneyEntryKind[];
     /** 选中的诊断级别;全选 = 错误与警告都显示。 */
     levels: SeverityLevel[];
+    /**
+     * 选中的 run 错误分类(仅作用于 run_error 条目与独立 run_error 卡);
+     * 全选 = 全部分类都显示。
+     */
+    runErrorKinds: RunErrorKind[];
     /** 'all' 或具体 fileUri。 */
     file: string;
     unresolvedOnly: boolean;
@@ -40,6 +51,7 @@ export interface JourneyFilterState {
 export const EMPTY_FILTER: JourneyFilterState = {
     types: Object.keys(ENTRY_TYPE_LABELS) as JourneyEntryKind[],
     levels: Object.keys(SEVERITY_LEVEL_LABELS) as SeverityLevel[],
+    runErrorKinds: [...RUN_ERROR_KINDS],
     file: 'all',
     unresolvedOnly: false,
 };
@@ -57,6 +69,10 @@ function episodeMatchesFilter(episode: JourneyEpisodeVM, filter: JourneyFilterSt
     if (!filter.levels.includes(level)) {
         return false;
     }
+    // run 错误分类:独立 run_error 卡按 kind 过滤;其余卡不受影响。
+    if (episode.runErrorKind && !filter.runErrorKinds.includes(episode.runErrorKind)) {
+        return false;
+    }
     if (filter.unresolvedOnly && episode.resolved) {
         return false;
     }
@@ -71,7 +87,20 @@ function filterEntries(
     episode: JourneyEpisodeVM,
     filter: JourneyFilterState
 ): JourneyEntryVM[] {
-    return episode.entries.filter((entry) => filter.types.includes(entry.kind));
+    return episode.entries.filter((entry) => {
+        if (!filter.types.includes(entry.kind)) {
+            return false;
+        }
+        // run_error 条目再过一层分类过滤。
+        if (
+            entry.kind === 'run_error' &&
+            entry.runErrorKind &&
+            !filter.runErrorKinds.includes(entry.runErrorKind)
+        ) {
+            return false;
+        }
+        return true;
+    });
 }
 
 function dayLabel(timestamp: number, nowMs: number): string {
@@ -97,12 +126,16 @@ export function buildTimelineSections(
     filter: JourneyFilterState,
     nowMs: number = Date.now()
 ): { unresolved: JourneyEpisodeVM[]; byDay: EpisodeDayGroup[] } {
-    const visible = view.episodes.filter((episode) => {
-        if (!episodeMatchesFilter(episode, filter)) {
-            return false;
-        }
-        return filterEntries(episode, filter).length > 0;
-    });
+    // 过滤后的条目随卡输出(浅拷贝):渲染层只画选中类型的条目,
+    // 与「episode 内只显示选中类型的条目」的注释意图一致。
+    const visible = view.episodes
+        .filter((episode) => {
+            if (!episodeMatchesFilter(episode, filter)) {
+                return false;
+            }
+            return filterEntries(episode, filter).length > 0;
+        })
+        .map((episode) => ({ ...episode, entries: filterEntries(episode, filter) }));
 
     const unresolved = visible
         .filter((episode) => !episode.resolved)
@@ -173,4 +206,53 @@ export function sortMistakeCards(
         return [...cards].sort((a, b) => b.lastSeenAt - a.lastSeenAt);
     }
     return cards;
+}
+
+export type MistakeGroupMode = 'tag' | 'problemKey';
+
+/** 错题本一个分组:组头键 + 展示文案 + 组内卡片(保持视图模型既有顺序)。 */
+export interface MistakeCardGroup {
+    key: string;
+    label: string;
+    cards: MistakeCardVM[];
+}
+
+const UNGROUPED_PROBLEM_LABEL = '未关联题目';
+
+/**
+ * 错题本分组(#14b):
+ * - 'tag'(现状):每张卡本身就是一次标签聚合,一卡一组,渲染与旧版一致;
+ * - 'problemKey':按题目分组(deriveProblemKey 派生),无 problemKey 的卡
+ *   归入「未关联题目」并置底。
+ */
+export function groupMistakeCards(
+    cards: MistakeCardVM[],
+    mode: MistakeGroupMode
+): MistakeCardGroup[] {
+    if (mode === 'tag') {
+        return cards.map((card) => ({
+            key: card.tag,
+            label: card.title || card.tag,
+            cards: [card],
+        }));
+    }
+
+    const groups = new Map<string, MistakeCardVM[]>();
+    for (const card of cards) {
+        const key = card.problemKey ?? '';
+        const group = groups.get(key);
+        if (group) {
+            group.push(card);
+        } else {
+            groups.set(key, [card]);
+        }
+    }
+    const labeled = [...groups.entries()]
+        .filter(([key]) => key !== '')
+        .map(([key, groupCards]) => ({ key, label: key, cards: groupCards }));
+    const ungrouped = groups.get('');
+    if (ungrouped) {
+        labeled.push({ key: '', label: UNGROUPED_PROBLEM_LABEL, cards: ungrouped });
+    }
+    return labeled;
 }

@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import {
     buildJourneyViewModel,
+    deriveProblemKey,
     type MistakeCardVM,
 } from '../journey/journeyViewModel';
 import { parseCompilerStderrWithIncludes } from '../error/errorParser';
@@ -12,6 +13,8 @@ import type {
     CompileSuccessEvent,
     DebugEvent,
     HintRequestedEvent,
+    RunErrorEvent,
+    RunSuccessEvent,
 } from '../debug/types';
 
 function compileError(overrides: Partial<CompileErrorEvent> = {}): CompileErrorEvent {
@@ -79,6 +82,38 @@ function hintRequested(overrides: Partial<HintRequestedEvent> = {}): HintRequest
         intent: 'error_explanation',
         userPrompt: '这个错是什么意思',
         relatedCompileEventId: 'err-1',
+        ...overrides,
+    };
+}
+
+function runSuccess(overrides: Partial<RunSuccessEvent> = {}): RunSuccessEvent {
+    return {
+        id: 'run-ok-1',
+        type: 'run_success',
+        timestamp: 4_000,
+        sessionId: 'session',
+        workspaceId: 'ws',
+        fileUri: 'file:///w/main.exe',
+        exitCode: 0,
+        durationMs: 120,
+        ...overrides,
+    };
+}
+
+function runError(overrides: Partial<RunErrorEvent> = {}): RunErrorEvent {
+    return {
+        id: 'run-bad-1',
+        type: 'run_error',
+        timestamp: 4_000,
+        sessionId: 'session',
+        workspaceId: 'ws',
+        fileUri: 'file:///w/main.exe',
+        executablePath: 'C:/w/main.exe',
+        stdout: '',
+        stderr: 'Segmentation fault (core dumped)',
+        exitCode: 139,
+        durationMs: 90,
+        kind: 'runtime_segmentation_fault',
         ...overrides,
     };
 }
@@ -349,5 +384,74 @@ describe('buildJourneyViewModel', () => {
         const compileEntry = view.episodes[0].entries.find((e) => e.kind === 'compile_error');
         assert.ok(compileEntry);
         assert.strictEqual(compileEntry.label, '编译失败(2 个错误 · 1 个警告)');
+    });
+});
+
+describe('run 条目接入(#12b/#14b)', () => {
+    it('run_error 独立成卡:未解决、severity=error、学生化 kind 文案、problemKey 派生', () => {
+        const view = buildJourneyViewModel([runError()]);
+        assert.strictEqual(view.episodes.length, 1);
+        const episode = view.episodes[0];
+        assert.strictEqual(episode.resolved, false);
+        assert.strictEqual(episode.severity, 'error');
+        assert.strictEqual(episode.runErrorKind, 'runtime_segmentation_fault');
+        assert.strictEqual(episode.problemKey, 'main');
+        assert.match(episode.message, /段错误/);
+        const entry = episode.entries[0];
+        assert.strictEqual(entry.kind, 'run_error');
+        assert.strictEqual(entry.runErrorKind, 'runtime_segmentation_fault');
+        assert.match(entry.label, /运行出错：非法内存访问\(段错误\)\(退出码 139\)/);
+    });
+
+    it('run_success 独立成卡:已解决、severity=info、「运行成功 ✓」', () => {
+        const view = buildJourneyViewModel([runSuccess()]);
+        assert.strictEqual(view.episodes.length, 1);
+        const episode = view.episodes[0];
+        assert.strictEqual(episode.resolved, true);
+        assert.strictEqual(episode.severity, 'info');
+        assert.strictEqual(episode.runErrorKind, undefined);
+        assert.strictEqual(episode.entries[0].kind, 'run_success');
+        assert.match(episode.entries[0].label, /运行成功/);
+        assert.strictEqual(episode.problemKey, 'main');
+    });
+
+    it('run 条目按题目键归并进编译 episode 的条目流(main.cpp ↔ main.exe)', () => {
+        const view = buildJourneyViewModel([
+            compileError(),
+            runSuccess({ id: 'nested-ok', timestamp: 3_500 }),
+            runError({ id: 'nested-bad', timestamp: 4_500, kind: 'runtime_array_out_of_bounds' }),
+            compileSuccess({ id: 'ok-late', timestamp: 5_000 }),
+        ]);
+        // 编译失败→编辑→编译成功 的 lifecycle 在编译成功处收口,窗口内的
+        // 运行条目按 problemKey(main)归并进来。
+        const compileEpisode = view.episodes.find((e) => e.errorEventId === 'err-1');
+        assert.ok(compileEpisode);
+        const kinds = compileEpisode.entries.map((e) => e.kind);
+        assert.ok(kinds.includes('run_success'), 'run_success 应出现在编译 episode 条目流');
+        assert.ok(kinds.includes('run_error'));
+        // 同时 run 事件仍各自有独立卡。
+        assert.ok(
+            view.episodes.some((e) => e.errorEventId === 'nested-ok' && e.severity === 'info')
+        );
+        assert.ok(
+            view.episodes.some((e) => e.errorEventId === 'nested-bad' && e.runErrorKind === 'runtime_array_out_of_bounds')
+        );
+    });
+
+    it('deriveProblemKey:去扩展名;无文件名/空串返回 undefined', () => {
+        assert.strictEqual(deriveProblemKey('file:///w/main.cpp'), 'main');
+        assert.strictEqual(deriveProblemKey('file:///w/main.exe'), 'main');
+        assert.strictEqual(deriveProblemKey('C:\\ws\\card.h'), 'card');
+        assert.strictEqual(deriveProblemKey(undefined), undefined);
+        assert.strictEqual(deriveProblemKey('file:///w/.gitignore'), '.gitignore');
+    });
+
+    it('错题卡的 problemKey 由代表性报错文件派生', () => {
+        const view = buildJourneyViewModel([compileError()]);
+        const card = view.mistakeCards.find((c) => c.tag === 'undeclared_identifier') as
+            | MistakeCardVM
+            | undefined;
+        assert.ok(card);
+        assert.strictEqual(card.problemKey, 'main');
     });
 });

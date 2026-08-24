@@ -236,50 +236,14 @@ export class RunService {
 		if (!this._debugStore) {
 			return;
 		}
-
-		const fileUri = vscode.Uri.file(record.exePath).toString();
-		const baseEvent = {
-			id: record.id,
-			timestamp: record.startedAt ?? Date.now(),
+		const event = buildRunOutcomeEvent(record, {
 			sessionId: this._sessionId ?? 'unknown',
 			workspaceId: this._debugStore.workspaceId,
-			fileUri,
-			exitCode: record.exitCode,
-			durationMs: record.durationMs,
-		};
-
-		if (record.exitCode === 0 && !record.timedOut && !record.needsInteractiveInput) {
-			const event: RunSuccessEvent = {
-				...baseEvent,
-				type: 'run_success',
-			};
-			try {
-				await this._debugStore.append(event);
-			} catch (error) {
-				console.warn('[ClassMate] failed to append run_success to debug journey', error);
-			}
-			return;
-		}
-
-		const classification = classifyRunError({
-			exitCode: record.exitCode,
-			stdout: record.stdout,
-			stderr: record.stderr,
-			timedOut: record.timedOut,
-			needsInteractiveInput: record.needsInteractiveInput,
 		});
-		const event: RunErrorEvent = {
-			...baseEvent,
-			type: 'run_error',
-			executablePath: record.exePath,
-			stdout: record.stdout,
-			stderr: record.stderr,
-			kind: classification.kind,
-		};
 		try {
 			await this._debugStore.append(event);
 		} catch (error) {
-			console.warn('[ClassMate] failed to append run_error to debug journey', error);
+			console.warn('[ClassMate] failed to append run outcome to debug journey', error);
 		}
 	}
 
@@ -350,4 +314,47 @@ async function fileExists(candidate: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * 运行记录 → Debug Journey 事件(纯函数,单测入口)。
+ * exitCode === 0 且未超时、未触发交互兜底 → run_success;否则 → run_error,
+ * kind 由 classifyRunError 按平台 stderr 模式判定。
+ */
+export function buildRunOutcomeEvent(
+	record: Pick<
+		RunRecord,
+		'id' | 'exePath' | 'startedAt' | 'durationMs' | 'exitCode' | 'timedOut' | 'needsInteractiveInput' | 'stdout' | 'stderr'
+	>,
+	ids: { sessionId: string; workspaceId: string }
+): RunSuccessEvent | RunErrorEvent {
+	const baseEvent = {
+		id: record.id,
+		timestamp: record.startedAt ?? Date.now(),
+		sessionId: ids.sessionId,
+		workspaceId: ids.workspaceId,
+		fileUri: vscode.Uri.file(record.exePath).toString(),
+		exitCode: record.exitCode,
+		durationMs: record.durationMs,
+	};
+
+	if (record.exitCode === 0 && !record.timedOut && !record.needsInteractiveInput) {
+		return { ...baseEvent, type: 'run_success' };
+	}
+
+	const classification = classifyRunError({
+		exitCode: record.exitCode,
+		stdout: record.stdout,
+		stderr: record.stderr,
+		timedOut: record.timedOut,
+		needsInteractiveInput: record.needsInteractiveInput,
+	});
+	return {
+		...baseEvent,
+		type: 'run_error',
+		executablePath: record.exePath,
+		stdout: record.stdout,
+		stderr: record.stderr,
+		kind: classification.kind,
+	};
 }

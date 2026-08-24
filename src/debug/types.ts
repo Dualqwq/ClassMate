@@ -1,9 +1,11 @@
 import type { ParsedError } from '../error/errorParser';
 import type { MessageIntent } from '../chat/types';
+import type { RunErrorKind } from '../run/runErrorKind';
 
 export type DebugEventType =
     | 'compile_error'
     | 'compile_success'
+    | 'run_success'
     | 'run_error'
     | 'hint_requested'
     | 'code_modified';
@@ -38,6 +40,12 @@ export interface CompileSuccessEvent extends BaseDebugEvent {
     durationMs: number;
 }
 
+export interface RunSuccessEvent extends BaseDebugEvent {
+    type: 'run_success';
+    exitCode: number | null;
+    durationMs: number;
+}
+
 export interface RunErrorEvent extends BaseDebugEvent {
     type: 'run_error';
     executablePath: string;
@@ -45,6 +53,7 @@ export interface RunErrorEvent extends BaseDebugEvent {
     stderr?: string;
     exitCode: number | null;
     durationMs: number;
+    kind: RunErrorKind;
 }
 
 export interface HintRequestedEvent extends BaseDebugEvent {

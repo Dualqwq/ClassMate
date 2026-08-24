@@ -10,6 +10,7 @@ function makeIndex(total: number): DebugEventIndex {
         counts: {
             compile_error: 0,
             compile_success: 0,
+            run_success: 0,
             run_error: 0,
             hint_requested: 0,
             code_modified: 0,
@@ -112,6 +113,7 @@ describe('debugLogFormatter', () => {
             stderr: 'Segmentation fault\nmore details',
             exitCode: 139,
             durationMs: 50,
+            kind: 'runtime_segmentation_fault',
         };
         const output = formatDebugLog([event], makeIndex(1), 'ws');
         assert.ok(output.includes('stderr preview: Segmentation fault'));

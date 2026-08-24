@@ -3,10 +3,12 @@ import { describe, it } from 'mocha';
 import {
     buildTimelineSections,
     collectFileOptions,
+    groupMistakeCards,
     sortMistakeCards,
     summarizeEpisodesBySeverity,
     EMPTY_FILTER,
     type JourneyFilterState,
+    type MistakeCardGroup,
 } from '../journey/journeyFilters';
 import type { JourneyEpisodeVM, JourneyViewModel, MistakeCardVM } from '../journey/journeyViewModel';
 
@@ -216,5 +218,140 @@ describe('journeyFilters (webview 本地过滤纯函数)', () => {
         assert.deepStrictEqual(recommended.map((c) => c.tag), ['t1', 't2', 't3']);
         const recent = sortMistakeCards(cards, 'recent');
         assert.deepStrictEqual(recent.map((c) => c.tag), ['t2', 't3', 't1']);
+    });
+});
+
+describe('run 条目过滤(#12b)', () => {
+    function runEpisode(
+        id: string,
+        kind: 'run_error' | 'run_success',
+        overrides: Partial<JourneyEpisodeVM> = {}
+    ): JourneyEpisodeVM {
+        return episode({
+            errorEventId: id,
+            message: '运行',
+            resolved: kind === 'run_success',
+            severity: kind === 'run_success' ? 'info' : 'error',
+            entries: [
+                {
+                    eventId: `${id}-entry`,
+                    kind,
+                    timestamp: NOW - 500,
+                    label: kind === 'run_success' ? '运行成功 ✓' : '运行出错：数组越界(退出码 1)',
+                    ...(kind === 'run_error'
+                        ? { runErrorKind: 'runtime_array_out_of_bounds' as const }
+                        : {}),
+                },
+            ],
+            ...overrides,
+        });
+    }
+
+    function flattenIds(sections: ReturnType<typeof buildTimelineSections>): string[] {
+        return [
+            ...sections.unresolved,
+            ...sections.byDay.flatMap((g) => g.episodes),
+        ].map((e) => e.errorEventId);
+    }
+
+    it('类型过滤:取消「运行出错」后独立 run_error 卡消失,run_success 不受影响', () => {
+        const view = viewOf([
+            runEpisode('re1', 'run_error'),
+            runEpisode('rs1', 'run_success'),
+        ]);
+        const withoutRunError = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, types: EMPTY_FILTER.types.filter((t) => t !== 'run_error') },
+            NOW
+        );
+        assert.deepStrictEqual(flattenIds(withoutRunError), ['rs1']);
+    });
+
+    it('级别过滤:取消「信息」后 run_success 卡消失', () => {
+        const view = viewOf([runEpisode('rs1', 'run_success')]);
+        const withoutInfo = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, levels: ['error', 'warning'] },
+            NOW
+        );
+        assert.strictEqual(flattenIds(withoutInfo).length, 0);
+    });
+
+    it('分类过滤:只留数组越界时,段错误卡与嵌套段错误条目都被隐藏', () => {
+        const segEpisode = runEpisode('seg-ep', 'run_error', {
+            runErrorKind: 'runtime_segmentation_fault',
+            entries: [
+                {
+                    eventId: 'seg-entry',
+                    kind: 'run_error',
+                    timestamp: NOW - 400,
+                    label: '运行出错：非法内存访问(段错误)',
+                    runErrorKind: 'runtime_segmentation_fault',
+                },
+            ],
+        });
+        const oobCompileEpisode = episode({
+            errorEventId: 'compile-ep',
+            firstSeenAt: NOW - 2_000,
+            entries: [
+                {
+                    eventId: 'compile-entry',
+                    kind: 'compile_error',
+                    timestamp: NOW - 2_000,
+                    label: '编译失败(1 个错误)',
+                },
+                {
+                    eventId: 'nested-oob',
+                    kind: 'run_error',
+                    timestamp: NOW - 600,
+                    label: '运行出错：数组越界',
+                    runErrorKind: 'runtime_array_out_of_bounds',
+                },
+                {
+                    eventId: 'nested-seg',
+                    kind: 'run_error',
+                    timestamp: NOW - 500,
+                    label: '运行出错：非法内存访问(段错误)',
+                    runErrorKind: 'runtime_segmentation_fault',
+                },
+            ],
+        });
+        const view = viewOf([segEpisode, oobCompileEpisode]);
+
+        const oobOnly = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, runErrorKinds: ['runtime_array_out_of_bounds'] },
+            NOW
+        );
+        // 段错误独立卡被隐藏;编译卡保留但嵌套的段错误条目也被隐藏。
+        assert.deepStrictEqual(flattenIds(oobOnly), ['compile-ep']);
+        const keptCompile = [
+            ...oobOnly.unresolved,
+            ...oobOnly.byDay.flatMap((g) => g.episodes),
+        ].find((e) => e.errorEventId === 'compile-ep');
+        assert.ok(keptCompile);
+        assert.ok(
+            !keptCompile.entries.some((e) => e.runErrorKind === 'runtime_segmentation_fault')
+        );
+        assert.ok(keptCompile.entries.some((e) => e.runErrorKind === 'runtime_array_out_of_bounds'));
+    });
+
+    it('错题本分组:tag 模式一卡一组;problemKey 模式归并且未关联置底', () => {
+        const cards: MistakeCardVM[] = [
+            { ...mistakeCard('t1', 100), problemKey: 'main' },
+            { ...mistakeCard('t2', 200), problemKey: 'main' },
+            { ...mistakeCard('t3', 300), problemKey: undefined },
+        ];
+        const byTag = groupMistakeCards(cards, 'tag');
+        assert.strictEqual(byTag.length, 3);
+        assert.ok(byTag.every((g: MistakeCardGroup) => g.cards.length === 1));
+
+        const byProblem = groupMistakeCards(cards, 'problemKey');
+        assert.strictEqual(byProblem.length, 2);
+        assert.deepStrictEqual(byProblem.map((g) => g.key), ['main', '']);
+        assert.strictEqual(byProblem[0].label, 'main');
+        assert.strictEqual(byProblem[0].cards.length, 2);
+        assert.strictEqual(byProblem[1].label, '未关联题目');
+        assert.strictEqual(byProblem[1].cards.length, 1);
     });
 });

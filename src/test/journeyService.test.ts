@@ -3,6 +3,8 @@ import { describe, it, beforeEach } from 'mocha';
 import * as vscode from 'vscode';
 import { JourneyService } from '../journey/journeyService';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
+import { buildRunOutcomeEvent } from '../run/runService';
+import type { RunRecord } from '../run/types';
 import type { JourneyExtensionToWebviewMessage } from '../chat/types';
 import type { DebugEvent } from '../debug/types';
 
@@ -133,3 +135,113 @@ describe('JourneyService', () => {
         service.dispose();
     });
 });
+
+describe('RunService → DebugJourneyStore 写入路径(buildRunOutcomeEvent)', () => {
+    let context: vscode.ExtensionContext;
+    let store: DebugJourneyStore;
+
+    beforeEach(async () => {
+        const tmpUri = vscode.Uri.file(
+            `${process.env.TEMP ?? '/tmp'}/classmate-run-journey-test-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2, 9)}`
+        );
+        await vscode.workspace.fs.createDirectory(tmpUri);
+        context = createStubContext(tmpUri);
+        store = new DebugJourneyStore(context, 'test-workspace');
+    });
+
+    function record(overrides: Partial<RunRecord> = {}): RunRecord {
+        return {
+            id: `run-${Math.random().toString(36).slice(2, 7)}`,
+            exePath: 'C:/ws/main.exe',
+            startedAt: 1_000,
+            durationMs: 250,
+            exitCode: 0,
+            timedOut: false,
+            needsInteractiveInput: false,
+            stdin: '',
+            stdout: '',
+            stderr: '',
+            outputTruncated: false,
+            ...overrides,
+        };
+    }
+
+    it('正常退出(exitCode 0)→ run_success 事件', () => {
+        const event = buildRunOutcomeEvent(record(), { sessionId: 's', workspaceId: 'w' });
+        assert.strictEqual(event.type, 'run_success');
+        assert.strictEqual(event.exitCode, 0);
+        assert.strictEqual(event.fileUri, vscode.Uri.file('C:/ws/main.exe').toString());
+    });
+
+    it('非零退出 → run_error 事件且 kind 由分类器给出', () => {
+        const event = buildRunOutcomeEvent(
+            record({ exitCode: 139, stderr: 'Segmentation fault (core dumped)' }),
+            { sessionId: 's', workspaceId: 'w' }
+        );
+        assert.strictEqual(event.type, 'run_error');
+        if (event.type !== 'run_error') {
+            return assert.fail('unreachable');
+        }
+        assert.strictEqual(event.kind, 'runtime_segmentation_fault');
+        assert.strictEqual(event.executablePath, 'C:/ws/main.exe');
+    });
+
+    it('超时/交互兜底 → run_error(TLE / 等待输入)', () => {
+        const tle = buildRunOutcomeEvent(record({ exitCode: null, timedOut: true }), {
+            sessionId: 's',
+            workspaceId: 'w',
+        });
+        assert.strictEqual(tle.type, 'run_error');
+        if (tle.type === 'run_error') {
+            assert.strictEqual(tle.kind, 'runtime_time_limit_exceeded');
+        }
+
+        const interactive = buildRunOutcomeEvent(
+            record({ exitCode: null, needsInteractiveInput: true }),
+            { sessionId: 's', workspaceId: 'w' }
+        );
+        assert.strictEqual(interactive.type, 'run_error');
+        if (interactive.type === 'run_error') {
+            assert.strictEqual(interactive.kind, 'runtime_interactive_input_needed');
+        }
+    });
+
+    it('运行事件写入 store 后,JourneyService.buildView 派生出对应 episode', async () => {
+        const success = buildRunOutcomeEvent(record({ id: 'run-ok', startedAt: 1_000 }), {
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+        });
+        const failure = buildRunOutcomeEvent(
+            record({
+                id: 'run-bad',
+                startedAt: SEMANTIC_DEDUPE_STEP,
+                exitCode: 139,
+                stderr: 'Segmentation fault (core dumped)',
+            }),
+            { sessionId: 'session', workspaceId: 'test-workspace' }
+        );
+        await store.appendMany([success as DebugEvent, failure as DebugEvent]);
+
+        const service = new JourneyService(store, { confirmClear: async () => false });
+        const view = await service.buildView();
+
+        const runSuccessEpisodes = view.episodes.filter((e) =>
+            e.entries.some((entry) => entry.kind === 'run_success')
+        );
+        const runErrorEpisodes = view.episodes.filter((e) =>
+            e.entries.some((entry) => entry.kind === 'run_error')
+        );
+        assert.strictEqual(runSuccessEpisodes.length, 1);
+        assert.strictEqual(runSuccessEpisodes[0].resolved, true);
+        assert.match(runSuccessEpisodes[0].entries[0].label, /运行成功/);
+        assert.strictEqual(runErrorEpisodes.length, 1);
+        assert.strictEqual(runErrorEpisodes[0].resolved, false);
+        assert.match(runErrorEpisodes[0].entries[0].label, /段错误/);
+        service.dispose();
+    });
+});
+
+/** 与幂等窗口错开的第二个时间戳,保证两条 run 事件不被指纹折叠。 */
+const SEMANTIC_DEDUPE_STEP = 1_000_000;

@@ -20,9 +20,11 @@ import {
     isCompileSuccess,
     isHintRequested,
     isRunError,
+    isRunSuccess,
     type CompileErrorEvent,
     type DebugEvent,
 } from '../debug/types';
+import { RUN_ERROR_KIND_LABELS, type RunErrorKind } from '../run/runErrorKind';
 
 /**
  * Journey 面板视图模型(#12a/#14a,轨 FE1)。
@@ -37,12 +39,20 @@ import {
 /** 时间线单条目(设计稿 §4.1 卡片内的 ├ └ 行)。 */
 export interface JourneyEntryVM {
     eventId: string;
-    kind: 'compile_error' | 'compile_success' | 'code_modified' | 'hint_requested' | 'run_error';
+    kind:
+        | 'compile_error'
+        | 'compile_success'
+        | 'code_modified'
+        | 'hint_requested'
+        | 'run_error'
+        | 'run_success';
     timestamp: number;
     /** 学生化摘要文案(不含内部术语),如「编译失败(2 个错误)」。 */
     label: string;
     /** code_modified 条目:本次编辑增删行数([看 diff] 用 journey:openDiff)。 */
     changedLines?: number;
+    /** run_error 条目专用:分类标签(run 错误分类过滤用)。 */
+    runErrorKind?: RunErrorKind;
 }
 
 /** 时间线一张 episode 卡 = 一个错误的完整生命周期。 */
@@ -62,16 +72,25 @@ export interface JourneyEpisodeVM {
     /** 该错误的 include 引入链路(从最内层到最外层,如 ["b.h:6","a.cpp:1"])。 */
     viaIncludes?: string[];
     /**
-     * 诊断级别(error/warning):折叠按「事件+签名+级别」成卡,
-     * 同一位置的 error 与 warning 是两张卡。旧视图模型缺省按 error 呈现。
+     * 诊断级别(error/warning/info):折叠按「事件+签名+级别」成卡,
+     * 同一位置的 error 与 warning 是两张卡。旧视图模型缺省按 error 呈现;
+     * run_success 独立卡用 info(中性呈现,不冒充错误)。
      */
-    severity?: 'error' | 'warning';
+    severity?: 'error' | 'warning' | 'info';
     firstSeenAt: number;
     resolvedAt?: number;
     resolved: boolean;
     attemptsBeforeResolve: number;
     /** 生命周期内按时间升序的条目(起始编译失败必为第一条)。 */
     entries: JourneyEntryVM[];
+    /** run_error 独立 episode 专用:分类标签(kind 过滤与学生化文案用)。 */
+    runErrorKind?: RunErrorKind;
+    /**
+     * 题目分组键(错题本「按题目」分组,#14b):由 fileUri 文件名去扩展名
+     * 派生(main.cpp 与 main.exe 归并为同一题);后续可升级为读取 question.md
+     * 或 PDF 标题。
+     */
+    problemKey?: string;
 }
 
 /** 指标条数据(学生友好措辞在渲染层拼,这里只给数)。 */
@@ -110,6 +129,11 @@ export interface MistakeCardVM {
     viaIncludes?: string[];
     /** 代表性错误的诊断级别(error/warning),卡片分级徽章用。 */
     severity?: 'error' | 'warning';
+    /**
+     * 题目分组键(「按题目」分组用):由代表性错误的报错文件名去扩展名
+     * 派生;头文件错误会指向头文件名,属已知近似。
+     */
+    problemKey?: string;
 }
 
 /** journey:sync 一次推送的整体视图模型(两个页签共用)。 */
@@ -157,6 +181,28 @@ function baseFileName(fileUri: string | undefined): string | undefined {
     return fileUri.split(/[\\/]/).pop();
 }
 
+/**
+ * 题目分组键(#14b):文件名去扩展名。main.cpp 与 main.exe 归并为同一题,
+ * 让「编译失败 → 修改 → 运行出错」能挂到同一题目下;解不出时返回 undefined。
+ */
+export function deriveProblemKey(fileUri: string | undefined): string | undefined {
+    const base = baseFileName(fileUri);
+    if (!base) {
+        return undefined;
+    }
+    const dot = base.lastIndexOf('.');
+    const stem = dot > 0 ? base.slice(0, dot) : base;
+    return stem.length > 0 ? stem : undefined;
+}
+
+/** run 条目的学生化文案:「运行出错：数组越界(退出码 139)」/「运行成功 ✓」。 */
+function describeRunOutcome(exitCode: number | null, kind?: RunErrorKind): string {
+    if (!kind) {
+        return '运行成功 ✓';
+    }
+    return `${RUN_ERROR_KIND_LABELS[kind]}(退出码 ${exitCode ?? '未知'})`;
+}
+
 function buildEntriesForLifecycle(
     lifecycle: ErrorLifecycle,
     errorEvent: DebugEvent,
@@ -175,6 +221,10 @@ function buildEntriesForLifecycle(
     });
 
     const windowEnd = lifecycle.resolvedAt ?? Number.MAX_SAFE_INTEGER;
+    // run 条目按题目键归并(main.cpp / main.exe → main):run 事件的 fileUri
+    // 是 exe 路径,与编译错误的源文件 URI 永不相等,精确匹配会让运行记录
+    // 永远进不了编译 episode 的条目流。
+    const errorProblemKey = deriveProblemKey(errorEvent.fileUri);
     for (const event of sortedEvents) {
         if (event.id === errorEvent.id) {
             continue;
@@ -182,9 +232,16 @@ function buildEntriesForLifecycle(
         if (event.timestamp <= errorEvent.timestamp || event.timestamp > windowEnd) {
             continue;
         }
-        // 只串同一文件的修复过程;无文件信息的错误不设此限制。
-        if (errorEvent.fileUri && event.fileUri && event.fileUri !== errorEvent.fileUri) {
-            continue;
+        // 只串同一文件的修复过程;无文件信息的错误不设此限制。run 条目用
+        // 题目键比较(见上),其余类型仍要求 fileUri 精确一致。
+        if (errorEvent.fileUri && event.fileUri) {
+            const sameSource = isRunError(event) || isRunSuccess(event)
+                ? deriveProblemKey(event.fileUri) === errorProblemKey &&
+                  errorProblemKey !== undefined
+                : event.fileUri === errorEvent.fileUri;
+            if (!sameSource) {
+                continue;
+            }
         }
 
         if (isCodeModified(event)) {
@@ -210,12 +267,20 @@ function buildEntriesForLifecycle(
                 });
             }
         } else if (isRunError(event)) {
-            // run 条目期 3(#12b)再补跳 Run Panel;先做类型就绪的事实呈现。
+            // 运行结果接入(#12b):按分类给学生化文案,kind 随条目带出供过滤。
             entries.push({
                 eventId: event.id,
                 kind: 'run_error',
                 timestamp: event.timestamp,
-                label: `运行出错(退出码 ${event.exitCode ?? '未知'})`,
+                label: describeRunOutcome(event.exitCode, event.kind),
+                runErrorKind: event.kind,
+            });
+        } else if (isRunSuccess(event)) {
+            entries.push({
+                eventId: event.id,
+                kind: 'run_success',
+                timestamp: event.timestamp,
+                label: describeRunOutcome(event.exitCode),
             });
         } else if (isCompileSuccess(event)) {
             entries.push({
@@ -366,6 +431,59 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
         }
     }
 
+    // run 条目(#12b/#14b):每次运行独立成 episode。run 事件的 fileUri 是
+    // exe 路径,走不了 compile_error 生命周期;独立成卡保证没有编译失败历史
+    // 时(如直接运行成功/超时)运行记录也可见。run_error 未解决置顶,
+    // run_success 按 info 级别进已解决日折叠区。
+    for (const event of sortedEvents) {
+        if (isRunError(event)) {
+            episodes.push({
+                errorEventId: event.id,
+                message: describeRunOutcome(event.exitCode, event.kind),
+                fileUri: event.fileUri,
+                fileName: baseFileName(event.fileUri),
+                severity: 'error',
+                runErrorKind: event.kind,
+                firstSeenAt: event.timestamp,
+                resolved: false,
+                attemptsBeforeResolve: 0,
+                entries: [
+                    {
+                        eventId: event.id,
+                        kind: 'run_error',
+                        timestamp: event.timestamp,
+                        label: describeRunOutcome(event.exitCode, event.kind),
+                        runErrorKind: event.kind,
+                    },
+                ],
+                problemKey: deriveProblemKey(event.fileUri),
+            });
+            continue;
+        }
+        if (!isRunSuccess(event)) {
+            continue;
+        }
+        episodes.push({
+            errorEventId: event.id,
+            message: describeRunOutcome(event.exitCode),
+            fileUri: event.fileUri,
+            fileName: baseFileName(event.fileUri),
+            severity: 'info',
+            firstSeenAt: event.timestamp,
+            resolved: true,
+            attemptsBeforeResolve: 0,
+            entries: [
+                {
+                    eventId: event.id,
+                    kind: 'run_success',
+                    timestamp: event.timestamp,
+                    label: describeRunOutcome(event.exitCode),
+                },
+            ],
+            problemKey: deriveProblemKey(event.fileUri),
+        });
+    }
+
     const unresolved = episodes
         .filter((e) => !e.resolved)
         .sort((a, b) => b.firstSeenAt - a.firstSeenAt);
@@ -393,19 +511,25 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
         allCards.push(...generateKnowledgeCard(event, sortedEvents, lifecycles));
     }
     const mergedCards = mergeAndSortKnowledgeCards(allCards);
-    const mistakeCards: MistakeCardVM[] = mergedCards.map((card) => ({
-        tag: card.tag,
-        title: card.title,
-        phenomenon: pickRepresentativeError(card, sortedEvents)?.message ?? card.wrongExample,
-        commonCauses: [...card.commonCauses],
-        checkMethod: card.checkMethod,
-        fixes: card.concreteFixes.map((fix) => ({ ...fix })),
-        frequency: card.frequency,
-        resolvedCount: card.resolvedCount,
-        unresolvedCount: card.unresolvedCount,
-        lastSeenAt: card.lastSeenAt,
-        ...representativePosition(card, sortedEvents),
-    }));
+    const mistakeCards: MistakeCardVM[] = mergedCards.map((card) => {
+        const representative = pickRepresentativeError(card, sortedEvents);
+        return {
+            tag: card.tag,
+            title: card.title,
+            phenomenon: representative?.message ?? card.wrongExample,
+            commonCauses: [...card.commonCauses],
+            checkMethod: card.checkMethod,
+            fixes: card.concreteFixes.map((fix) => ({ ...fix })),
+            frequency: card.frequency,
+            resolvedCount: card.resolvedCount,
+            unresolvedCount: card.unresolvedCount,
+            lastSeenAt: card.lastSeenAt,
+            ...representativePosition(card, sortedEvents),
+            // 「按题目」分组键(#14b):代表性报错文件名去扩展名;头文件错误
+            // 会归到头文件名下,属已知近似(设计笔记遗留问题)。
+            problemKey: deriveProblemKey(representative?.file),
+        };
+    });
 
     return {
         generatedAt: Date.now(),

@@ -61,30 +61,34 @@
 
 ### 4. Journey 视图模型支持 run 条目
 - **`src/journey/journeyViewModel.ts`**
-  - `JourneyEntryVM.kind` 增加 `'run_success'`。
-  - `JourneyEpisodeVM` 增加可选字段：
-    - `problemKey?: string`
-    - `runErrorKind?: RunErrorKind`（run_error episode 专用）
+  - `JourneyEntryVM.kind` 增加 `'run_success'`;新增可选 `runErrorKind?: RunErrorKind`(条目级分类过滤用)。
+  - `JourneyEpisodeVM`:
+    - `severity` 扩展为 `'error' | 'warning' | 'info'`(run_success 独立卡用 info)。
+    - 新增 `runErrorKind?: RunErrorKind`(独立 run_error 卡)与 `problemKey?: string`。
   - `MistakeCardVM` 增加 `problemKey?: string`。
-  - 新增 run 事件学生化文案映射：
-    - `run_success` → "运行成功 ✓"
-    - `run_error` 各 kind → "运行出错：数组越界" 等
-  - 构建逻辑：
-    - 在 `buildErrorLifecycles` 派生后，为每个 `run_error` 事件单独生成一个 episode（独立 episode，不依附于 compile_error）。
-    - 为每个 `run_success` 事件生成一个独立 episode（resolved = true）。
-    - `run_success` 也可作为同文件最近 compile episode 的条目出现（保留现有生命周期条目逻辑），但独立 episode 保证无 compile 历史时也能看到运行记录。
-  - `problemKey` 派生：优先取 `fileUri` 的文件名去扩展名；无 fileUri 时为空。后续可扩展为读取 `question.md` / PDF 标题。
+  - 学生化文案:`RUN_ERROR_KIND_LABELS`(src/run/runErrorKind.ts)统一维护,
+    viewModel 与 filters 共用,如「运行出错：数组越界(退出码 139)」/「运行成功 ✓」。
+  - 构建逻辑(实现较原计划有一处增强):
+    - 每个 `run_error` / `run_success` 事件各自生成一个**独立 episode**
+      (run 的 fileUri 是 exe 路径,进不了 compile_error 生命周期);
+      run_error 未解决置顶,run_success 按 info 进已解决日折叠区。
+    - **增强**:编译 episode 的条目流按 `problemKey`(文件名去扩展名,
+      main.cpp ↔ main.exe 归并为同题)归并运行条目——原计划只做独立卡,
+      实现时发现精确 fileUri 匹配会让运行记录永远进不了编译 episode
+      条目流,改按题目键比较。
+  - `deriveProblemKey(fileUri)`:文件名去扩展名;后续可升级为读取
+    `question.md` 或 PDF 标题。
 
 ### 5. 过滤与错题本分组
 - **`src/journey/journeyFilters.ts`**
-  - `ENTRY_TYPE_LABELS` 增加 `run_success: '运行成功'`（`run_error` 已有 '运行'）。
-  - 新增 `RUN_ERROR_KIND_LABELS: Record<RunErrorKind, string>`。
-  - `JourneyFilterState` 增加 `runErrorKinds?: RunErrorKind[]`（仅当 run_error 类型被选中时生效，未实现代价可控）。
-  - 过滤函数 `episodeMatchesFilter` 与 `filterEntries` 增加 run_error kind 筛选：
-    - episode 为 run_error 且其 kind 不在选中集合中时不显示。
-  - 新增错题本分组相关：
-    - `MistakeGroupMode = 'tag' | 'problemKey'`
-    - `groupMistakeCards(cards, mode)` 纯函数，按 tag 或 problemKey 聚合。
+  - `ENTRY_TYPE_LABELS`:run_error 文案改为「运行出错」,新增 `run_success: '运行成功'`。
+  - `SEVERITY_LEVEL_LABELS` 新增 `info: '信息'`(EMPTY_FILTER 同步全选)。
+  - `JourneyFilterState` 新增 `runErrorKinds: RunErrorKind[]`(默认全选):
+    - episode 级:`run_error` 独立卡按 kind 隐藏;
+    - 条目级:编译 episode 内嵌 run_error 条目按 kind 隐藏。
+  - 新增 `MistakeGroupMode = 'tag' | 'problemKey'` 与
+    `groupMistakeCards(cards, mode)` 纯函数(按题目分组时无 problemKey
+    归「未关联题目」置底)。
 
 - **`webview/src/journey/JourneyFilterBar.tsx`**
   - 类型多选区自动拿到 `run_success`（来自 `ENTRY_TYPE_LABELS`）。

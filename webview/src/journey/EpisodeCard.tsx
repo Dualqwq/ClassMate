@@ -51,6 +51,15 @@ const EntryLine: React.FC<{ entry: JourneyEntryVM }> = ({ entry }) => (
 );
 
 export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }) => {
+	const severity = episode.severity ?? 'error';
+	const severityBadge =
+		severity === 'warning' ? '⚠ 警告' : severity === 'info' ? 'ℹ 信息' : '✗ 错误';
+	const severityTitle =
+		severity === 'warning'
+			? '警告级别的问题'
+			: severity === 'info'
+				? '运行记录(非错误)'
+				: '错误级别的问题';
 	return (
 		<div className={`journey-episode-card ${episode.resolved ? 'resolved' : 'unresolved'}`}>
 			<div className="journey-episode-head">
@@ -58,10 +67,10 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 					{episode.resolved ? '✓ 已解决' : '✗ 还没解决'}
 				</span>
 				<span
-					className={`journey-sev-badge journey-sev-${episode.severity ?? 'error'}`}
-					title={(episode.severity ?? 'error') === 'warning' ? '警告级别的问题' : '错误级别的问题'}
+					className={`journey-sev-badge journey-sev-${severity}`}
+					title={severityTitle}
 				>
-					{(episode.severity ?? 'error') === 'warning' ? '⚠ 警告' : '✗ 错误'}
+					{severityBadge}
 				</span>
 				<span className="journey-episode-message" title={episode.message}>
 					{episode.message || '(没有解析出具体错误信息)'}
@@ -85,9 +94,11 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 			</div>
 			<div className="journey-episode-summary">
 				{formatFirstSeen(episode.firstSeenAt)} 首次出现 ·{' '}
-				{episode.resolved
-					? `编译 ${episode.attemptsBeforeResolve} 次后修好`
-					: '还没有等到修复'}
+				{episode.severity === 'info'
+					? '运行正常结束'
+					: episode.resolved
+						? `编译 ${episode.attemptsBeforeResolve} 次后修好`
+						: '还没有等到修复'}
 				{episode.viaIncludes && episode.viaIncludes.length > 0 && (
 					<span className="journey-via-includes">
 						· 经 {episode.viaIncludes.slice().reverse().join(' → ')} 引入

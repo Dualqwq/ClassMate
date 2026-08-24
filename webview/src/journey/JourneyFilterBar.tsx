@@ -1,10 +1,21 @@
 import * as React from 'react';
-import { EMPTY_FILTER, ENTRY_TYPE_LABELS, SEVERITY_LEVEL_LABELS, type JourneyEntryKind, type JourneyFilterState, type SeverityLevel } from '../../../src/journey/journeyFilters';
+import {
+    EMPTY_FILTER,
+    ENTRY_TYPE_LABELS,
+    RUN_ERROR_KINDS,
+    RUN_ERROR_KIND_LABELS,
+    SEVERITY_LEVEL_LABELS,
+    type JourneyEntryKind,
+    type JourneyFilterState,
+    type RunErrorKind,
+    type SeverityLevel,
+} from '../../../src/journey/journeyFilters';
 
 /**
- * 过滤栏(#12a):条目类型多选 + 级别多选(错误/警告) + 文件下拉 +
- * 「只看未解决」开关。过滤是纯前端状态(设计稿 §4.2):数据已在手,
- * 变更不回 extension 重取;不持久化,面板重开回到全量。
+ * 过滤栏(#12a):条目类型多选 + 级别多选(错误/警告/信息) + 文件下拉 +
+ * 「只看未解决」开关。选中「运行出错」时追加 run 错误分类多选(#12b)。
+ * 过滤是纯前端状态(设计稿 §4.2):数据已在手,变更不回 extension 重取;
+ * 不持久化,面板重开回到全量。
  */
 export const JourneyFilterBar: React.FC<{
 	filter: JourneyFilterState;
@@ -33,6 +44,17 @@ export const JourneyFilterBar: React.FC<{
 		onChange({ ...filter, levels: nextLevels });
 	};
 
+	const toggleRunErrorKind = (kind: RunErrorKind) => {
+		const has = filter.runErrorKinds.includes(kind);
+		const nextKinds = has
+			? filter.runErrorKinds.filter((k) => k !== kind)
+			: [...filter.runErrorKinds, kind];
+		if (nextKinds.length === 0) {
+			return; // 同上:run 分类至少保留一档。
+		}
+		onChange({ ...filter, runErrorKinds: nextKinds });
+	};
+
 	return (
 		<div className="journey-filter-bar">
 			<div className="journey-filter-types" role="group" aria-label="按动态类型过滤">
@@ -59,6 +81,21 @@ export const JourneyFilterBar: React.FC<{
 					</button>
 				))}
 			</div>
+			{filter.types.includes('run_error') && (
+				<div className="journey-filter-run-kinds" role="group" aria-label="按运行错误分类过滤">
+					{RUN_ERROR_KINDS.map((kind) => (
+						<button
+							key={kind}
+							className={`journey-chip journey-run-kind-chip ${filter.runErrorKinds.includes(kind) ? 'on' : ''}`}
+							onClick={() => toggleRunErrorKind(kind)}
+							aria-pressed={filter.runErrorKinds.includes(kind)}
+							title="运行错误分类"
+						>
+							{RUN_ERROR_KIND_LABELS[kind]}
+						</button>
+					))}
+				</div>
+			)}
 			<select
 				className="journey-file-select"
 				value={filter.file}
