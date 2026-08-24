@@ -972,6 +972,12 @@ label:focus-within {
 	opacity: 0.92;
 }
 
+/* 学生手动标记的已解决(run_error 卡):比自动解决的降得更明显,
+   配合「你把它标记为已解决」摘要与撤销按钮,一眼区分两种解决来源。 */
+.journey-episode-card.resolved.by-student {
+	opacity: 0.6;
+}
+
 .journey-episode-head {
 	display: flex;
 	align-items: baseline;

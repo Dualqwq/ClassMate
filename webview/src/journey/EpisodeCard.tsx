@@ -60,8 +60,16 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 			: severity === 'info'
 				? '运行记录(非错误)'
 				: '错误级别的问题';
+	// 学生手动「已解决」只挂在 run_error 独立卡上(按题目粒度);编译错误的
+	// 解决仍由生命周期自动判定,不提供手动入口。
+	const canToggleResolved =
+		episode.runErrorKind !== undefined && episode.problemKey !== undefined;
 	return (
-		<div className={`journey-episode-card ${episode.resolved ? 'resolved' : 'unresolved'}`}>
+		<div
+			className={`journey-episode-card ${episode.resolved ? 'resolved' : 'unresolved'}${
+				episode.resolvedByStudent ? ' by-student' : ''
+			}`}
+		>
 			<div className="journey-episode-head">
 				<span className={`journey-status-badge ${episode.resolved ? 'ok' : 'pending'}`}>
 					{episode.resolved ? '✓ 已解决' : '✗ 还没解决'}
@@ -96,9 +104,11 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 				{formatFirstSeen(episode.firstSeenAt)} 首次出现 ·{' '}
 				{episode.severity === 'info'
 					? '运行正常结束'
-					: episode.resolved
-						? `编译 ${episode.attemptsBeforeResolve} 次后修好`
-						: '还没有等到修复'}
+					: episode.resolvedByStudent
+						? '你把它标记为已解决'
+						: episode.resolved
+							? `编译 ${episode.attemptsBeforeResolve} 次后修好`
+							: '还没有等到修复'}
 				{episode.viaIncludes && episode.viaIncludes.length > 0 && (
 					<span className="journey-via-includes">
 						· 经 {episode.viaIncludes.slice().reverse().join(' → ')} 引入
@@ -136,6 +146,34 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 				>
 					求提示
 				</button>
+				{canToggleResolved &&
+					(episode.resolvedByStudent ? (
+						<button
+							className="journey-button"
+							title="我还没解决这个问题,撤回已解决标记"
+							onClick={() =>
+								sendMessage({
+									type: 'journey:markUnresolved',
+									problemKey: episode.problemKey!,
+								})
+							}
+						>
+							撤销已解决
+						</button>
+					) : (
+						<button
+							className="journey-button"
+							title="我自己确认这个问题已经解决(运行成功不会自动判定)"
+							onClick={() =>
+								sendMessage({
+									type: 'journey:markResolved',
+									problemKey: episode.problemKey!,
+								})
+							}
+						>
+							标记已解决
+						</button>
+					))}
 			</div>
 		</div>
 	);

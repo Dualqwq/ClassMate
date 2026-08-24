@@ -91,6 +91,11 @@ export interface JourneyEpisodeVM {
      * 或 PDF 标题。
      */
     problemKey?: string;
+    /**
+     * 学生手动标记的已解决(run_error 独立卡专用):与自动生命周期解决
+     * (resolved)区分开,供 UI 呈现「学生自己拍板」的视觉与撤销入口。
+     */
+    resolvedByStudent?: boolean;
 }
 
 /** 指标条数据(学生友好措辞在渲染层拼,这里只给数)。 */
@@ -353,7 +358,10 @@ function foldByFingerprint(events: DebugEvent[]): DebugEvent[] {
  * 事件数组 → Journey 面板完整视图模型(纯函数)。
  * 未解决 episode 天然置顶;错题卡沿用 mergeAndSortKnowledgeCards 的排序。
  */
-export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
+export function buildJourneyViewModel(
+    events: DebugEvent[],
+    options?: { resolvedMarks?: Record<string, number> }
+): JourneyViewModel {
     const sortedEvents = [...foldByFingerprint(events)].sort((a, b) => a.timestamp - b.timestamp);
     const lifecycles = buildErrorLifecycles(sortedEvents);
 
@@ -435,8 +443,33 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
     // exe 路径,走不了 compile_error 生命周期;独立成卡保证没有编译失败历史
     // 时(如直接运行成功/超时)运行记录也可见。run_error 未解决置顶,
     // run_success 按 info 级别进已解决日折叠区。
+    //
+    // 学生手动「已解决」(产品拍板:解决判定权完全在学生,不做自动判定):
+    // 重置语义按时间戳纯派生——标记只在该题「没有更新的 run_error」时有效,
+    // 同题再犯即回到未解决;run_success 不参与比较,绝不自动翻转解决态。
+    const resolvedMarks = options?.resolvedMarks ?? {};
+    const latestRunErrorAt = new Map<string, number>();
+    for (const event of sortedEvents) {
+        if (!isRunError(event)) {
+            continue;
+        }
+        const pk = deriveProblemKey(event.fileUri);
+        if (!pk) {
+            continue;
+        }
+        latestRunErrorAt.set(pk, Math.max(latestRunErrorAt.get(pk) ?? 0, event.timestamp));
+    }
     for (const event of sortedEvents) {
         if (isRunError(event)) {
+            const problemKey = deriveProblemKey(event.fileUri);
+            const markedAt =
+                problemKey !== undefined ? resolvedMarks[problemKey] : undefined;
+            const latestErrorAt =
+                problemKey !== undefined ? latestRunErrorAt.get(problemKey) : undefined;
+            const studentResolved =
+                markedAt !== undefined &&
+                latestErrorAt !== undefined &&
+                markedAt >= latestErrorAt;
             episodes.push({
                 errorEventId: event.id,
                 message: describeRunOutcome(event.exitCode, event.kind),
@@ -445,7 +478,10 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
                 severity: 'error',
                 runErrorKind: event.kind,
                 firstSeenAt: event.timestamp,
-                resolved: false,
+                resolved: studentResolved,
+                ...(studentResolved
+                    ? { resolvedAt: markedAt, resolvedByStudent: true as const }
+                    : {}),
                 attemptsBeforeResolve: 0,
                 entries: [
                     {
@@ -456,7 +492,7 @@ export function buildJourneyViewModel(events: DebugEvent[]): JourneyViewModel {
                         runErrorKind: event.kind,
                     },
                 ],
-                problemKey: deriveProblemKey(event.fileUri),
+                problemKey,
             });
             continue;
         }

@@ -242,3 +242,72 @@ describe('DebugJourneyStore', () => {
         assert.strictEqual((events[0] as { fingerprint?: string }).fingerprint, undefined);
     });
 });
+
+describe('DebugJourneyStore 学生手动「已解决」标记(problemKey 粒度)', () => {
+    let context: vscode.ExtensionContext;
+    let store: DebugJourneyStore;
+
+    beforeEach(async () => {
+        const tmpUri = vscode.Uri.file(
+            `${process.env.TEMP ?? '/tmp'}/classmate-resolved-test-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2, 9)}`
+        );
+        await vscode.workspace.fs.createDirectory(tmpUri);
+        context = createStubContext(tmpUri);
+        store = new DebugJourneyStore(context, 'test-workspace');
+    });
+
+    it('mark → get 往返:标记写入时间戳', async () => {
+        let now = 123_456;
+        const clocked = new DebugJourneyStore(context, 'test-workspace', { now: () => now });
+        await clocked.markProblemResolved('main');
+        const marks = await clocked.getResolvedMarks();
+        assert.deepStrictEqual(marks, { main: 123_456 });
+        clocked.dispose();
+    });
+
+    it('持久化:新建 store 实例(模拟重启 VS Code)后标记仍在', async () => {
+        await store.markProblemResolved('main');
+        await store.markProblemResolved('card');
+        const reopened = new DebugJourneyStore(context, 'test-workspace');
+        assert.deepStrictEqual(Object.keys(await reopened.getResolvedMarks()).sort(), [
+            'card',
+            'main',
+        ]);
+        reopened.dispose();
+    });
+
+    it('撤销:markProblemUnresolved 删掉标记;未标记的题撤销是 no-op', async () => {
+        await store.markProblemResolved('main');
+        await store.markProblemUnresolved('main');
+        assert.deepStrictEqual(await store.getResolvedMarks(), {});
+
+        // 再次撤销不报错、不复活任何东西。
+        await store.markProblemUnresolved('main');
+        assert.deepStrictEqual(await store.getResolvedMarks(), {});
+    });
+
+    it('clear() 连同已解决标记一起清空', async () => {
+        await store.append({
+            id: '1',
+            type: 'run_error',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/main.exe',
+            executablePath: 'C:/w/main.exe',
+            stdout: '',
+            stderr: 'boom',
+            exitCode: 1,
+            durationMs: 10,
+            kind: 'runtime_unknown',
+        });
+        await store.markProblemResolved('main');
+
+        await store.clear();
+
+        assert.deepStrictEqual(await store.getEvents(), []);
+        assert.deepStrictEqual(await store.getResolvedMarks(), {});
+    });
+});

@@ -29,3 +29,7 @@ export function getEventsFileUri(workspaceStorage: vscode.Uri): vscode.Uri {
 export function getIndexFileUri(workspaceStorage: vscode.Uri): vscode.Uri {
     return vscode.Uri.joinPath(workspaceStorage, 'index.json');
 }
+
+export function getResolvedFileUri(workspaceStorage: vscode.Uri): vscode.Uri {
+    return vscode.Uri.joinPath(workspaceStorage, 'resolved.json');
+}

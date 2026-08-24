@@ -218,7 +218,11 @@ export type JourneyWebviewToExtensionMessage =
 	/** [求提示]:聚焦聊天容器并预填求助草稿;不自动发送,发送权在学生。 */
 	| { type: 'journey:requestHint'; text: string }
 	/** 错题本「导出」:接通既有 classmate.exportDebugNotebook 命令通路。 */
-	| { type: 'journey:exportNotebook' };
+	| { type: 'journey:exportNotebook' }
+	/** 学生手动把某题(problemKey)的 run_error 标记为已解决;解决权在学生,不做自动判定。 */
+	| { type: 'journey:markResolved'; problemKey: string }
+	/** 撤销已解决标记,回到未解决态。 */
+	| { type: 'journey:markUnresolved'; problemKey: string };
 
 // extension → webview
 export type JourneyExtensionToWebviewMessage =

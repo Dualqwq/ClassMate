@@ -455,3 +455,85 @@ describe('run 条目接入(#12b/#14b)', () => {
         assert.strictEqual(card.problemKey, 'main');
     });
 });
+
+describe('学生手动「已解决」标记(重置语义与绝不自动翻转)', () => {
+    it('标记晚于最新 run_error:该题的 run_error 卡呈已解决(resolvedByStudent)', () => {
+        const view = buildJourneyViewModel([runError()], {
+            resolvedMarks: { main: 5_000 },
+        });
+        const episode = view.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(episode);
+        assert.strictEqual(episode.resolved, true);
+        assert.strictEqual(episode.resolvedByStudent, true);
+        assert.strictEqual(episode.resolvedAt, 5_000);
+    });
+
+    it('过期的标记(早于最新 run_error)不呈已解决;编译错误卡不受 resolvedMarks 影响', () => {
+        const view = buildJourneyViewModel(
+            [runError({ timestamp: 4_000 }), compileError()],
+            { resolvedMarks: { main: 2_000 } }
+        );
+        const runEpisode = view.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(runEpisode);
+        assert.strictEqual(runEpisode.resolved, false);
+        assert.strictEqual(runEpisode.resolvedByStudent, undefined);
+
+        // 编译 episode 的解决仍由生命周期判定:resolvedMarks 里的同名键
+        // (problemKey 撞名)不改变编译卡的自动解决口径。
+        const compileEpisode = view.episodes.find((e) => e.errorEventId === 'err-1');
+        assert.ok(compileEpisode);
+        assert.strictEqual(compileEpisode.resolved, false);
+    });
+
+    it('重置语义:同题再次 run_error(晚于标记)→ 回到未解决', () => {
+        // 第二次错误挪出语义指纹折叠窗口,保证是两张独立的 run_error 卡。
+        const secondErrorAt = 4_000 + SEMANTIC_DEDUPE_WINDOW_MS + 1_000;
+        const view = buildJourneyViewModel(
+            [
+                runError({ id: 'bad-old', timestamp: 4_000 }),
+                runError({ id: 'bad-new', timestamp: secondErrorAt }),
+            ],
+            { resolvedMarks: { main: 5_000 } }
+        );
+        const runEpisodes = view.episodes.filter((e) => e.runErrorKind !== undefined);
+        assert.strictEqual(runEpisodes.length, 2);
+        for (const episode of runEpisodes) {
+            assert.strictEqual(
+                episode.resolved,
+                false,
+                '新错误覆盖旧标记:该题所有 run_error 卡回到未解决'
+            );
+            assert.strictEqual(episode.resolvedByStudent, undefined);
+        }
+
+        // 学生对新一错再点一次「已解决」(标记时间戳更新)→ 又回已解决。
+        const reResolved = buildJourneyViewModel(
+            [
+                runError({ id: 'bad-old', timestamp: 4_000 }),
+                runError({ id: 'bad-new', timestamp: secondErrorAt }),
+            ],
+            { resolvedMarks: { main: secondErrorAt + 500 } }
+        );
+        for (const episode of reResolved.episodes.filter((e) => e.runErrorKind !== undefined)) {
+            assert.strictEqual(episode.resolved, true);
+        }
+    });
+
+    it('绝不自动翻转:标记之后同题 run_success 不改变解决态', () => {
+        const marked = buildJourneyViewModel(
+            [runError({ timestamp: 4_000 }), runSuccess({ id: 'ok-later', timestamp: 8_000 })],
+            { resolvedMarks: { main: 5_000 } }
+        );
+        const markedEpisode = marked.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(markedEpisode);
+        assert.strictEqual(markedEpisode.resolved, true, '运行成功不得撤销学生的已解决标记');
+
+        const unmarked = buildJourneyViewModel([
+            runError({ timestamp: 4_000 }),
+            runSuccess({ id: 'ok-later', timestamp: 8_000 }),
+        ]);
+        const unmarkedEpisode = unmarked.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(unmarkedEpisode);
+        assert.strictEqual(unmarkedEpisode.resolved, false, '运行成功也不得自动判为已解决');
+    });
+});

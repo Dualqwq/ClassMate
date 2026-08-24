@@ -3,6 +3,7 @@ import { appendFile } from 'fs/promises';
 import {
     getEventsFileUri,
     getIndexFileUri,
+    getResolvedFileUri,
     getWorkspaceId,
     getWorkspaceStorageUri,
 } from './storagePath';
@@ -15,6 +16,8 @@ import type { DebugEvent, DebugEventFilter } from './types';
 
 const EVENTS_STORAGE_KEY = 'classmate.debugJourney.events.v1';
 const INDEX_STORAGE_KEY = 'classmate.debugJourney.index.v1';
+/** 学生手动「已解决」标记的持久化文件(resolved.json,按 problemKey 粒度)。 */
+const RESOLVED_STORAGE_KEY = 'classmate.debugJourney.resolved.v1';
 const MAX_EVENTS_PER_WORKSPACE = 2000;
 const ROTATION_BATCH = Math.floor(MAX_EVENTS_PER_WORKSPACE * 0.1);
 const MAX_FIELD_LENGTH = 16 * 1024;
@@ -146,6 +149,7 @@ export class DebugJourneyStore {
     private readonly _workspaceStorage: vscode.Uri;
     private readonly _eventsUri: vscode.Uri;
     private readonly _indexUri: vscode.Uri;
+    private readonly _resolvedUri: vscode.Uri;
     /** 可注入时钟(单测控制幂等窗口)。 */
     private readonly _now: () => number;
     /** 最近写入的语义指纹 → 写入时刻;窗口内同指纹重复 append 直接跳过。 */
@@ -167,6 +171,7 @@ export class DebugJourneyStore {
         );
         this._eventsUri = getEventsFileUri(this._workspaceStorage);
         this._indexUri = getIndexFileUri(this._workspaceStorage);
+        this._resolvedUri = getResolvedFileUri(this._workspaceStorage);
     }
 
     public get workspaceId(): string {
@@ -250,8 +255,14 @@ export class DebugJourneyStore {
         } catch {
             // File may not exist.
         }
+        try {
+            await vscode.workspace.fs.delete(this._resolvedUri, { useTrash: false });
+        } catch {
+            // File may not exist.
+        }
         await this._context.globalState.update(EVENTS_STORAGE_KEY, undefined);
         await this._context.globalState.update(INDEX_STORAGE_KEY, undefined);
+        await this._context.globalState.update(RESOLVED_STORAGE_KEY, undefined);
         await this._writeIndex(createEmptyIndex());
     }
 
@@ -265,6 +276,62 @@ export class DebugJourneyStore {
         } catch {
             return createEmptyIndex();
         }
+    }
+
+    /**
+     * 学生手动「已解决」标记(按 problemKey 粒度):值是标记时刻的时间戳。
+     * 只记录学生显式点击,绝不自动写入/翻转;「同题新 run_error 覆盖旧标记」
+     * 的重置语义由消费侧(journeyViewModel)按时间戳派生,不在写入路径耦合。
+     */
+    public async getResolvedMarks(): Promise<Record<string, number>> {
+        const text = await readTextFile(this._resolvedUri);
+        if (!text) {
+            return {};
+        }
+        try {
+            const parsed = JSON.parse(text) as Record<string, unknown>;
+            // 容错:只收合法的非负数值,坏行按不存在处理。
+            const marks: Record<string, number> = {};
+            for (const [key, value] of Object.entries(parsed)) {
+                if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+                    marks[key] = value;
+                }
+            }
+            return marks;
+        } catch {
+            return {};
+        }
+    }
+
+    public async markProblemResolved(problemKey: string): Promise<void> {
+        if (!problemKey) {
+            return;
+        }
+        const marks = await this.getResolvedMarks();
+        marks[problemKey] = this._now();
+        await this._writeResolvedMarks(marks);
+    }
+
+    public async markProblemUnresolved(problemKey: string): Promise<void> {
+        if (!problemKey) {
+            return;
+        }
+        const marks = await this.getResolvedMarks();
+        if (!(problemKey in marks)) {
+            return;
+        }
+        delete marks[problemKey];
+        await this._writeResolvedMarks(marks);
+    }
+
+    private async _writeResolvedMarks(marks: Record<string, number>): Promise<void> {
+        await ensureDirectory(this._workspaceStorage);
+        await writeTextFile(this._resolvedUri, JSON.stringify(marks));
+        // 与 index 同款 globalState 轻量副本,激活期快速读取。
+        await this._context.globalState.update(
+            `${RESOLVED_STORAGE_KEY}.${this._workspaceId}`,
+            marks
+        );
     }
 
     public dispose(): void {

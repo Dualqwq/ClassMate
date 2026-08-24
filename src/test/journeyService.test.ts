@@ -245,3 +245,102 @@ describe('RunService → DebugJourneyStore 写入路径(buildRunOutcomeEvent)', 
 
 /** 与幂等窗口错开的第二个时间戳,保证两条 run 事件不被指纹折叠。 */
 const SEMANTIC_DEDUPE_STEP = 1_000_000;
+
+describe('JourneyService 学生手动「已解决」消息链路', () => {
+    let context: vscode.ExtensionContext;
+    let store: DebugJourneyStore;
+
+    beforeEach(async () => {
+        const tmpUri = vscode.Uri.file(
+            `${process.env.TEMP ?? '/tmp'}/classmate-resolved-service-test-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2, 9)}`
+        );
+        await vscode.workspace.fs.createDirectory(tmpUri);
+        context = createStubContext(tmpUri);
+        store = new DebugJourneyStore(context, 'test-workspace');
+    });
+
+    function failingRunEvent(id: string, timestamp: number): DebugEvent {
+        return buildRunOutcomeEvent(
+            {
+                id,
+                exePath: 'C:/ws/main.exe',
+                startedAt: timestamp,
+                durationMs: 250,
+                exitCode: 139,
+                timedOut: false,
+                needsInteractiveInput: false,
+                stdout: '',
+                stderr: 'Segmentation fault (core dumped)',
+            },
+            { sessionId: 'session', workspaceId: 'test-workspace' }
+        );
+    }
+
+    function lastSync(presenter: { messages: RecordedMessage[] }): Extract<
+        JourneyExtensionToWebviewMessage,
+        { type: 'journey:sync' }
+    > {
+        const syncs = presenter.messages.filter((m) => m.message.type === 'journey:sync');
+        assert.ok(syncs.length >= 1);
+        return syncs[syncs.length - 1].message as Extract<
+            JourneyExtensionToWebviewMessage,
+            { type: 'journey:sync' }
+        >;
+    }
+
+    it('journey:markResolved 落 store 并立即广播 sync,run_error 卡呈已解决', async () => {
+        await store.append(failingRunEvent('run-bad', 1_000));
+        const service = new JourneyService(store, { confirmClear: async () => false });
+        const presenter = createPresenter();
+        await service.attach(presenter);
+
+        await service.handleMessage({ type: 'journey:markResolved', problemKey: 'main' });
+
+        const marks = await store.getResolvedMarks();
+        assert.ok(typeof marks.main === 'number');
+        const view = lastSync(presenter).view;
+        const runEpisode = view.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(runEpisode);
+        assert.strictEqual(runEpisode.resolved, true);
+        assert.strictEqual(runEpisode.resolvedByStudent, true);
+        service.dispose();
+    });
+
+    it('journey:markUnresolved 撤销后回到未解决态', async () => {
+        await store.append(failingRunEvent('run-bad', 1_000));
+        const service = new JourneyService(store, { confirmClear: async () => false });
+        const presenter = createPresenter();
+        await service.attach(presenter);
+
+        await service.handleMessage({ type: 'journey:markResolved', problemKey: 'main' });
+        await service.handleMessage({ type: 'journey:markUnresolved', problemKey: 'main' });
+
+        assert.deepStrictEqual(await store.getResolvedMarks(), {});
+        const runEpisode = lastSync(presenter).view.episodes.find(
+            (e) => e.runErrorKind !== undefined
+        );
+        assert.ok(runEpisode);
+        assert.strictEqual(runEpisode.resolved, false);
+        service.dispose();
+    });
+
+    it('持久化:handler 落盘后,新建 store 实例(模拟重启)派生仍为已解决', async () => {
+        await store.append(failingRunEvent('run-bad', 1_000));
+        const service = new JourneyService(store, { confirmClear: async () => false });
+        await service.handleMessage({ type: 'journey:markResolved', problemKey: 'main' });
+        service.dispose();
+
+        const reopenedStore = new DebugJourneyStore(context, 'test-workspace');
+        const reopenedService = new JourneyService(reopenedStore, {
+            confirmClear: async () => false,
+        });
+        const view = await reopenedService.buildView();
+        const runEpisode = view.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(runEpisode);
+        assert.strictEqual(runEpisode.resolved, true);
+        reopenedService.dispose();
+        reopenedStore.dispose();
+    });
+});

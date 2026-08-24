@@ -24,7 +24,9 @@ const SYNC_THROTTLE_MS = 500;
  * - journey:openFile → ADD2 分组预路由(#18 零闪屏);
  * - journey:requestHint → 聚焦聊天容器 + 权威草稿广播(发送权在学生);
  * - journey:clearAll → modal 二次确认 → store.clear();
- * - journey:exportNotebook → 既有 classmate.exportDebugNotebook 命令通路。
+ * - journey:exportNotebook → 既有 classmate.exportDebugNotebook 命令通路;
+ * - journey:markResolved/markUnresolved → 学生手动「已解决」标记落 store,
+ *   随后广播 sync(解决权完全在学生,run_success 等任何自动路径不翻转)。
  */
 export class JourneyService {
     private readonly _store: DebugJourneyStore;
@@ -103,6 +105,12 @@ export class JourneyService {
             case 'journey:exportNotebook':
                 await vscode.commands.executeCommand('classmate.exportDebugNotebook');
                 return;
+            case 'journey:markResolved':
+                await this.setResolved(message.problemKey, true);
+                return;
+            case 'journey:markUnresolved':
+                await this.setResolved(message.problemKey, false);
+                return;
         }
     }
 
@@ -128,7 +136,21 @@ export class JourneyService {
 
     public async buildView(): Promise<JourneyViewModel> {
         const events = await this._store.getEvents();
-        return buildJourneyViewModel(events);
+        const resolvedMarks = await this._store.getResolvedMarks();
+        return buildJourneyViewModel(events, { resolvedMarks });
+    }
+
+    /**
+     * 学生手动「已解决」切换(仅 run_error 卡):落 store 后立即广播 sync,
+     * webview 以全量替换的方式拿到新视图模型——sync 本身就是 ack,不另设回执。
+     */
+    private async setResolved(problemKey: string, resolved: boolean): Promise<void> {
+        if (resolved) {
+            await this._store.markProblemResolved(problemKey);
+        } else {
+            await this._store.markProblemUnresolved(problemKey);
+        }
+        await this.pushState();
     }
 
     private async clearAll(): Promise<void> {
