@@ -27,6 +27,10 @@ export class CoursewareService {
 		return this._store.getItems();
 	}
 
+	public getItem(id: string): CoursewareItem | undefined {
+		return this._store.getItem(id);
+	}
+
 	public async loadGraph(): Promise<CoursewareGraph> {
 		if (!this._graph) {
 			this._graph = await this._store.loadGraph();

@@ -116,7 +116,9 @@ export type CoursewareWebviewToExtensionMessage =
 	| { type: 'importPdf' }
 	| { type: 'deleteCourseware'; id: string }
 	| { type: 'rebuildGraph' }
-	| { type: 'testQuery'; query: string };
+	| { type: 'testQuery'; query: string }
+	/** 溯源打开（期 1.5）：点击检索结果链接，用系统默认程序打开原始课件。 */
+	| { type: 'openCoursewareSource'; chunkId: string };
 
 export type CoursewareExtensionToWebviewMessage =
 	| { type: 'list'; items: CoursewareItem[]; graphStats: { nodes: number; edges: number; updatedAt?: number; needsRebuild?: boolean } }

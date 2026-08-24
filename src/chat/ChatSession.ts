@@ -70,6 +70,8 @@ export class ChatSession {
 	private _onPersist?: (data: PersistedChatData) => Thenable<void>;
 	private _referenceProvider?: () => ChatReference[];
 	private _onOpenReference?: (reference: ChatReference) => void;
+	/** 溯源打开（期 1.5）：chat 侧课件片段点击，由 extension.ts 注入共享的打开逻辑。 */
+	private _onOpenCoursewareSource?: (chunkId: string) => void;
 
 	private _presenters: Set<WebviewPresenter> = new Set();
 
@@ -840,6 +842,10 @@ export class ChatSession {
 		this._onOpenReference = onOpen;
 	}
 
+	public setCoursewareSourceHandler(onOpen: (chunkId: string) => void): void {
+		this._onOpenCoursewareSource = onOpen;
+	}
+
 	public newConversation(): void {
 		if (this._state.isStreaming) {
 			return;
@@ -1198,6 +1204,9 @@ export class ChatSession {
 					}, { inferred: true, reference: message.reference });
 				}
 				this._onOpenReference?.(message.reference);
+				break;
+			case 'openCoursewareSource':
+				this._onOpenCoursewareSource?.(message.chunkId);
 				break;
 			case 'applyProposedEdit':
 				void this._applyProposedEdit(message.messageId);

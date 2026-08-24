@@ -43,4 +43,11 @@ describe('课件管理页 webview HTML', () => {
 		assert.match(html, /r\.unitLabel \|\| \('p\.' \+ r\.pageStart\)/);
 		assert.match(html, /r\.title/);
 	});
+
+	it('检索结果渲染为溯源超链接，点击发 openCoursewareSource（期 1.5）', () => {
+		const html = renderHtml();
+		assert.match(html, /source-link/);
+		assert.match(html, /'《' \+ r\.fileName \+ '》'/);
+		assert.match(html, /post\('openCoursewareSource', \{ chunkId: r\.chunkId \}\)/);
+	});
 });

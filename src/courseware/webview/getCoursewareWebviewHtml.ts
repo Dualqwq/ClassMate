@@ -34,6 +34,8 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 		.query-box input { flex: 1; padding: 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
 		.result { margin-top: 12px; padding: 8px; background: var(--vscode-textBlockQuote-background); border-left: 3px solid var(--vscode-textBlockQuote-border); }
 		.result small { color: var(--vscode-descriptionForeground); }
+		.result a.source-link { color: var(--vscode-textLink-foreground); text-decoration: none; cursor: pointer; }
+		.result a.source-link:hover { text-decoration: underline; }
 		.progress { color: var(--vscode-descriptionForeground); font-size: 0.9em; margin-left: auto; }
 	</style>
 </head>
@@ -134,13 +136,30 @@ export function getCoursewareWebviewHtml(webview: vscode.Webview, extensionUri: 
 				container.innerHTML = '<div class="result">无匹配片段</div>';
 				return;
 			}
-			container.innerHTML = results.map((r, i) => {
+			// 溯源打开（期 1.5）：每条结果渲染为超链接，点击经宿主 openExternal
+			// 用系统默认程序打开原始课件；页号在链接文本里由学生自行定位。
+			container.innerHTML = '';
+			results.forEach((r, i) => {
+				const div = document.createElement('div');
+				div.className = 'result';
+				const link = document.createElement('a');
+				link.href = '#';
+				link.className = 'source-link';
 				const unitText = r.unitLabel || ('p.' + r.pageStart);
-				const titleText = r.title ? ' · ' + escapeHtml(r.title) : '';
-				return '<div class="result"><small>#' + (i + 1) + ' ' + escapeHtml(r.fileName) +
-					' · ' + escapeHtml(unitText) + titleText +
-					' (score ' + r.score.toFixed(2) + ')</small><br/>' + escapeHtml(r.content.slice(0, 240)) + '…</div>';
-			}).join('');
+				link.textContent = '《' + r.fileName + '》' + (r.title ? ' ' + r.title : '') + ' · ' + unitText;
+				link.addEventListener('click', (e) => {
+					e.preventDefault();
+					post('openCoursewareSource', { chunkId: r.chunkId });
+				});
+				div.appendChild(link);
+				const meta = document.createElement('small');
+				meta.textContent = '　#' + (i + 1) + ' (score ' + r.score.toFixed(2) + ')';
+				div.appendChild(meta);
+				const body = document.createElement('div');
+				body.textContent = r.content.slice(0, 240) + '…';
+				div.appendChild(body);
+				container.appendChild(div);
+			});
 		}
 		function escapeHtml(text) {
 			return text.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

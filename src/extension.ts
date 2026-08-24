@@ -10,6 +10,7 @@ import { CoursewarePanel } from './ui/CoursewarePanel';
 import { openJourneyPanel } from './ui/JourneyPanel';
 import { RunService } from './run/runService';
 import { CoursewareService } from './courseware/coursewareService';
+import { openCoursewareChunkSource, showCoursewareSourceOutcome } from './courseware/coursewareSourceOpener';
 import { JourneyService } from './journey/journeyService';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
@@ -1060,6 +1061,11 @@ export async function activate(
 		},
 	});
 	profiler.mark('graph-services-ready');
+
+	// 溯源打开（期 1.5）：chat 侧课件片段点击与管理页共用同一打开逻辑与提示文案。
+	chatSession.setCoursewareSourceHandler((chunkId: string) => {
+		void openCoursewareChunkSource(coursewareService, chunkId).then(showCoursewareSourceOutcome);
+	});
 
 	// Register the sidebar WebviewView provider.
 	const chatViewProvider = createChatViewProvider(chatSession, context.extensionUri);

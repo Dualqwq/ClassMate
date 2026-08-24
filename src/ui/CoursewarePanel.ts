@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { CoursewareExtensionToWebviewMessage, CoursewareWebviewToExtensionMessage } from '../courseware/types';
 import { CoursewareService } from '../courseware/coursewareService';
+import { openCoursewareChunkSource, showCoursewareSourceOutcome } from '../courseware/coursewareSourceOpener';
 import { getCoursewareWebviewHtml } from '../courseware/webview/getCoursewareWebviewHtml';
 import { registerClassMatePanel, resolveNewPanelColumn } from './panelGrouping';
 
@@ -105,6 +106,9 @@ export class CoursewarePanel {
 			case 'testQuery':
 				await this._testQuery(message.query);
 				break;
+			case 'openCoursewareSource':
+				this._openCoursewareSource(message.chunkId);
+				break;
 			default:
 				console.log('Unhandled courseware message:', message);
 		}
@@ -195,5 +199,9 @@ export class CoursewarePanel {
 			const message = error instanceof Error ? error.message : String(error);
 			this.postMessage({ type: 'error', message: `检索失败: ${message}` });
 		}
+	}
+
+	private async _openCoursewareSource(chunkId: string): Promise<void> {
+		showCoursewareSourceOutcome(await openCoursewareChunkSource(this._service, chunkId));
 	}
 }

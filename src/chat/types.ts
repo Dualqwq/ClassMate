@@ -181,6 +181,11 @@ export type WebviewToExtensionMessage =
 	| { type: 'switchConversation'; conversationId: string }
 	| { type: 'deleteConversation'; conversationId: string }
 	| { type: 'openReference'; reference: ChatReference; inferred?: boolean }
+	/**
+	 * 溯源打开（期 1.5）：chat 侧课件片段定位头点击后请求打开原始课件；
+	 * 宿主按 chunkId 定位导入条目并经 openExternal 用系统默认程序打开。
+	 */
+	| { type: 'openCoursewareSource'; chunkId: string }
 	| { type: 'applyProposedEdit'; messageId: string }
 	| { type: 'cancelResponse' }
 	| { type: 'openLocalSettings' }
