@@ -4,6 +4,7 @@ ClassMate 的重要变更记录在这里。
 
 ## [0.0.7]
 
+- 补正指针解引用概念卡的 `operator[]` 边界：数组、指针及重载下标运算的类型都可合法使用 `[]`，只对不支持相应运算的类型报错。
 - 修正指针解引用概念卡的下标教学事实：合法指针可以使用 `[]`，只有类型不支持下标运算时才应按 `invalid types ... for array subscript` 检查。
 - 修正 Knowledge P0 概念卡示例：运算符反例现会真实制造操作数不匹配、正例使用 `std::to_string` 且可独立编译，指针反例与既有 `base operand of '->'` pattern 对齐；同时收窄宽泛的 `no match for` 匹配，避免非运算符诊断误入该卡。
 - 错题本高频编译错误 pattern 补齐(Knowledge 轨 P0,研究文档 `docs/debug-knowledge-card-research.md` §8):此前单个编译错误进不了错题本的直接原因是 `matchErrorToKnowledge` 硬过滤 + ERROR_PATTERNS 仅 14 条正则(15 条实测语料 13 MISS)。本次新增 6 个概念标签与对应 pattern——`operator_operand_mismatch`(invalid operands / no match for operator)、`lvalue_required`、`array_out_of_bounds`(GCC array subscript out of bounds / MSVC subscript out of range)、`overload_ambiguous`(is ambiguous / candidate expects / too many·few arguments)、`control_flow_return`(control reaches end of non-void function / not all control paths return a value)、`pointer_dereference_mismatch`(base operand of '->' / request for member … non-class type / invalid types … for array subscript);并为既有 3 个标签补文案变体——`undeclared_identifier` 加 Clang `use of undeclared identifier`、`type_conversion` 加 `invalid conversion`/`narrowing conversion`、`undefined_reference` 加 MSVC `unresolved external symbol`。概念总数 14→20,knowledgeCards.test 数量断言同步;每条新增正则至少一条单测 stderr 样本,另加端到端用例验证研究文档 MISS 样本(lvalue required 等)现可生成卡片。不动 knowledgeCard.ts 流程(P1/P2 范围)。

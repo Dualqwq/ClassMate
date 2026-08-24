@@ -350,11 +350,11 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
     pointer_dereference_mismatch: {
         tag: 'pointer_dereference_mismatch',
         title: '指针解引用方式错误（. 与 -> 混淆）',
-        summary: '对象指针要用 -> 访问成员，普通对象要用 .；合法指针可以使用 []，对非指针、非数组值使用 -> 或 [] 会报错。',
+        summary: '对象指针要用 -> 访问成员，普通对象要用 .；合法指针、数组以及支持 operator[] 的类型都可以使用 []，对不支持相应成员或下标运算的类型使用 -> 或 [] 会报错。',
         commonCauses: [
             '对结构体/类指针使用了 . 而不是 ->',
             '对普通对象使用了 ->',
-            '对非指针、非数组类型使用 []',
+            '对不支持下标运算的类型使用 []',
         ],
         suggestedFixes: [
             '指针访问成员统一使用 ->',

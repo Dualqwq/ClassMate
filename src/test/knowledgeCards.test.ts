@@ -147,9 +147,10 @@ describe('knowledge cards', () => {
         const concept = getKnowledgeConcept('pointer_dereference_mismatch');
         assert.ok(concept);
         assert.ok(!concept.summary.includes('以数组方式解引用指针都会报错'));
-        assert.ok(concept.summary.includes('合法指针可以使用 []'));
-        assert.ok(concept.summary.includes('对非指针、非数组值使用 -> 或 [] 会报错'));
-        assert.strictEqual(concept.commonCauses[2], '对非指针、非数组类型使用 []');
+        assert.ok(!concept.summary.includes('对非指针、非数组值使用 -> 或 [] 会报错'));
+        assert.ok(concept.summary.includes('合法指针、数组以及支持 operator[] 的类型都可以使用 []'));
+        assert.ok(concept.summary.includes('对不支持相应成员或下标运算的类型使用 -> 或 [] 会报错'));
+        assert.strictEqual(concept.commonCauses[2], '对不支持下标运算的类型使用 []');
         assert.strictEqual(concept.suggestedFixes[2], '使用 [] 前确认该类型支持下标运算');
     });
 
