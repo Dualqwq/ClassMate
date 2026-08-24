@@ -2,6 +2,10 @@
 
 ClassMate 的重要变更记录在这里。
 
+## [Unreleased]
+
+- run_error 分类器覆盖面扩充(设计文档 docs/run-error-classifier-coverage-design.md + 20260824 拍板):①新档「内存申请失败」`runtime_memory_alloc_failed`(medium)——`std::bad_alloc`/`std::length_error` 归此档,学生化文案点明最常见诱因(数组开得过大或循环边界算错导致超大/负数下标);`std::bad_array_new_length` 因是 new[] 收到非法长度的直接证据仍归数组越界(high);②terminate 解包:提取 `terminate called after throwing an instance of 'X'` 内层异常类名查映射表,陌生/自定义类名 → unknown 升 medium 并附事实性描述(errorDetail 只转述类名不推断成因,随 RunErrorEvent 透传到 Journey 文案),`without an active exception`/MSVC `abort() has been called` → unknown(medium);③assert 失败独立成档 `runtime_assertion_failed`(medium,覆盖 MSVC 与 glibc 两种文案);④SIGFPE/整数除零独立成档 `runtime_arithmetic_exception`(medium,x86 上两类文案相同诚实归并,文案说明两种可能;含 MinGW 0xC0000094);⑤stack smashing detected/__stack_chk_fail 按设计文档推荐归数组越界(medium,从栈溢出表移出);⑥修复误分类 bug:`/SIGABRT/i` 与 `/aborted…core dumped/i` 原被放进段错误模式表——未捕获异常的 abort 会被误标段错误,现移出并加反向回归用例;⑦exit code 启发式:stderr 为空时按 Windows NTSTATUS 退出码兜底(low)——3221225477→段错误、3221225725→栈溢出,未收录的码宁落 unknown 不编造。枚举六档变九档,journey 过滤 chips 经 RUN_ERROR_KINDS 数据驱动自动纳入。单测 runErrorClassifier 新增 22 条(21 条语料+解包+启发式+SIGABRT 回归)+journeyService errorDetail 透传 1 条。
+
 ## [0.0.7]
 
 - 补正指针解引用概念卡的 `operator[]` 边界：数组、指针及重载下标运算的类型都可合法使用 `[]`，只对不支持相应运算的类型报错。

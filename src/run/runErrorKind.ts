@@ -10,6 +10,9 @@ export type RunErrorKind =
     | 'runtime_array_out_of_bounds'
     | 'runtime_stack_overflow'
     | 'runtime_segmentation_fault'
+    | 'runtime_memory_alloc_failed'
+    | 'runtime_assertion_failed'
+    | 'runtime_arithmetic_exception'
     | 'runtime_time_limit_exceeded'
     | 'runtime_interactive_input_needed';
 
@@ -18,6 +21,9 @@ export const RUN_ERROR_KINDS: RunErrorKind[] = [
     'runtime_array_out_of_bounds',
     'runtime_stack_overflow',
     'runtime_segmentation_fault',
+    'runtime_memory_alloc_failed',
+    'runtime_assertion_failed',
+    'runtime_arithmetic_exception',
     'runtime_time_limit_exceeded',
     'runtime_interactive_input_needed',
 ];
@@ -32,6 +38,10 @@ export const RUN_ERROR_KIND_LABELS: Record<RunErrorKind, string> = {
     runtime_array_out_of_bounds: '运行出错：数组越界',
     runtime_stack_overflow: '运行出错：栈溢出(常见于过深递归)',
     runtime_segmentation_fault: '运行出错：非法内存访问(段错误)',
+    runtime_memory_alloc_failed:
+        '运行出错：内存申请失败(最常见诱因：数组开得过大，或循环边界算错导致超大/负数下标)',
+    runtime_assertion_failed: '运行出错：断言失败(程序内的检查条件不成立)',
+    runtime_arithmetic_exception: '运行出错：算术异常(可能是整数除零，或浮点运算异常)',
     runtime_time_limit_exceeded: '运行出错：超出时限(可能是死循环)',
     runtime_interactive_input_needed: '运行出错：程序在等待输入',
 };

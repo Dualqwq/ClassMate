@@ -200,12 +200,14 @@ export function deriveProblemKey(fileUri: string | undefined): string | undefine
     return stem.length > 0 ? stem : undefined;
 }
 
-/** run 条目的学生化文案:「运行出错：数组越界(退出码 139)」/「运行成功 ✓」。 */
-function describeRunOutcome(exitCode: number | null, kind?: RunErrorKind): string {
+/** run 条目的学生化文案:「运行出错：数组越界(退出码 139)」/「运行成功 ✓」。
+ * detail 为分类器给出的事实性描述(如陌生异常类名)，仅转述不推断。 */
+function describeRunOutcome(exitCode: number | null, kind?: RunErrorKind, detail?: string): string {
     if (!kind) {
         return '运行成功 ✓';
     }
-    return `${RUN_ERROR_KIND_LABELS[kind]}(退出码 ${exitCode ?? '未知'})`;
+    const base = `${RUN_ERROR_KIND_LABELS[kind]}(退出码 ${exitCode ?? '未知'})`;
+    return detail ? `${base}；${detail}` : base;
 }
 
 function buildEntriesForLifecycle(
@@ -277,7 +279,7 @@ function buildEntriesForLifecycle(
                 eventId: event.id,
                 kind: 'run_error',
                 timestamp: event.timestamp,
-                label: describeRunOutcome(event.exitCode, event.kind),
+                label: describeRunOutcome(event.exitCode, event.kind, event.errorDetail),
                 runErrorKind: event.kind,
             });
         } else if (isRunSuccess(event)) {
@@ -472,7 +474,7 @@ export function buildJourneyViewModel(
                 markedAt >= latestErrorAt;
             episodes.push({
                 errorEventId: event.id,
-                message: describeRunOutcome(event.exitCode, event.kind),
+                message: describeRunOutcome(event.exitCode, event.kind, event.errorDetail),
                 fileUri: event.fileUri,
                 fileName: baseFileName(event.fileUri),
                 severity: 'error',
@@ -488,7 +490,7 @@ export function buildJourneyViewModel(
                         eventId: event.id,
                         kind: 'run_error',
                         timestamp: event.timestamp,
-                        label: describeRunOutcome(event.exitCode, event.kind),
+                        label: describeRunOutcome(event.exitCode, event.kind, event.errorDetail),
                         runErrorKind: event.kind,
                     },
                 ],

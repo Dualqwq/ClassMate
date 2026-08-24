@@ -356,5 +356,6 @@ export function buildRunOutcomeEvent(
 		stdout: record.stdout,
 		stderr: record.stderr,
 		kind: classification.kind,
+		...(classification.detail ? { errorDetail: classification.detail } : {}),
 	};
 }

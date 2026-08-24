@@ -54,6 +54,8 @@ export interface RunErrorEvent extends BaseDebugEvent {
     exitCode: number | null;
     durationMs: number;
     kind: RunErrorKind;
+    /** 事实性描述(仅转述 stderr 出现过的内容，如陌生异常类名)，可为空。 */
+    errorDetail?: string;
 }
 
 export interface HintRequestedEvent extends BaseDebugEvent {

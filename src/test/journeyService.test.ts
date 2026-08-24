@@ -188,6 +188,24 @@ describe('RunService → DebugJourneyStore 写入路径(buildRunOutcomeEvent)', 
         assert.strictEqual(event.executablePath, 'C:/ws/main.exe');
     });
 
+    it('terminate 解包出的陌生异常类名 → kind=unknown 且 errorDetail 随事件透传', () => {
+        const event = buildRunOutcomeEvent(
+            record({
+                exitCode: 134,
+                stderr: [
+                    "terminate called after throwing an instance of 'MyError'",
+                    '  what():  something bad',
+                ].join('\n'),
+            }),
+            { sessionId: 's', workspaceId: 'w' }
+        );
+        if (event.type !== 'run_error') {
+            return assert.fail('unreachable');
+        }
+        assert.strictEqual(event.kind, 'runtime_unknown');
+        assert.ok(event.errorDetail?.includes('MyError'));
+    });
+
     it('超时/交互兜底 → run_error(TLE / 等待输入)', () => {
         const tle = buildRunOutcomeEvent(record({ exitCode: null, timedOut: true }), {
             sessionId: 's',
