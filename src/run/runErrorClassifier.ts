@@ -105,12 +105,15 @@ const ABORT_CALLED_PATTERN = /abort\(\) has been called/i;
  * Windows NTSTATUS 退出码启发式(stderr 为空时的最后线索)。
  * 只收录有明确依据的码，宁落 unknown 不编造：
  * - 3221225477 = 0xC0000005 ACCESS_VIOLATION；
- * - 3221225501 = 0xC000001D ILLEGAL_INSTRUCTION（用户实测整数除零样本）；
+ * - 3221225501 = 0xC000001D STATUS_ILLEGAL_INSTRUCTION；官方语义不是除零，
+ *   但用户当前 Windows 工具链的除零程序实测返回此码，故作经验性低置信映射；
+ * - 3221225620 = 0xC0000094 STATUS_INTEGER_DIVIDE_BY_ZERO（标准整数除零码）；
  * - 3221225725 = 0xC00000FD STATUS_STACK_OVERFLOW。
  */
 const EXIT_CODE_HEURISTICS: Array<{ code: number; classification: RunErrorClassification }> = [
     { code: 3221225477, classification: { kind: 'runtime_segmentation_fault', confidence: 'low' } },
     { code: 3221225501, classification: { kind: 'runtime_arithmetic_exception', confidence: 'low' } },
+    { code: 3221225620, classification: { kind: 'runtime_arithmetic_exception', confidence: 'low' } },
     { code: 3221225725, classification: { kind: 'runtime_stack_overflow', confidence: 'low' } },
 ];
 

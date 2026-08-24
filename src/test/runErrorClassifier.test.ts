@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import { classifyRunError } from '../run/runErrorClassifier';
+import { RUN_ERROR_KIND_LABELS } from '../run/runErrorKind';
 
 /** 构造器:全缺省为「退出码 0、无输出、无超时」的正常形态。 */
 function input(overrides: Partial<Parameters<typeof classifyRunError>[0]> = {}) {
@@ -307,7 +308,7 @@ describe('classifyRunError 覆盖面扩充(20260824)', () => {
         assert.strictEqual(result.confidence, 'low');
     });
 
-    it('用户实测:Windows 除零无输出且 exit=3221225501(0xC000001D)→ 算术异常(low)', () => {
+    it('用户当前工具链经验样本:除零无输出返回 0xC000001D(官方为非法指令)→ 算术异常(low)', () => {
         const result = classifyRunError(input({
             exitCode: 3221225501,
             stdout: '',
@@ -317,7 +318,7 @@ describe('classifyRunError 覆盖面扩充(20260824)', () => {
         assert.strictEqual(result.confidence, 'low');
     });
 
-    it('同一 Windows 除零退出码的 int32 形态 -1073741795 也归算术异常(low)', () => {
+    it('同一用户工具链经验样本的 int32 形态 -1073741795 也归算术异常(low)', () => {
         const result = classifyRunError(input({
             exitCode: -1073741795,
             stdout: '',
@@ -333,10 +334,12 @@ describe('classifyRunError 覆盖面扩充(20260824)', () => {
         assert.strictEqual(result.confidence, 'low');
     });
 
-    it('exit code 启发式:文档未收录的码宁落 unknown(low)不编造', () => {
-        const result = classifyRunError(input({ exitCode: 3221225620, stderr: '' }));
-        assert.strictEqual(result.kind, 'runtime_unknown');
-        assert.strictEqual(result.confidence, 'low');
+    it('官方标准整数除零码 3221225620(0xC0000094)及 signed 形态均归算术异常(low)', () => {
+        for (const exitCode of [3221225620, -1073741676]) {
+            const result = classifyRunError(input({ exitCode, stdout: '', stderr: '' }));
+            assert.strictEqual(result.kind, 'runtime_arithmetic_exception');
+            assert.strictEqual(result.confidence, 'low');
+        }
     });
 
     it('exit code 启发式不覆盖显式证据:stderr 有模式时优先文本匹配', () => {
@@ -346,5 +349,16 @@ describe('classifyRunError 覆盖面扩充(20260824)', () => {
         }));
         assert.strictEqual(result.kind, 'runtime_segmentation_fault');
         assert.strictEqual(result.confidence, 'medium');
+    });
+});
+
+describe('RUN_ERROR_KIND_LABELS 事实性文案', () => {
+    it('内存申请失败只提示申请量与长度计算，不把普通负数下标说成直接诱因', () => {
+        const label = RUN_ERROR_KIND_LABELS.runtime_memory_alloc_failed;
+        assert.strictEqual(
+            label,
+            '运行出错：内存申请失败(最常见诱因：数组开得过大，或数组/容器长度计算出错导致申请量异常)'
+        );
+        assert.ok(!label.includes('负数下标'));
     });
 });
