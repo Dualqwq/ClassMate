@@ -75,8 +75,10 @@ function makeCompileSuccess(id: string, timestamp = 0): CompileSuccessEvent {
 describe('knowledge cards', () => {
     it('covers all patterns with non-empty concept metadata', () => {
         const concepts = listKnowledgeConcepts();
-        // 12 个 C/C++ 编译概念 + 2 个 make 类概念(#8:make_no_rule / make_missing_separator)。
-        assert.strictEqual(concepts.length, 14);
+        // 12 个 C/C++ 编译概念 + P0 新增 6 个(operator_operand_mismatch / lvalue_required /
+        // array_out_of_bounds / overload_ambiguous / control_flow_return /
+        // pointer_dereference_mismatch) + 2 个 make 类概念(#8)。
+        assert.strictEqual(concepts.length, 20);
         for (const concept of concepts) {
             assert.ok(concept.title.length > 0, `${concept.tag} title empty`);
             assert.ok(concept.summary.length > 0, `${concept.tag} summary empty`);
@@ -110,6 +112,23 @@ describe('knowledge cards', () => {
         const lifecycles = buildErrorLifecycles(events);
         const cards = generateKnowledgeCard(event, events, lifecycles);
         assert.strictEqual(cards.length, 0);
+    });
+
+    it('generates cards for common errors missed before P0 patterns', () => {
+        // 研究文档 §3.2 实测 13 MISS 中的代表样本,P0 后应能入卡。
+        const cases: { message: string; expectedTag: string }[] = [
+            { message: "lvalue required as left operand of assignment", expectedTag: 'lvalue_required' },
+            { message: "control reaches end of non-void function", expectedTag: 'control_flow_return' },
+            { message: "base operand of '->' has non-pointer type", expectedTag: 'pointer_dereference_mismatch' },
+        ];
+        for (const c of cases) {
+            const event = makeCompileError('e1', c.message);
+            const events: DebugEvent[] = [event];
+            const lifecycles = buildErrorLifecycles(events);
+            const cards = generateKnowledgeCard(event, events, lifecycles);
+            assert.strictEqual(cards.length, 1, `expected one card for "${c.message}"`);
+            assert.strictEqual(cards[0].tag, c.expectedTag);
+        }
     });
 
     it('merges cards by tag and sums frequency', () => {
@@ -264,6 +283,26 @@ describe('knowledge cards', () => {
             { message: 'expected identifier', expectedTag: 'syntax_punctuation' },
             { message: 'cannot find -lm', expectedTag: 'missing_library' },
             { message: 'no such file or directory', expectedTag: 'missing_header' },
+            // P0 新增 pattern 的 stderr 样本(每条新增正则至少一条):
+            { message: "invalid operands of types 'int' and 'const char [2]' to binary 'operator<<'", expectedTag: 'operator_operand_mismatch' },
+            { message: "no match for 'operator<<' (operand types are 'std::ostream' and 'const char [2]')", expectedTag: 'operator_operand_mismatch' },
+            { message: "lvalue required as left operand of assignment", expectedTag: 'lvalue_required' },
+            { message: 'array subscript out of bounds', expectedTag: 'array_out_of_bounds' },
+            { message: 'subscript out of range', expectedTag: 'array_out_of_bounds' },
+            { message: "reference to 'count' is ambiguous", expectedTag: 'overload_ambiguous' },
+            { message: 'candidate expects 2 arguments, 1 provided', expectedTag: 'overload_ambiguous' },
+            { message: "too many arguments to function 'int f(int)'", expectedTag: 'overload_ambiguous' },
+            { message: 'too few arguments to function', expectedTag: 'overload_ambiguous' },
+            { message: 'control reaches end of non-void function', expectedTag: 'control_flow_return' },
+            { message: 'not all control paths return a value', expectedTag: 'control_flow_return' },
+            { message: "base operand of '->' has non-pointer type", expectedTag: 'pointer_dereference_mismatch' },
+            { message: "request for member 'x' in 'y', which is of non-class type 'int'", expectedTag: 'pointer_dereference_mismatch' },
+            { message: "invalid types 'int[int]' for array subscript", expectedTag: 'pointer_dereference_mismatch' },
+            // 既有 pattern 补强的新文案变体:
+            { message: "use of undeclared identifier 'x'", expectedTag: 'undeclared_identifier' },
+            { message: "invalid conversion from 'int' to 'char'", expectedTag: 'type_conversion' },
+            { message: "narrowing conversion of 'x' from 'int' to 'char'", expectedTag: 'type_conversion' },
+            { message: 'unresolved external symbol "void __cdecl f(void)"', expectedTag: 'undefined_reference' },
         ];
 
         for (const c of cases) {
