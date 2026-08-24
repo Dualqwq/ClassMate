@@ -91,6 +91,63 @@ describe('knowledge cards', () => {
         }
     });
 
+    it('keeps P0 teaching examples aligned with their diagnostic concepts', () => {
+        const cases: Array<{
+            tag: string;
+            wrongFragment: string;
+            correctFragment: string;
+        }> = [
+            {
+                tag: 'operator_operand_mismatch',
+                wrongFragment: 'std::string label = x << "岁";',
+                correctFragment: 'std::string label = std::to_string(x) + "岁";',
+            },
+            {
+                tag: 'lvalue_required',
+                wrongFragment: 'a + b = c;',
+                correctFragment: 'c = a + b;',
+            },
+            {
+                tag: 'array_out_of_bounds',
+                wrongFragment: 'i <= 5',
+                correctFragment: 'i < 5',
+            },
+            {
+                tag: 'overload_ambiguous',
+                wrongFragment: 'f(1L);',
+                correctFragment: 'f(1);',
+            },
+            {
+                tag: 'control_flow_return',
+                wrongFragment: 'if (a > b)',
+                correctFragment: 'return b;',
+            },
+            {
+                tag: 'pointer_dereference_mismatch',
+                wrongFragment: 's->x = 1;',
+                correctFragment: 's.x = 1;',
+            },
+        ];
+
+        for (const testCase of cases) {
+            const concept = getKnowledgeConcept(testCase.tag);
+            assert.ok(concept, `${testCase.tag} concept missing`);
+            assert.ok(
+                concept.wrongExample.includes(testCase.wrongFragment),
+                `${testCase.tag} wrongExample must demonstrate ${testCase.wrongFragment}`
+            );
+            assert.ok(
+                concept.correctExample.includes(testCase.correctFragment),
+                `${testCase.tag} correctExample must demonstrate ${testCase.correctFragment}`
+            );
+        }
+    });
+
+    it('does not classify a non-operator no-match diagnostic as an operand mismatch', () => {
+        const matches = matchErrorToKnowledge("no match for call to 'foo'");
+        assert.ok(!matches.some((match) => match.tag === 'operator_operand_mismatch'));
+    });
+
     it('generates a card for a single matching compile error', () => {
         const event = makeCompileError('e1', "expected ';' before 'return'");
         const events: DebugEvent[] = [event];
@@ -285,6 +342,7 @@ describe('knowledge cards', () => {
             { message: 'no such file or directory', expectedTag: 'missing_header' },
             // P0 新增 pattern 的 stderr 样本(每条新增正则至少一条):
             { message: "invalid operands of types 'int' and 'const char [2]' to binary 'operator<<'", expectedTag: 'operator_operand_mismatch' },
+            { message: "invalid operands to binary expression ('int' and 'const char[4]')", expectedTag: 'operator_operand_mismatch' },
             { message: "no match for 'operator<<' (operand types are 'std::ostream' and 'const char [2]')", expectedTag: 'operator_operand_mismatch' },
             { message: "lvalue required as left operand of assignment", expectedTag: 'lvalue_required' },
             { message: 'array subscript out of bounds', expectedTag: 'array_out_of_bounds' },

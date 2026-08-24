@@ -272,8 +272,8 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
             '对自定义类型补充相应的 operator 重载',
         ],
         checkMethod: '重新编译，确认 "invalid operands" 或 "no match for operator" 报错消失。',
-        wrongExample: "int main() {\n    int x = 1;\n    std::cout << x << \"岁\";\n    return 0;\n}",
-        correctExample: "#include <string>\nint main() {\n    int x = 1;\n    std::cout << x << \"岁\";\n    return 0;\n}",
+        wrongExample: "#include <string>\nint main() {\n    int x = 1;\n    std::string label = x << \"岁\";\n    return 0;\n}",
+        correctExample: "#include <string>\nint main() {\n    int x = 1;\n    std::string label = std::to_string(x) + \"岁\";\n    return 0;\n}",
     },
     lvalue_required: {
         tag: 'lvalue_required',
@@ -362,8 +362,8 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
             '先解引用再取成员，或直接改用 -> 简化写法',
         ],
         checkMethod: '重新编译，确认 "base operand of \'->\'"/"request for member" 报错消失。',
-        wrongExample: "struct S { int x; };\nint main() {\n    S s;\n    S* p = &s;\n    p.x = 1;\n    return 0;\n}",
-        correctExample: "struct S { int x; };\nint main() {\n    S s;\n    S* p = &s;\n    p->x = 1;\n    return 0;\n}",
+        wrongExample: "struct S { int x; };\nint main() {\n    S s;\n    s->x = 1;\n    return 0;\n}",
+        correctExample: "struct S { int x; };\nint main() {\n    S s;\n    s.x = 1;\n    return 0;\n}",
     },
     make_missing_separator: {
         tag: 'make_missing_separator',
@@ -471,7 +471,7 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.make_missing_separator,
     },
     {
-        pattern: /invalid operands|no match for/,
+        pattern: /invalid operands|no match for.*operator/,
         tag: 'operator_operand_mismatch',
         message: '运算符操作数类型不匹配',
         concept: CONCEPTS.operator_operand_mismatch,
