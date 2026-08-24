@@ -105,12 +105,25 @@ const ABORT_CALLED_PATTERN = /abort\(\) has been called/i;
  * Windows NTSTATUS 退出码启发式(stderr 为空时的最后线索)。
  * 只收录有明确依据的码，宁落 unknown 不编造：
  * - 3221225477 = 0xC0000005 ACCESS_VIOLATION；
+ * - 3221225501 = 0xC000001D ILLEGAL_INSTRUCTION（用户实测整数除零样本）；
  * - 3221225725 = 0xC00000FD STATUS_STACK_OVERFLOW。
  */
 const EXIT_CODE_HEURISTICS: Array<{ code: number; classification: RunErrorClassification }> = [
     { code: 3221225477, classification: { kind: 'runtime_segmentation_fault', confidence: 'low' } },
+    { code: 3221225501, classification: { kind: 'runtime_arithmetic_exception', confidence: 'low' } },
     { code: 3221225725, classification: { kind: 'runtime_stack_overflow', confidence: 'low' } },
 ];
+
+/**
+ * Windows 进程状态是 32-bit DWORD；不同进程封装层可能把同一高位状态码
+ * 表示成 unsigned number 或 signed int32。只归一化合法负 int32，避免把
+ * 任意超大/小数退出值截断成已知状态码而误分类。
+ */
+function normalizeWindowsExitCode(exitCode: number): number {
+    return Number.isInteger(exitCode) && exitCode >= -2147483648 && exitCode < 0
+        ? exitCode + 4294967296
+        : exitCode;
+}
 
 function combinedText(input: RunErrorClassifierInput): string {
     return `${input.stdout}\n${input.stderr}`;
@@ -191,7 +204,8 @@ export function classifyRunError(input: RunErrorClassifierInput): RunErrorClassi
 
     // 11. exit code 启发式：stderr 为空时按 Windows 崩溃码兜底(low)。
     if (input.stderr.trim() === '' && input.exitCode !== null) {
-        const heuristic = EXIT_CODE_HEURISTICS.find((entry) => entry.code === input.exitCode);
+        const normalizedExitCode = normalizeWindowsExitCode(input.exitCode);
+        const heuristic = EXIT_CODE_HEURISTICS.find((entry) => entry.code === normalizedExitCode);
         if (heuristic) {
             return { ...heuristic.classification };
         }

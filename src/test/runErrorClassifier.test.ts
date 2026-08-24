@@ -307,6 +307,32 @@ describe('classifyRunError 覆盖面扩充(20260824)', () => {
         assert.strictEqual(result.confidence, 'low');
     });
 
+    it('用户实测:Windows 除零无输出且 exit=3221225501(0xC000001D)→ 算术异常(low)', () => {
+        const result = classifyRunError(input({
+            exitCode: 3221225501,
+            stdout: '',
+            stderr: '',
+        }));
+        assert.strictEqual(result.kind, 'runtime_arithmetic_exception');
+        assert.strictEqual(result.confidence, 'low');
+    });
+
+    it('同一 Windows 除零退出码的 int32 形态 -1073741795 也归算术异常(low)', () => {
+        const result = classifyRunError(input({
+            exitCode: -1073741795,
+            stdout: '',
+            stderr: '',
+        }));
+        assert.strictEqual(result.kind, 'runtime_arithmetic_exception');
+        assert.strictEqual(result.confidence, 'low');
+    });
+
+    it('exit code 启发式回归:其他未知无输出退出码仍保持 unknown(low)', () => {
+        const result = classifyRunError(input({ exitCode: 3221225502, stdout: '', stderr: '' }));
+        assert.strictEqual(result.kind, 'runtime_unknown');
+        assert.strictEqual(result.confidence, 'low');
+    });
+
     it('exit code 启发式:文档未收录的码宁落 unknown(low)不编造', () => {
         const result = classifyRunError(input({ exitCode: 3221225620, stderr: '' }));
         assert.strictEqual(result.kind, 'runtime_unknown');
