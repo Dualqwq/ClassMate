@@ -50,6 +50,8 @@
   - 调用 `matchErrorToKnowledge(parsed.message)`；**如果没有任何 tag 命中，`continue`，这就是“单个错误未加入错题本”的直接原因**（`knowledgeCard.ts:136-138`）。
   - 只取第一个“有 concept”的匹配作为 `bestMatch`。
   - 从 `errorLifecycle` 取解决状态、尝试次数；从 `code_modified` 取 concrete fix。
+- `src/debug/knowledgeCardBuilder.ts:23-48`：`buildKnowledgeCards`
+  - store → events → lifecycles → generate/merge/sort 的导出侧组合入口；Journey 面板走的是 `buildJourneyViewModel` 内的等价内联版本（`journeyViewModel.ts:388-395`），两者共享同一套派生语义。
 - `src/debug/knowledgeCard.ts:181-250`：`mergeKnowledgeCards`
   - 按 tag 聚合，合并 frequency / resolvedCount / unresolvedCount / concrete fixes。
 - `src/debug/knowledgeCard.ts:256-269`：`sortKnowledgeCards`
@@ -192,7 +194,7 @@ if (!bestMatch) {
 | 来源 | 已覆盖常见错误 | 明显未覆盖 |
 |------|---------------|-----------|
 | GCC/G++ | 分号、未声明、函数调用、类型转换、链接、重复定义、static/private、segfault、头文件、库 | 运算符操作数、左值、数组越界、重载歧义、窄化、不完整类型、控制流 |
-| Clang | 同上（消息文本略有差异） | `use of undeclared identifier` 已覆盖；但 `invalid operands to binary expression` 未覆盖 |
+| Clang | 分号、类型转换、链接等与 GCC 共享文案的部分 | `use of undeclared identifier`（GCC 文案专用 pattern 不命中）、`invalid operands to binary expression` 均未覆盖 |
 | MSVC | `error C...` 格式可被 parser 识别，但知识标签几乎未针对 MSVC 文案定制 | `C++ exception`, `Assertion failed`, `unresolved external symbol` 等 |
 | STL/模板 | 无专门标签 | `no matching function` 能覆盖部分；模板实例化 note 完全不覆盖 |
 
@@ -202,7 +204,7 @@ if (!bestMatch) {
 
 | tag | 当前 pattern | 未覆盖变体 |
 |-----|-------------|-----------|
-| `undeclared_identifier` | `was not declared in this scope` | Clang `use of undeclared identifier`（实际已命中，因为包含 `identifier` 不，等等，当前 pattern 是 `was not declared in this scope`，Clang 消息是 `use of undeclared identifier 'x'`，**当前不会命中**） |
+| `undeclared_identifier` | `was not declared in this scope` | Clang `use of undeclared identifier 'x'`——**当前不会命中**（pattern 只认 GCC 文案，已实测 MISS） |
 | `function_call_mismatch` | `no matching function for call to` | `candidate expects N arguments, M provided`；`too many arguments to function`；`too few arguments to function` |
 | `type_conversion` | `cannot convert` | `invalid conversion`；`narrowing conversion`；`cannot bind ... reference` |
 | `missing_header` | `no such file or directory` | Clang fatal error `'xxx' file not found`（parser 已忽略 fatal error 行，连 ParsedError 都不会产生） |
