@@ -113,6 +113,12 @@ export interface ClassMateGraphServices {
 	 */
 	coursewareService?: CoursewareService;
 	/**
+	 * Debug Journey 历史摘要提供者(#13):由扩展层组装(store 读取 + 配置开关
+	 * + journeyDigestBuilder),返回预算好的摘要文本块;关闭或无历史时返回
+	 * undefined。runner 只负责注入,保持本模块不依赖 vscode。
+	 */
+	journeyDigestProvider?: (context: { activeFilePath?: string }) => Promise<string | undefined>;
+	/**
 	 * 当前工作区根目录的 URI 字符串(vscode.workspace.workspaceFolders[0])。
 	 * 引用契约用它把符号的相对路径拼成可点击的真实文件 URI;
 	 * 缺失时标记降级为行内代码,不生成链接。
@@ -1481,6 +1487,18 @@ export class ClassMateGraphRunner {
 				this._services.onDebug?.('courseware_retrieval_degraded', String(error));
 			}
 		}
+		// Debug Journey 历史摘要(#13):提供者内部已做配置开关与预算;失败时
+		// 降级为不注入,不影响回答主流程。
+		let journeyDigestContext: string | undefined;
+		if (this._services.journeyDigestProvider) {
+			try {
+				journeyDigestContext = await this._services.journeyDigestProvider({
+					activeFilePath: current.workspaceSnapshot?.minimal.catalog.activeEditor?.fileName,
+				});
+			} catch (error) {
+				this._services.onDebug?.('journey_digest_degraded', String(error));
+			}
+		}
 		const messages = new AnswerPromptBuilder().build({
 			skillCore: await this._services.skillContentLoader.loadText('SKILL.md'),
 			pedagogy: await this._services.skillContentLoader.loadText('references/pedagogy.md'),
@@ -1504,6 +1522,7 @@ export class ClassMateGraphRunner {
 				: undefined,
 			userText: current.request.userText,
 			coursewareContext,
+			journeyDigestContext,
 			conversationHistory: current.request.conversationHistory,
 		});
 		// 消费漂移重生成标记:本轮回答基于重载后的快照,标记复位后

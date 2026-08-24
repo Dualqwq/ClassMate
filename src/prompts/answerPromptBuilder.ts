@@ -36,6 +36,12 @@ export interface AnswerPromptInput {
 	userText: string;
 	/** 课件 GraphRAG 检索出的相关片段；无课件或无关时留空。 */
 	coursewareContext?: string;
+	/**
+	 * Debug Journey 历史摘要(#13):由 journeyDigestBuilder 预算好的确定性
+	 * 文本块。只影响当次请求构造,不改 ChatState、不进会话存储;无内容或
+	 * 开关关闭时为 undefined,完全不注入占位块。
+	 */
+	journeyDigestContext?: string;
 	conversationHistory: Array<{
 		role: 'user' | 'assistant';
 		content: string;
@@ -227,6 +233,14 @@ export class AnswerPromptBuilder {
 						: '[No imported courseware context was retrieved for this question.]',
 				].join('\n\n'),
 			},
+			...(input.journeyDigestContext?.trim()
+				? [{
+					// Debug Journey 历史摘要(#13):独立来源块,放在课件上下文
+					// 与答案计划之间;无内容时整个块不出现,不注入占位符。
+					role: 'system' as const,
+					content: input.journeyDigestContext,
+				}]
+				: []),
 			{
 				// 每轮动态内容:答案计划/约束放在稳定块之后,前缀分叉只影响后面的尾巴
 				role: 'system',

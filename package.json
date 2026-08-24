@@ -218,6 +218,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable activation timing profiling in development/test builds. Ignored in production."
+        },
+        "classmate.journeyDigest.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include a compact digest of the student's recent debugging history (unresolved compile errors, run errors and mistake patterns) in the tutor's answer context."
         }
       }
     },

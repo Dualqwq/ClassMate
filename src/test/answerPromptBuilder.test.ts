@@ -421,3 +421,73 @@ describe('solution_request answer-prompt guard (#30)', () => {
 		assert.match(prompt, /keep any illustrative code under 15 non-empty lines/);
 	});
 });
+
+describe('journey digest injection (#13)', () => {
+	const DIGEST_SAMPLE = [
+		'=== Student debugging history digest ===',
+		'The notes below summarize this student’s recent compile and run history recorded in this workspace.',
+		'- main.cpp:12 变量/函数未声明 [编译错误]',
+	].join('\n');
+
+	function buildWithDigest(journeyDigestContext?: string) {
+		return new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'compile_error_help',
+				depthLevel: 1,
+				responsePattern: ['location', 'reason'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'compile_error_help',
+					concepts: ['声明'],
+					purposes: ['debug'],
+					learnerLevel: 'beginner',
+					hintLevel: 1,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'declaration guidance',
+			workspaceSnapshot: {
+				snapshotId: 'snap-1',
+				createdAt: 1,
+				minimal: { catalog: { files: [], questionFiles: [] } },
+				loadedItems: [],
+			},
+			userText: '这个报错是什么意思',
+			conversationHistory: [],
+			journeyDigestContext,
+		});
+	}
+
+	it('有摘要时以独立 system 块注入,位置在课件上下文之后、答案计划之前', () => {
+		const messages = buildWithDigest(DIGEST_SAMPLE);
+		const digestIndex = messages.findIndex((message) =>
+			message.content.includes('Student debugging history digest'));
+		const coursewareIndex = messages.findIndex((message) =>
+			message.content.includes('Imported courseware context'));
+		const planIndex = messages.findIndex((message) =>
+			message.content.includes('=== Answer plan ==='));
+		assert.ok(digestIndex !== -1, 'digest 块应存在');
+		assert.ok(coursewareIndex !== -1 && planIndex !== -1);
+		assert.ok(digestIndex > coursewareIndex, '应在课件上下文块之后');
+		assert.ok(digestIndex < planIndex, '应在答案计划块之前');
+		assert.strictEqual(messages[digestIndex].role, 'system');
+		assert.strictEqual(messages[digestIndex].content, DIGEST_SAMPLE);
+	});
+
+	it('无摘要(undefined)时不出现占位块', () => {
+		const messages = buildWithDigest(undefined);
+		const prompt = messages.map((message) => message.content).join('\n');
+		assert.doesNotMatch(prompt, /Student debugging history digest/);
+	});
+
+	it('空字符串摘要同样完全不注入', () => {
+		const messages = buildWithDigest('   ');
+		const prompt = messages.map((message) => message.content).join('\n');
+		assert.doesNotMatch(prompt, /Student debugging history digest/);
+	});
+});

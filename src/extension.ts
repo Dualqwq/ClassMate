@@ -16,6 +16,7 @@ import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type
 import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
+import { buildJourneyDigest } from './chat/journeyDigestBuilder';
 import { ChatSessionStorage } from './chat/chatSessionStorage';
 import type { ChatReference, LLMConfig, MessageIntent } from './chat/types';
 import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
@@ -1045,6 +1046,18 @@ export async function activate(
 		problemCardExtractor: new ProblemCardExtractor(skillContentLoader),
 		problemCardFactsLoader: new ProblemCardFactsLoader(skillContentLoader),
 		coursewareService,
+		journeyDigestProvider: async ({ activeFilePath }) => {
+			const enabled = vscode.workspace.getConfiguration('classmate')
+				.get<boolean>('journeyDigest.enabled', true);
+			if (!enabled) {
+				return undefined;
+			}
+			const events = await debugStore.getEvents();
+			if (events.length === 0) {
+				return undefined;
+			}
+			return buildJourneyDigest(events, { currentFilePath: activeFilePath });
+		},
 	});
 	profiler.mark('graph-services-ready');
 
