@@ -454,6 +454,30 @@ describe('run 条目接入(#12b/#14b)', () => {
         assert.ok(card);
         assert.strictEqual(card.problemKey, 'main');
     });
+
+    it('run_error（含 unknown）进入错题本，保留事实现象且不伪造修复 diff', () => {
+        const view = buildJourneyViewModel([
+            runError({
+                id: 'unknown-run',
+                kind: 'runtime_unknown',
+                exitCode: 134,
+                errorDetail: '程序抛出了一个未被处理的异常（类型：MyError）',
+            }),
+        ]);
+
+        assert.strictEqual(view.mistakeCards.length, 1);
+        const card = view.mistakeCards[0];
+        assert.strictEqual(card.tag, 'runtime_unknown');
+        assert.strictEqual(card.problemKey, 'main');
+        assert.strictEqual(card.fileUri, 'file:///w/main.exe');
+        assert.strictEqual(card.line, undefined);
+        assert.strictEqual(card.severity, 'error');
+        assert.strictEqual(
+            card.phenomenon,
+            '运行出错：原因不明(退出码 134)；程序抛出了一个未被处理的异常（类型：MyError）'
+        );
+        assert.deepStrictEqual(card.fixes, []);
+    });
 });
 
 describe('学生手动「已解决」标记(重置语义与绝不自动翻转)', () => {
@@ -535,5 +559,37 @@ describe('学生手动「已解决」标记(重置语义与绝不自动翻转)',
         const unmarkedEpisode = unmarked.episodes.find((e) => e.runErrorKind !== undefined);
         assert.ok(unmarkedEpisode);
         assert.strictEqual(unmarkedEpisode.resolved, false, '运行成功也不得自动判为已解决');
+    });
+
+    it('错题卡统计同样按 problemKey 隔离：一个题的标记不解决另一个题的同 kind', () => {
+        const view = buildJourneyViewModel(
+            [
+                runError({
+                    id: 'main-arithmetic',
+                    timestamp: 4_000,
+                    kind: 'runtime_arithmetic_exception',
+                    fileUri: 'file:///w/main.exe',
+                    exitCode: 136,
+                }),
+                runError({
+                    id: 'task-arithmetic',
+                    timestamp: 8_000,
+                    kind: 'runtime_arithmetic_exception',
+                    fileUri: 'file:///w/task.exe',
+                    exitCode: 3221225620,
+                }),
+            ],
+            { resolvedMarks: { main: 5_000 } }
+        );
+
+        const card = view.mistakeCards.find(
+            (candidate) => candidate.tag === 'runtime_arithmetic_exception'
+        );
+        assert.ok(card);
+        assert.strictEqual(card.frequency, 2);
+        assert.strictEqual(card.resolvedCount, 1);
+        assert.strictEqual(card.unresolvedCount, 1);
+        assert.strictEqual(card.problemKey, 'task', '全局卡挂到最新代表 occurrence');
+        assert.match(card.phenomenon, /退出码 3221225620/);
     });
 });

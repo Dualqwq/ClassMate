@@ -49,6 +49,9 @@ export interface SerializableCard {
     unresolvedCount: number;
     avgFixAttempts: number;
     concreteFixes: SerializableFix[];
+    /** 事件已有的运行现象；缺省表示编译卡沿用诊断链路。 */
+    phenomenon?: string;
+    problemKey?: string;
 }
 
 export interface SerializableSummary {
@@ -117,6 +120,8 @@ function toSerializableCard(
         unresolvedCount: card.unresolvedCount,
         avgFixAttempts: card.avgFixAttempts,
         concreteFixes,
+        phenomenon: card.phenomenon,
+        problemKey: card.problemKey,
     };
 }
 
@@ -189,6 +194,9 @@ export function buildNotebookPrompt(
         '- 不要指责学生，避免“很简单”“显然”等表达。',
         '- 不直接给出完整答案，重点在帮助学生理解错误和修改方向。',
         '- diff 代码块必须完整保留，便于学生对照。',
+        '- phenomenon 是本次事件已有的事实；不得把常见原因写成已经证实的根因。',
+        '- wrongExample/correctExample 是概念教学示例，不是学生代码或学生真实修复。',
+        '- concreteFixes 为空时不得编造修改 diff；runtime_unknown 不得猜测具体成因。',
         '',
         '输出只包含 Markdown 正文，不要包含额外的解释或元评论。',
     ].join('\n');
@@ -264,12 +272,20 @@ export function formatNotebookFallback(input: DebugNotebookInput, options?: Debu
             lines.push('');
             lines.push(`**检查方法：** ${card.checkMethod}`);
             lines.push('');
-            lines.push('**错误示例：**');
+            if (card.phenomenon) {
+                lines.push(`**错误现象：** ${card.phenomenon}`);
+                lines.push('');
+            }
+            lines.push(card.phenomenon
+                ? '**概念反例（教学示例，不是你的代码）：**'
+                : '**错误示例：**');
             lines.push('```cpp');
             lines.push(card.wrongExample);
             lines.push('```');
             lines.push('');
-            lines.push('**正确示例：**');
+            lines.push(card.phenomenon
+                ? '**概念正例（教学示例，不是你的修复）：**'
+                : '**正确示例：**');
             lines.push('```cpp');
             lines.push(card.correctExample);
             lines.push('```');

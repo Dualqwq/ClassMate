@@ -8,12 +8,12 @@ import {
 } from '../debug/errorFingerprint';
 import { buildErrorLifecycles, type ErrorLifecycle } from '../debug/errorLifecycle';
 import {
-    generateKnowledgeCard,
-    mergeAndSortKnowledgeCards,
     pickRepresentativeError,
     type ConcreteFix,
     type KnowledgeCard,
 } from '../debug/knowledgeCard';
+import { buildKnowledgeCardsFromEvents } from '../debug/knowledgeCardBuilder';
+import { deriveProblemKey } from '../debug/problemKey';
 import {
     isCodeModified,
     isCompileError,
@@ -24,7 +24,11 @@ import {
     type CompileErrorEvent,
     type DebugEvent,
 } from '../debug/types';
-import { RUN_ERROR_KIND_LABELS, type RunErrorKind } from '../run/runErrorKind';
+import { formatRunErrorPhenomenon } from '../run/runErrorKnowledgeMap';
+import type { RunErrorKind } from '../run/runErrorKind';
+
+// 兼容既有调用方；实现下沉到无反向依赖的 debug/problemKey 底层模块。
+export { deriveProblemKey } from '../debug/problemKey';
 
 /**
  * Journey 面板视图模型(#12a/#14a,轨 FE1)。
@@ -186,28 +190,13 @@ function baseFileName(fileUri: string | undefined): string | undefined {
     return fileUri.split(/[\\/]/).pop();
 }
 
-/**
- * 题目分组键(#14b):文件名去扩展名。main.cpp 与 main.exe 归并为同一题,
- * 让「编译失败 → 修改 → 运行出错」能挂到同一题目下;解不出时返回 undefined。
- */
-export function deriveProblemKey(fileUri: string | undefined): string | undefined {
-    const base = baseFileName(fileUri);
-    if (!base) {
-        return undefined;
-    }
-    const dot = base.lastIndexOf('.');
-    const stem = dot > 0 ? base.slice(0, dot) : base;
-    return stem.length > 0 ? stem : undefined;
-}
-
 /** run 条目的学生化文案:「运行出错：数组越界(退出码 139)」/「运行成功 ✓」。
  * detail 为分类器给出的事实性描述(如陌生异常类名)，仅转述不推断。 */
 function describeRunOutcome(exitCode: number | null, kind?: RunErrorKind, detail?: string): string {
     if (!kind) {
         return '运行成功 ✓';
     }
-    const base = `${RUN_ERROR_KIND_LABELS[kind]}(退出码 ${exitCode ?? '未知'})`;
-    return detail ? `${base}；${detail}` : base;
+    return formatRunErrorPhenomenon(kind, exitCode, detail);
 }
 
 function buildEntriesForLifecycle(
@@ -312,7 +301,12 @@ function buildEntriesForLifecycle(
 function representativePosition(
     card: KnowledgeCard,
     sortedEvents: DebugEvent[]
-): { fileUri?: string; line?: number; viaIncludes?: string[] } {
+): {
+    fileUri?: string;
+    line?: number;
+    viaIncludes?: string[];
+    severity?: 'error' | 'warning';
+} {
     const parsed = pickRepresentativeError(card, sortedEvents);
     if (!parsed) {
         return {};
@@ -539,22 +533,19 @@ export function buildJourneyViewModel(
               resolvedEpisodeCount
             : 0;
 
-    // 错题卡:与既有导出通路(buildKnowledgeCards)同一组合成逻辑,只是输入
-    // 改为已取好的事件数组,保持纯函数。
-    const allCards: KnowledgeCard[] = [];
-    for (const event of sortedEvents) {
-        if (!isCompileError(event)) {
-            continue;
-        }
-        allCards.push(...generateKnowledgeCard(event, sortedEvents, lifecycles));
-    }
-    const mergedCards = mergeAndSortKnowledgeCards(allCards);
+    // 错题卡与 store/Notebook 复用同一个 compile+run 组合入口，避免两份
+    // 派生逻辑再次漂移。run 的解决态消费本次已传入的学生手动标记。
+    const mergedCards = buildKnowledgeCardsFromEvents(sortedEvents, {
+        resolvedMarks,
+        lifecycles,
+    });
     const mistakeCards: MistakeCardVM[] = mergedCards.map((card) => {
         const representative = pickRepresentativeError(card, sortedEvents);
+        const position = representativePosition(card, sortedEvents);
         return {
             tag: card.tag,
             title: card.title,
-            phenomenon: representative?.message ?? card.wrongExample,
+            phenomenon: card.phenomenon ?? representative?.message ?? card.wrongExample,
             commonCauses: [...card.commonCauses],
             checkMethod: card.checkMethod,
             fixes: card.concreteFixes.map((fix) => ({ ...fix })),
@@ -562,10 +553,14 @@ export function buildJourneyViewModel(
             resolvedCount: card.resolvedCount,
             unresolvedCount: card.unresolvedCount,
             lastSeenAt: card.lastSeenAt,
-            ...representativePosition(card, sortedEvents),
+            fileUri: card.fileUri ?? position.fileUri,
+            line: position.line,
+            viaIncludes: position.viaIncludes,
+            severity: card.severity ?? position.severity,
             // 「按题目」分组键(#14b):代表性报错文件名去扩展名;头文件错误
-            // 会归到头文件名下,属已知近似(设计笔记遗留问题)。
-            problemKey: deriveProblemKey(representative?.file),
+            // 会归到头文件名下,属已知近似。全局合并的 run 卡则明确挂到
+            // 最新 runtime occurrence 的代表题目(P1 不扩张成分题多卡)。
+            problemKey: card.problemKey ?? deriveProblemKey(representative?.file),
         };
     });
 

@@ -257,6 +257,12 @@ describe('RunService → DebugJourneyStore 写入路径(buildRunOutcomeEvent)', 
         assert.strictEqual(runErrorEpisodes.length, 1);
         assert.strictEqual(runErrorEpisodes[0].resolved, false);
         assert.match(runErrorEpisodes[0].entries[0].label, /段错误/);
+        const runtimeCard = view.mistakeCards.find(
+            (card) => card.tag === 'runtime_segmentation_fault'
+        );
+        assert.ok(runtimeCard, 'JourneyService.buildView 应把 run_error 同步到错题本');
+        assert.strictEqual(runtimeCard.unresolvedCount, 1);
+        assert.deepStrictEqual(runtimeCard.fixes, []);
         service.dispose();
     });
 });
@@ -323,6 +329,12 @@ describe('JourneyService 学生手动「已解决」消息链路', () => {
         assert.ok(runEpisode);
         assert.strictEqual(runEpisode.resolved, true);
         assert.strictEqual(runEpisode.resolvedByStudent, true);
+        const runtimeCard = view.mistakeCards.find(
+            (card) => card.tag === 'runtime_segmentation_fault'
+        );
+        assert.ok(runtimeCard);
+        assert.strictEqual(runtimeCard.resolvedCount, 1);
+        assert.strictEqual(runtimeCard.unresolvedCount, 0);
         service.dispose();
     });
 

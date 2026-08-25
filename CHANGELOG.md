@@ -8,6 +8,7 @@ ClassMate 的重要变更记录在这里。
 
 ## [0.0.7]
 
+- Knowledge P1 运行错误接入错题本：新增九档 `runErrorKnowledgeMap`（只消费既有 `RunErrorKind`，不从 stderr 重做分类；`runtime_unknown` 明确证据不足），compile/run 统一经 `buildKnowledgeCardsFromEvents` 生成并按 tag 全局合并；每个 run occurrence 先按自己的 problemKey 与“学生标记时间 >= 同题最新 run_error”独立计算解决态，新同题错误使旧标记失效，`run_success` 绝不翻转，不同题同 kind 不串状态。全局运行卡以最新 occurrence 的 phenomenon/fileUri/problemKey 为代表，同时间按 event id 稳定破平；运行 phenomenon 只呈现已有分类标签、退出码与 errorDetail，不编造源码行号或 concrete diff。Journey 错题本、store `buildKnowledgeCards` 与 Notebook/Markdown 导出共用该派生；导出明确区分概念示例与学生真实修复，空 concreteFixes 不生成 diff，LLM prompt 不序列化本地 fileUri。既有按 tag 全局卡模型的限制：按题目视图只挂到最新代表题目，本期不扩张成分题多卡。
 - 补正指针解引用概念卡的 `operator[]` 边界：数组、指针及重载下标运算的类型都可合法使用 `[]`，只对不支持相应运算的类型报错。
 - 修正指针解引用概念卡的下标教学事实：合法指针可以使用 `[]`，只有类型不支持下标运算时才应按 `invalid types ... for array subscript` 检查。
 - 修正 Knowledge P0 概念卡示例：运算符反例现会真实制造操作数不匹配、正例使用 `std::to_string` 且可独立编译，指针反例与既有 `base operand of '->'` pattern 对齐；同时收窄宽泛的 `no match for` 匹配，避免非运算符诊断误入该卡。

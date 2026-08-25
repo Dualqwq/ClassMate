@@ -4,7 +4,12 @@ import { createErrorSignature, signatureKey, signaturesMatch } from './errorFing
 import type { ErrorLifecycle } from './errorLifecycle';
 import { findFixingEdits } from './errorLifecycle';
 import { formatFixAsDiff, normalizeCodeForDiff } from './formatDiff';
-import type { CompileErrorEvent, DebugEvent } from './types';
+import { deriveProblemKey } from './problemKey';
+import type { CompileErrorEvent, DebugEvent, RunErrorEvent } from './types';
+import {
+    formatRunErrorPhenomenon,
+    getRunErrorKnowledgeConcept,
+} from '../run/runErrorKnowledgeMap';
 
 const DEFAULT_MAX_CONCRETE_EXAMPLES = 3;
 
@@ -33,6 +38,15 @@ export interface KnowledgeCard {
     sourceEvents: string[];
     correctingEditIds: string[];
     concreteFixes: ConcreteFix[];
+
+    /** 最近一次运行 occurrence 的事实性现象；编译卡沿用 representative error。 */
+    phenomenon?: string;
+    /** 最近一次运行 occurrence 的事件位置，只到已有 fileUri，不编造行号。 */
+    fileUri?: string;
+    /** 全局 tag 卡的最新代表 occurrence 所属题目。 */
+    problemKey?: string;
+    /** 运行卡固定为 error；编译卡继续从 representative diagnostic 派生。 */
+    severity?: 'error' | 'warning';
 }
 
 export interface GenerateCardOptions {
@@ -175,6 +189,61 @@ export function generateKnowledgeCard(
 }
 
 /**
+ * 由已分类的 run_error 生成一张 occurrence 卡。
+ *
+ * 不读取 stderr 再分类；解决态只按该 occurrence 自己的 problemKey 计算，
+ * 也不把附近 code_modified 猜作“修复”。
+ */
+export function generateRunErrorKnowledgeCard(
+    errorEvent: RunErrorEvent,
+    allEvents: DebugEvent[],
+    resolvedMarks: Record<string, number> = {}
+): KnowledgeCard {
+    const concept = getRunErrorKnowledgeConcept(errorEvent.kind);
+    const problemKey = deriveProblemKey(errorEvent.fileUri);
+    const latestSameProblemErrorAt = problemKey === undefined
+        ? undefined
+        : allEvents.reduce<number | undefined>((latest, event) => {
+            if (event.type !== 'run_error' || deriveProblemKey(event.fileUri) !== problemKey) {
+                return latest;
+            }
+            return Math.max(latest ?? 0, event.timestamp);
+        }, undefined);
+    const markedAt = problemKey === undefined ? undefined : resolvedMarks[problemKey];
+    const resolved =
+        markedAt !== undefined &&
+        latestSameProblemErrorAt !== undefined &&
+        markedAt >= latestSameProblemErrorAt;
+
+    return {
+        tag: concept.tag,
+        title: concept.title,
+        summary: concept.summary,
+        commonCauses: [...concept.commonCauses],
+        suggestedFixes: [...concept.suggestedFixes],
+        checkMethod: concept.checkMethod,
+        wrongExample: concept.wrongExample,
+        correctExample: concept.correctExample,
+        frequency: 1,
+        resolvedCount: resolved ? 1 : 0,
+        unresolvedCount: resolved ? 0 : 1,
+        avgFixAttempts: 0,
+        lastSeenAt: errorEvent.timestamp,
+        sourceEvents: [errorEvent.id],
+        correctingEditIds: [],
+        concreteFixes: [],
+        phenomenon: formatRunErrorPhenomenon(
+            errorEvent.kind,
+            errorEvent.exitCode,
+            errorEvent.errorDetail
+        ),
+        fileUri: errorEvent.fileUri,
+        problemKey,
+        severity: 'error',
+    };
+}
+
+/**
  * Merge knowledge cards that share the same tag, accumulating statistics and
  * deduplicating source events, edits, and concrete fixes.
  */
@@ -194,6 +263,19 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
 
     for (const group of groups.values()) {
         const first = group[0];
+        // compile 卡保持既有 first 元数据语义；只有 runtime occurrence 带
+        // phenomenon 时才选“最新 occurrence”作门面。同 timestamp 用事件 id
+        // 稳定破平，避免输入数组顺序决定 phenomenon/fileUri/problemKey。
+        const runtimeRepresentative = group
+            .filter((card) => card.phenomenon !== undefined)
+            .sort((a, b) => {
+                if (b.lastSeenAt !== a.lastSeenAt) {
+                    return b.lastSeenAt - a.lastSeenAt;
+                }
+                const aId = a.sourceEvents[0] ?? '';
+                const bId = b.sourceEvents[0] ?? '';
+                return aId === bId ? 0 : aId < bId ? 1 : -1;
+            })[0];
         let frequency = 0;
         let resolvedCount = 0;
         let unresolvedCount = 0;
@@ -243,6 +325,14 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
             sourceEvents: [...sourceEvents],
             correctingEditIds: [...correctingEditIds],
             concreteFixes,
+            ...(runtimeRepresentative
+                ? {
+                    phenomenon: runtimeRepresentative.phenomenon,
+                    fileUri: runtimeRepresentative.fileUri,
+                    problemKey: runtimeRepresentative.problemKey,
+                    severity: runtimeRepresentative.severity,
+                }
+                : {}),
         });
     }
 
