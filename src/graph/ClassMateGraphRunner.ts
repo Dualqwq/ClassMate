@@ -1479,9 +1479,14 @@ export class ClassMateGraphRunner {
 		let coursewareContext: string | undefined;
 		if (this._services.coursewareService) {
 			try {
+				// 多轮指代缓解（开放问题 §4.1②）：query 并入上一轮提问再检索。
+				const previousUserText = [...current.request.conversationHistory]
+					.reverse()
+					.find((entry) => entry.role === 'user')?.content;
 				coursewareContext = await this._services.coursewareService.retrieveFormatted(
 					current.request.userText,
-					4
+					4,
+					previousUserText
 				);
 			} catch (error) {
 				this._services.onDebug?.('courseware_retrieval_degraded', String(error));

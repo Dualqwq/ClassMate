@@ -2,10 +2,10 @@ import type * as vscode from 'vscode';
 
 /**
  * 当前课件图结构版本。
- * version 2：结构感知分块——页/slide 为硬边界、chunk 携带 title/unitLabel、
- * keywords 由统一分词器生成。version 1 的旧图在加载时被丢弃并提示手动重建。
+ * version 3：类型化实体关系边（mentions/defines/belongs_to/precedes）+ TOC 摘要节点 +
+ * 查询侧统一分词。version≤2 的旧图在加载时被丢弃并提示手动重建。
  */
-export const COURSEWARE_GRAPH_VERSION = 2;
+export const COURSEWARE_GRAPH_VERSION = 3;
 
 /**
  * 单个课件的元数据。
@@ -40,13 +40,28 @@ export interface CoursewareChunk {
 }
 
 /**
- * 两个 chunk 之间的边：基于关键词共现或显式引用。
+ * 两个 chunk 之间的边。
+ * version 3 类型化边（D6）：
+ * - mentions：跨源 chunk 共享关键词（原 keyword-overlap）；权重=共享数/min(关键词数)。
+ * - defines：定义块锚定的「定义→被引用」关系（正则锚定术语表内术语）。
+ * - belongs_to：chunk 与其来源课件的 TOC 摘要节点之间的从属关系。
+ * - precedes：同一课件内相邻 chunk 的先后关系（原 sequential）。
+ * - same-source：同一课件内非相邻 chunk；不参与排序传播（仅保留遍历用途）。
+ * keyword-overlap / sequential 为 version≤2 旧图的遗留类型字面量，仅为兼容旧数据保留。
  */
 export interface CoursewareEdge {
 	from: string;
 	to: string;
 	weight: number;
-	reason: 'keyword-overlap' | 'same-source' | 'sequential';
+	reason:
+		| 'mentions'
+		| 'defines'
+		| 'belongs_to'
+		| 'precedes'
+		| 'same-source'
+		// v2 遗留类型：旧图加载时整体丢弃，但持久化 JSON 反序列化仍需能表达。
+		| 'keyword-overlap'
+		| 'sequential';
 }
 
 /**

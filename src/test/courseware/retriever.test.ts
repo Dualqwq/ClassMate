@@ -89,3 +89,89 @@ describe('courseware retriever', () => {
 		assert.match(formatted, /No matching courseware fragments found/);
 	});
 });
+
+describe('期 2 检索层（D6/D7）：查询统一分词 / same-source 退出评分 / top-k 分散 / TOC 可检索', () => {
+	function makeChunk(id: string, sourceId: string, content: string, keywords: string[], title?: string): CoursewareChunk {
+		return {
+			chunkId: id,
+			sourceId,
+			fileName: `${sourceId}.pdf`,
+			pageStart: 1,
+			pageEnd: 1,
+			content,
+			keywords,
+			title,
+		};
+	}
+
+	it('查询侧与索引侧同一分词器：英文别名扩展命中中文课件（D7）', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('mst#0', 'mst', '最小生成树的 Prim 算法从任意起点开始生长。', ['最小生成树']),
+		]);
+		// 旧 n-gram 查询侧只抽出 'mst'，与中文词面不相交必然落空；现经别名组扩展命中。
+		const results = retrieveCoursewareChunks(graph, 'how does MST work', 4);
+		assert.ok(results.length > 0);
+		assert.strictEqual(results[0].chunkId, 'mst#0');
+	});
+
+	it('查询侧不再产生 n-gram 碎片词', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('noise#0', 'noise', '完全无关的内容。', ['无关']),
+		]);
+		// 「道路与回」这类旧伪词来自查询侧相邻字组合，现不应再出现在查询词里。
+		const results = retrieveCoursewareChunks(graph, '道路与回路', 4);
+		assert.strictEqual(results.length, 0);
+	});
+
+	it('same-source 边不参与传播：非相邻同源块不被间接加分（D6）', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('s#0', 's', '循环群的定义与例子', ['循环群']),
+			makeChunk('s#1', 's', '陪集与商群', ['陪集']),
+			makeChunk('s#2', 's', '群同构的基本概念', ['同构']),
+		]);
+		const results = retrieveCoursewareChunks(graph, '循环群', 4);
+		const ids = results.map((r) => r.chunkId);
+		assert.ok(ids.includes('s#0'));
+		// s#1 经 precedes 边传播可达；s#2 只与 s#0 有 same-source 边，必须保持零分。
+		assert.ok(!ids.includes('s#2'), 'same-source 边不得参与排序传播');
+	});
+
+	it('top-k 按 (sourceId) 分散：单一课件最多占 ⌈topK/2⌉ 席（D6）', () => {
+		const chunks = [
+			makeChunk('x#0', 'x', '二叉树的定义 二叉树的性质', ['二叉树']),
+			makeChunk('x#1', 'x', '二叉树的存储 二叉树的遍历', ['二叉树']),
+			makeChunk('x#2', 'x', '二叉树的线索化 二叉树的还原', ['二叉树']),
+			makeChunk('y#0', 'y', '二叉树的一种应用场景', ['二叉树']),
+			makeChunk('z#0', 'z', '二叉树与森林的转换', ['二叉树']),
+		];
+		const graph = buildCoursewareGraph(chunks);
+		const results = retrieveCoursewareChunks(graph, '二叉树', 4);
+		assert.strictEqual(results.length, 4);
+		const fromX = results.filter((r) => r.sourceId === 'x');
+		assert.strictEqual(fromX.length, 2, '⌈4/2⌉=2：x 最多占两席');
+		assert.ok(results.some((r) => r.sourceId === 'y'));
+		assert.ok(results.some((r) => r.sourceId === 'z'));
+	});
+
+	it('其他来源候选耗尽时允许超额课件回填补位（小图不缺结果）', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('only#a', 'only', '二叉树 A', ['二叉树']),
+			makeChunk('only#b', 'only', '二叉树 B', ['二叉树']),
+			makeChunk('only#c', 'only', '二叉树 C', ['二叉树']),
+			makeChunk('only#d', 'only', '二叉树 D', ['二叉树']),
+		]);
+		const results = retrieveCoursewareChunks(graph, '二叉树', 4);
+		assert.strictEqual(results.length, 4, '只有单来源时仍应填满 topK');
+	});
+
+	it('TOC 摘要节点可被检索（期 2 最小版）', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('t#0', 't', '第一章 链表', ['链表'], '链表'),
+			makeChunk('t#1', 't', '第二章 栈与队列', ['栈'], '栈与队列'),
+			makeChunk('t#2', 't', '第三章 排序', ['排序'], '排序'),
+		]);
+		const results = retrieveCoursewareChunks(graph, '目录', 4);
+		assert.ok(results.length > 0);
+		assert.ok(results[0].chunkId.endsWith('#toc'), '目录查询应首先命中 TOC 节点');
+	});
+});

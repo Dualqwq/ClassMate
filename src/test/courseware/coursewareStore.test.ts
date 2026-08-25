@@ -176,4 +176,16 @@ describe('课件图版本迁移（期 1：version<2 丢弃旧图并提示重建�
 		assert.strictEqual(graph.nodes.length, 0);
 		assert.notStrictEqual(graph.needsRebuild, true);
 	});
+
+	it('期 2 version bump：version=2 旧结构图加载时同样被丢弃并提示重建', async () => {
+		const context = makeFakeContext(newTempRoot());
+		const prep = new CoursewareStore(context);
+		await prep.saveGraph({ ...makeGraph('src-v2'), version: 2 });
+
+		const service = new CoursewareService(context);
+		const graph = await service.loadGraph();
+		assert.strictEqual(graph.nodes.length, 0);
+		assert.strictEqual(graph.needsRebuild, true);
+		assert.deepStrictEqual(await service.retrieve('二叉树'), []);
+	});
 });

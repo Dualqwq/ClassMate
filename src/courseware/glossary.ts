@@ -34,7 +34,7 @@ export const COURSEWARE_GLOSSARY: readonly string[] = [
 	'等价关系', '等价类', '偏序', '偏序集', '全序', '哈斯图', '划分',
 	// —— 程设 / OOP 基础 ——
 	'链表', 'linked list', '数组', 'array', '栈', 'stack', '队列', 'queue',
-	'哈希表', '散列表', 'hash table', '二分查找', '排序算法', '快速排序', '归并排序',
+	'哈希表', '散列表', 'hash table', '二分查找', 'binary search', '排序算法', '快速排序', '归并排序',
 	'指针', 'pointer', '引用', 'reference', '结构体', 'struct',
 	'构造函数', '析构函数', 'constructor', 'destructor',
 	'封装', '继承', '多态', '重载', '运算符重载', '虚函数', '纯虚函数', '抽象类',
@@ -42,4 +42,48 @@ export const COURSEWARE_GLOSSARY: readonly string[] = [
 	'深拷贝', '浅拷贝', 'deep copy', 'shallow copy',
 	'模板', 'template', '泛型编程', 'stl', '迭代器', 'iterator',
 	'递归', 'recursion', '迭代', '死循环', '无限循环', 'infinite loop',
+];
+
+/**
+ * 中英术语别名组（期 2 检索层 D7）：查询命中组内任一词时扩展为全组成员，
+ * 让英文提问能命中中文课件、反之亦然。组员必须都出现在 COURSEWARE_GLOSSARY 中，
+ * 保证索引侧与查询侧的词面一致。
+ */
+export const COURSEWARE_TERM_ALIASES: readonly (readonly string[])[] = [
+	['二叉树', 'binary tree'],
+	['最小生成树', '最短树', 'minimum spanning tree', 'mst'],
+	['生成树', 'spanning tree'],
+	['哈夫曼树', 'huffman'],
+	['哈夫曼编码', 'huffman coding'],
+	['树的遍历', 'traversal'],
+	['邻接矩阵', 'adjacency matrix'],
+	['关联矩阵', 'incidence matrix'],
+	['欧拉回路', 'eulerian'],
+	['哈密顿回路', 'hamiltonian'],
+	['旅行商', '货郎担', 'tsp', 'traveling salesman'],
+	['最短路径', 'shortest path', 'dijkstra'],
+	['深度优先', 'dfs'],
+	['广度优先', 'bfs'],
+	['链表', 'linked list'],
+	['数组', 'array'],
+	['栈', 'stack'],
+	['队列', 'queue'],
+	['哈希表', '散列表', 'hash table'],
+	['二分查找', 'binary search'],
+	['指针', 'pointer'],
+	['引用', 'reference'],
+	['结构体', 'struct'],
+	['构造函数', 'constructor'],
+	['析构函数', 'destructor'],
+	['封装', 'encapsulation'],
+	['继承', 'inheritance'],
+	['多态', 'polymorphism'],
+	['重载', 'overloading'],
+	['运算符重载', 'overloading'],
+	['虚函数', 'virtual function'],
+	['抽象类', 'abstract class'],
+	['深拷贝', 'deep copy'],
+	['浅拷贝', 'shallow copy'],
+	['递归', 'recursion'],
+	['死循环', '无限循环', 'infinite loop'],
 ];

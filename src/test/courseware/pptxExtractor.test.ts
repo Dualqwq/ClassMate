@@ -6,7 +6,7 @@ import * as fs from 'fs';
 import * as vscode from 'vscode';
 import { describe, it, after } from 'mocha';
 import { parsePptxSlides, parsePptxSlideUnits, extractPptxBuffer } from '../../courseware/pptxExtractor';
-import { extractAndChunkCourseware } from '../../courseware/coursewareChunker';
+import { extractAndChunkCourseware, extractCoursewareDocument } from '../../courseware/coursewareChunker';
 
 // ---- 合成 pptx fixture：手工构造最小 zip（store / deflate 两种压缩方式）----
 
@@ -196,5 +196,26 @@ describe('courseware pptx extractor', () => {
 		assert.ok(chunks.every((chunk) => chunk.pageStart === chunk.pageEnd));
 		assert.deepStrictEqual(chunks.map((chunk) => chunk.unitLabel), ['slide 1', 'slide 2']);
 		assert.strictEqual(chunks[0].title, '二叉树的定义');
+	});
+
+	it('期 2：extractCoursewareDocument 返回真实 slide 总数，尾部纯图 slide 不再低估 pageCount', async function () {
+		this.timeout(20000);
+		// slide2 无任何文本（纯图页）：不产 chunk，但 page 计数必须仍为 2。
+		const buffer = buildZip([
+			{ name: 'ppt/slides/slide1.xml', data: Buffer.from(slideXml(['链表的定义']), 'utf8'), deflate: true },
+			{ name: 'ppt/slides/slide2.xml', data: Buffer.from('<p:sld><p:spTree/></p:sld>', 'utf8'), deflate: true },
+		]);
+		const filePath = path.join(os.tmpdir(), `classmate-pptx-pagecount-${Date.now()}.pptx`);
+		fs.writeFileSync(filePath, buffer);
+		tempFiles.push(filePath);
+
+		const { chunks, pageCount } = await extractCoursewareDocument(
+			'pagecount-src',
+			'fixture.pptx',
+			vscode.Uri.file(filePath),
+			{}
+		);
+		assert.strictEqual(pageCount, 2, 'pageCount 取解析层 slide 总数而非最后一块的页号');
+		assert.ok(chunks.every((chunk) => chunk.pageEnd <= 1), '纯图 slide 不产 chunk');
 	});
 });

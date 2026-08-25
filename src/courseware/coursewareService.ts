@@ -1,11 +1,10 @@
 import * as vscode from 'vscode';
-import type { CoursewareGraph, CoursewareItem, CoursewareRetrievalResult, CoursewareServiceConfig } from './types';
+import type { CoursewareChunk, CoursewareGraph, CoursewareItem, CoursewareRetrievalResult, CoursewareServiceConfig } from './types';
 import { CoursewareStore } from './coursewareStore';
-import { extractAndChunkCourseware } from './coursewareChunker';
+import { extractCoursewareDocument } from './coursewareChunker';
 import { buildCoursewareGraph, mergeGraphs } from './graphBuilder';
-import { formatRetrievalResults, retrieveCoursewareChunks } from './retriever';
-
-export { formatRetrievalResults };
+import { retrieveCoursewareChunks } from './retriever';
+import { formatCoursewareContext } from './coursewarePromptInjector';
 
 export class CoursewareService {
 	private readonly _store: CoursewareStore;
@@ -41,11 +40,10 @@ export class CoursewareService {
 	public async importPdf(uri: vscode.Uri): Promise<CoursewareItem> {
 		const fileName = uri.path.split('/').pop() ?? uri.toString();
 		const sourceId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-		const chunks = await extractAndChunkCourseware(sourceId, fileName, uri, {
+		const { chunks, pageCount } = await extractCoursewareDocument(sourceId, fileName, uri, {
 			chunkSize: this._config.chunkSize,
 			chunkOverlap: this._config.chunkOverlap,
 		});
-		const pageCount = chunks.length > 0 ? chunks[chunks.length - 1].pageEnd : 0;
 		const item: CoursewareItem = {
 			id: sourceId,
 			fileName,
@@ -75,11 +73,11 @@ export class CoursewareService {
 
 	public async rebuildGraphFromItems(progress?: (message: string) => void): Promise<CoursewareGraph> {
 		const items = this._store.getItems();
-		let allChunks: Awaited<ReturnType<typeof extractAndChunkCourseware>> = [];
+		let allChunks: CoursewareChunk[] = [];
 		for (const item of items) {
 			try {
 				progress?.(`正在解析: ${item.fileName}`);
-				const chunks = await extractAndChunkCourseware(item.id, item.fileName, vscode.Uri.parse(item.uri), {
+				const { chunks } = await extractCoursewareDocument(item.id, item.fileName, vscode.Uri.parse(item.uri), {
 					chunkSize: this._config.chunkSize,
 					chunkOverlap: this._config.chunkOverlap,
 				});
@@ -100,7 +98,13 @@ export class CoursewareService {
 		return retrieveCoursewareChunks(graph, query, topK ?? this._config.topK);
 	}
 
-	public async retrieveFormatted(query: string, topK?: number): Promise<string> {
-		return formatRetrievalResults(await this.retrieve(query, topK));
+	/**
+	 * 检索并按注入层形态格式化（D8：定位头 + 预算，空命中返回 ''）。
+	 * @param previousUserText 多轮对话时传入上一轮提问（开放问题 §4.1② 拍板：
+	 * query 并入上一轮 userText 再检索，缓解指代省略导致的检索漂移）。
+	 */
+	public async retrieveFormatted(query: string, topK?: number, previousUserText?: string): Promise<string> {
+		const merged = previousUserText?.trim() ? `${previousUserText.trim()}\n${query}` : query;
+		return formatCoursewareContext(await this.retrieve(merged, topK));
 	}
 }

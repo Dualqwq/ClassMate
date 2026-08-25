@@ -1,4 +1,4 @@
-import { COURSEWARE_GLOSSARY } from './glossary';
+import { COURSEWARE_GLOSSARY, COURSEWARE_TERM_ALIASES } from './glossary';
 
 /**
  * 统一分词器（设计文档 §5.1）：
@@ -90,6 +90,26 @@ export function extractWeightedKeywords(title: string | undefined, body: string,
 		.sort((a, b) => b[1] - a[1] || tokens.indexOf(a[0]) - tokens.indexOf(b[0]))
 		.slice(0, limit)
 		.map(([token]) => token);
+}
+
+/**
+ * 查询侧词条抽取（期 2 检索层 D7）：与索引侧共用同一分词器，
+ * 废除旧的 2–6 字 n-gram 爆炸；命中别名组的中英术语扩展为全组成员
+ * （英文提问可命中中文课件、反之亦然）。返回去重后的查询词集。
+ */
+export function extractQueryTerms(query: string): string[] {
+	const base = new Set(tokenize(query));
+	const expanded = new Set(base);
+	for (const token of base) {
+		for (const group of COURSEWARE_TERM_ALIASES) {
+			if (group.includes(token)) {
+				for (const alias of group) {
+					expanded.add(alias);
+				}
+			}
+		}
+	}
+	return [...expanded];
 }
 
 function matchGlossarySpans(text: string): GlossarySpan[] {

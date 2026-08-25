@@ -1,19 +1,58 @@
 import type { CoursewareEdge, CoursewareGraph, CoursewareRetrievalResult } from './types';
+import { extractQueryTerms } from './tokenizer';
 
 /** 内容命中计分次数上限：出现更多次不再加分，避免长 chunk 垄断排序。 */
 const MAX_CONTENT_HITS_SCORED = 5;
 
-/** 单字 CJK 查询项的停用字（与 extractKeywords 的中文停用词一致）：高频虚字不参与匹配。 */
-const SINGLE_CJK_STOP_WORDS = new Set([
-	'的', '了', '是', '在', '和', '与', '或', '等', '对', '为', '有', '被', '将', '从', '到',
-]);
+/**
+ * top-k 按来源课件分散（D6）：单个课件最多占 ⌈topK/2⌉ 席，
+ * 仅当其他课件的候选耗尽时才允许超额补位。
+ */
+function maxPerSource(topK: number): number {
+	return Math.max(1, Math.ceil(topK / 2));
+}
+
+/**
+ * 贪心分散选择：按分数降序遍历候选；某课件已占满 ⌈topK/2⌉ 席时先跳过，
+ * 若直到末尾仍凑不满 topK 再允许超额课件回填补位（保证小图不缺结果）。
+ */
+function selectDispersedTopK(
+	candidates: CoursewareRetrievalResult[],
+	topK: number
+): CoursewareRetrievalResult[] {
+	const cap = maxPerSource(topK);
+	const perSource = new Map<string, number>();
+	const picked: CoursewareRetrievalResult[] = [];
+	const deferred: CoursewareRetrievalResult[] = [];
+	for (const candidate of candidates) {
+		if (picked.length >= topK) {
+			break;
+		}
+		const count = perSource.get(candidate.sourceId) ?? 0;
+		if (count >= cap) {
+			deferred.push(candidate);
+			continue;
+		}
+		perSource.set(candidate.sourceId, count + 1);
+		picked.push(candidate);
+	}
+	for (const candidate of deferred) {
+		if (picked.length >= topK) {
+			break;
+		}
+		picked.push(candidate);
+	}
+	return picked;
+}
 
 /**
  * 基于查询关键词与图传播进行简单 RAG 检索。
  * 步骤：
- * 1. 关键词匹配得到初始节点；
- * 2. 沿边传播一次（权重衰减），聚合邻居得分；
- * 3. 返回 topK 片段。
+ * 1. 查询侧统一分词（与索引侧同一套 tokenizer，含中英别名扩展，D7）；
+ * 2. 关键词匹配得到初始节点；
+ * 3. 沿边传播一次（权重衰减）聚合邻居得分；same-source 边不参与传播
+ *    （D6：退出排序评分、仅保留遍历用途，top-4 同课件扎堆的根源）；
+ * 4. 排序后按来源课件分散取 topK。
  */
 export function retrieveCoursewareChunks(
 	graph: CoursewareGraph,
@@ -45,7 +84,7 @@ export function retrieveCoursewareChunks(
 		}
 	}
 
-	// 图传播一次
+	// 图传播一次（same-source 边退出评分）
 	const adjacency = buildAdjacency(graph.edges);
 	const propagated = new Map<string, number>(scores);
 	for (const [chunkId, score] of scores) {
@@ -56,7 +95,7 @@ export function retrieveCoursewareChunks(
 	}
 
 	const nodeById = new Map(graph.nodes.map((node) => [node.chunkId, node]));
-	return [...propagated.entries()]
+	const ranked = [...propagated.entries()]
 		.map(([chunkId, score]): CoursewareRetrievalResult | undefined => {
 			const node = nodeById.get(chunkId);
 			if (!node) {
@@ -76,31 +115,11 @@ export function retrieveCoursewareChunks(
 			};
 		})
 		.filter((item): item is CoursewareRetrievalResult => item !== undefined)
-		.sort((a, b) => b.score - a.score)
-		.slice(0, topK);
-}
-
-function extractQueryTerms(query: string): string[] {
-	const terms = new Set<string>();
-	for (const match of query.toLowerCase().matchAll(/[a-z0-9_]{2,24}/g)) {
-		terms.add(match[0]);
+		.sort((a, b) => b.score - a.score);
+	if (ranked.length <= topK) {
+		return ranked;
 	}
-	const cjk = query.replace(/[^\u4e00-\u9fa5]/g, '');
-	// 单个 CJK 字符也是有效查询项：中文术语常为单字（树/图/环），
-	// 若只生成 2–6 字 n-gram，单字查询会得到空词集并直接返回空结果。
-	// 高频虚字除外——整句提问时它们几乎处处命中，只会稀释相关性。
-	for (const char of cjk) {
-		if (!SINGLE_CJK_STOP_WORDS.has(char)) {
-			terms.add(char);
-		}
-	}
-	// 相邻字组合成 2–6 字 n-gram，覆盖多字术语（二叉树、最短路径等）。
-	for (let i = 0; i < cjk.length - 1; i++) {
-		for (let len = 2; len <= 6 && i + len <= cjk.length; len++) {
-			terms.add(cjk.slice(i, i + len));
-		}
-	}
-	return [...terms].filter((term) => term.length >= 1);
+	return selectDispersedTopK(ranked, topK);
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -119,6 +138,10 @@ function countOccurrences(haystack: string, needle: string): number {
 function buildAdjacency(edges: CoursewareEdge[]): Map<string, Array<{ to: string; weight: number }>> {
 	const map = new Map<string, Array<{ to: string; weight: number }>>();
 	for (const edge of edges) {
+		// D6：same-source 边仅保留遍历用途，不参与排序传播
+		if (edge.reason === 'same-source') {
+			continue;
+		}
 		const list = map.get(edge.from) ?? [];
 		list.push({ to: edge.to, weight: edge.weight });
 		map.set(edge.from, list);
@@ -130,7 +153,8 @@ function buildAdjacency(edges: CoursewareEdge[]): Map<string, Array<{ to: string
 }
 
 /**
- * 把检索结果渲染为 prompt 块。
+ * 把检索结果渲染为 prompt 块（管理页调试等旧路径仍用；
+ * 注入给模型的形态由 coursewarePromptInjector 统一实现预算与定位头）。
  */
 export function formatRetrievalResults(results: CoursewareRetrievalResult[]): string {
 	if (results.length === 0) {
