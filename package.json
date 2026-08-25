@@ -46,9 +46,7 @@
     "onCommand:classmate.exportDebugNotebook",
     "onCommand:classmate.exportConversationDiagnostics",
     "onCommand:classmate.setupApiKey",
-    "onCommand:classmate.showBrowserExtensionImportStatus",
-    "onCommand:classmate.openCoursewarePanel",
-    "onCommand:classmate.exportCoursewareGraph"
+    "onCommand:classmate.showBrowserExtensionImportStatus"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -76,17 +74,6 @@
         "title": "Open Run Panel",
         "category": "ClassMate",
         "icon": "$(run)"
-      },
-      {
-        "command": "classmate.openCoursewarePanel",
-        "title": "Open Courseware",
-        "category": "ClassMate",
-        "icon": "$(book)"
-      },
-      {
-        "command": "classmate.exportCoursewareGraph",
-        "title": "Export Courseware Graph",
-        "category": "ClassMate"
       },
       {
         "command": "classmate.explainSelection",
@@ -318,11 +305,6 @@
         {
           "command": "classmate.openChatPanel",
           "group": "navigation@1",
-          "when": "view == classmate.chatView"
-        },
-        {
-          "command": "classmate.openCoursewarePanel",
-          "group": "navigation@2",
           "when": "view == classmate.chatView"
         },
         {

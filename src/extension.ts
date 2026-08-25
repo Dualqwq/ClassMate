@@ -6,11 +6,8 @@ import { spawnSync } from 'child_process';
 import * as path from 'path';
 import { ChatPanel } from './ui/ChatPanel';
 import { RunPanel } from './ui/RunPanel';
-import { CoursewarePanel } from './ui/CoursewarePanel';
 import { openJourneyPanel } from './ui/JourneyPanel';
 import { RunService } from './run/runService';
-import { CoursewareService } from './courseware/coursewareService';
-import { openCoursewareChunkSource, showCoursewareSourceOutcome } from './courseware/coursewareSourceOpener';
 import { JourneyService } from './journey/journeyService';
 import { ChatViewProvider } from './ui/ChatViewProvider';
 import { CHAT_CONTAINER_CONTEXT_KEY, nextChatContainer, toVisibleContainer, type ChatContainer } from './ui/chatContainer';
@@ -1034,7 +1031,6 @@ export async function activate(
 	chatSession.setPromptBuilder(promptBuilder);
 	const skillContentLoader = new SkillContentLoader(skillDir);
 	const problemCardIndexLoader = new ProblemCardIndexLoader(skillContentLoader);
-	const coursewareService = new CoursewareService(context);
 	chatSession.setGraphServices({
 		workspaceProvider,
 		// Tree-sitter wasm 定位基准:VSIX/F5 布局下优先 dist/wasm。
@@ -1046,7 +1042,6 @@ export async function activate(
 		problemCardIndexLoader,
 		problemCardExtractor: new ProblemCardExtractor(skillContentLoader),
 		problemCardFactsLoader: new ProblemCardFactsLoader(skillContentLoader),
-		coursewareService,
 		journeyDigestProvider: async ({ activeFilePath }) => {
 			const enabled = vscode.workspace.getConfiguration('classmate')
 				.get<boolean>('journeyDigest.enabled', true);
@@ -1061,11 +1056,6 @@ export async function activate(
 		},
 	});
 	profiler.mark('graph-services-ready');
-
-	// 溯源打开（期 1.5）：chat 侧课件片段点击与管理页共用同一打开逻辑与提示文案。
-	chatSession.setCoursewareSourceHandler((chunkId: string) => {
-		void openCoursewareChunkSource(coursewareService, chunkId).then(showCoursewareSourceOutcome);
-	});
 
 	// Register the sidebar WebviewView provider.
 	const chatViewProvider = createChatViewProvider(chatSession, context.extensionUri);
@@ -1237,39 +1227,6 @@ export async function activate(
 			id: 'classmate.openRunPanel',
 			handler: () => {
 				RunPanel.createOrShow(context.extensionUri, runService);
-			},
-		},
-		{
-			id: 'classmate.openCoursewarePanel',
-			handler: () => {
-				CoursewarePanel.createOrShow(context.extensionUri, coursewareService);
-			},
-		},
-		{
-			id: 'classmate.exportCoursewareGraph',
-			handler: async () => {
-				const graph = await coursewareService.loadGraph();
-				if (graph.nodes.length === 0) {
-					void vscode.window.showWarningMessage(
-						'尚未构建课件搜索图：请先在课件管理页导入课件并点击「重建搜索图」。'
-					);
-					return;
-				}
-				const defaultUri = vscode.workspace.workspaceFolders?.[0]
-					? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, 'classmate-courseware-graph.json')
-					: vscode.Uri.file('classmate-courseware-graph.json');
-				const target = await vscode.window.showSaveDialog({
-					title: '导出课件搜索图文件',
-					defaultUri,
-					filters: { JSON: ['json'] },
-				});
-				if (!target) {
-					return;
-				}
-				await vscode.workspace.fs.writeFile(target, Buffer.from(JSON.stringify(graph, null, 2), 'utf8'));
-				void vscode.window.showInformationMessage(
-					`已导出课件搜索图（${graph.nodes.length} 节点 / ${graph.edges.length} 边）：${target.fsPath}`
-				);
 			},
 		},
 		{
