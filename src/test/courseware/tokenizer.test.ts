@@ -1,13 +1,14 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
 import { tokenize, extractWeightedKeywords, extractQueryTerms } from '../../courseware/tokenizer';
-import { COURSEWARE_GLOSSARY } from '../../courseware/glossary';
+import { COURSEWARE_GLOSSARY, COURSEWARE_TERM_ALIASES } from '../../courseware/glossary';
 
 /** 任务要求必须覆盖的测试课件概念。 */
 const REQUIRED_GLOSSARY_TERMS = [
 	'二叉树', '哈夫曼树', '最短树', '最小生成树', 'mst',
 	'邻接矩阵', '道路', '回路', '割集',
 	'群', '循环群', '子群', '生成元',
+	'树', 'tree', '环', 'cycle', '图', 'graph', '结点', '节点', 'node',
 ];
 
 describe('统一分词器（设计 §5.1）', () => {
@@ -16,6 +17,11 @@ describe('统一分词器（设计 §5.1）', () => {
 		for (const term of REQUIRED_GLOSSARY_TERMS) {
 			assert.ok(COURSEWARE_GLOSSARY.includes(term), `术语表缺少 ${term}`);
 			assert.strictEqual(term, term.toLowerCase());
+		}
+		for (const group of COURSEWARE_TERM_ALIASES) {
+			for (const alias of group) {
+				assert.ok(COURSEWARE_GLOSSARY.includes(alias), `别名未进入术语表：${alias}`);
+			}
 		}
 	});
 
@@ -61,6 +67,53 @@ describe('期 2 查询侧统一分词（extractQueryTerms）', () => {
 		assert.ok(terms.includes('死循环'));
 		assert.ok(terms.includes('infinite loop'), '中文查询扩展出英文别名');
 		assert.ok(!terms.includes('什么'), '提问词停用');
+	});
+
+	it('基础术语双向扩展：Tree/Cycle 与树/环/回路互通', () => {
+		const treeFromEnglish = extractQueryTerms('What is a Tree?');
+		assert.ok(treeFromEnglish.includes('tree'));
+		assert.ok(treeFromEnglish.includes('树'));
+		const treeFromChinese = extractQueryTerms('树是什么');
+		assert.ok(treeFromChinese.includes('tree'));
+
+		const cycleFromEnglish = extractQueryTerms('How do I find a Cycle?');
+		assert.ok(cycleFromEnglish.includes('cycle'));
+		assert.ok(cycleFromEnglish.includes('环'));
+		assert.ok(cycleFromEnglish.includes('回路'));
+		assert.ok(extractQueryTerms('环怎么判断').includes('cycle'));
+		assert.ok(extractQueryTerms('回路怎么判断').includes('cycle'));
+	});
+
+	it('真实课件基础术语双向扩展：Graph/Node 与图/结点/节点互通', () => {
+		const graphFromEnglish = extractQueryTerms('Graph basics');
+		assert.ok(graphFromEnglish.includes('图'));
+		assert.ok(extractQueryTerms('图的定义').includes('graph'));
+
+		const nodeFromEnglish = extractQueryTerms('What is a Node?');
+		assert.ok(nodeFromEnglish.includes('结点'));
+		assert.ok(nodeFromEnglish.includes('节点'));
+		assert.ok(extractQueryTerms('结点和节点').includes('node'));
+	});
+
+	it('最长复合词边界：binary tree/cyclic group/死循环/loop 不串入基础别名组', () => {
+		const binaryTree = extractQueryTerms('binary tree');
+		assert.ok(binaryTree.includes('二叉树'));
+		assert.ok(!binaryTree.includes('tree') && !binaryTree.includes('树'));
+
+		const cyclicGroup = extractQueryTerms('cyclic group');
+		assert.ok(cyclicGroup.includes('cyclic group'));
+		assert.ok(!cyclicGroup.includes('cycle'));
+		assert.ok(!cyclicGroup.includes('环') && !cyclicGroup.includes('回路'));
+
+		const infiniteLoop = extractQueryTerms('死循环');
+		assert.ok(infiniteLoop.includes('infinite loop'));
+		assert.ok(!infiniteLoop.includes('cycle'));
+		assert.ok(!infiniteLoop.includes('环') && !infiniteLoop.includes('回路'));
+
+		const loop = extractQueryTerms('loop');
+		assert.ok(loop.includes('loop'));
+		assert.ok(!loop.includes('cycle'));
+		assert.ok(!loop.includes('环') && !loop.includes('回路'));
 	});
 
 	it('废除 n-gram：查询词集不含相邻字组合碎片', () => {

@@ -8,12 +8,14 @@
  */
 export const COURSEWARE_GLOSSARY: readonly string[] = [
 	// —— 树与二叉树 ——
+	'树', 'tree',
 	'二叉树', '满二叉树', '完全二叉树', '平衡二叉树', '二叉搜索树', '二叉查找树',
 	'哈夫曼树', '哈夫曼编码', '最优树', '最优二叉树', '前缀码', '前缀编码',
 	'树的遍历', '先序遍历', '中序遍历', '后序遍历', '层次遍历', '遍历',
 	'根树', '有序树', '树的计数', '支撑树', '生成树', '最小生成树', '最短树',
 	'spanning tree', 'minimum spanning tree', 'mst', 'huffman', 'huffman coding', 'binary tree', 'traversal',
 	// —— 图论 ——
+	'图', 'graph', '结点', '节点', 'node', '环', 'cycle',
 	'无向图', '有向图', '完全图', '连通图', '强连通', '邻接矩阵', '关联矩阵', '邻接表',
 	'adjacency matrix', 'incidence matrix',
 	'入度', '出度', '割集', '割点', '基本割集', '道路', '回路', '路径', '简单道路', '简单回路',
@@ -51,6 +53,10 @@ export const COURSEWARE_GLOSSARY: readonly string[] = [
  */
 export const COURSEWARE_TERM_ALIASES: readonly (readonly string[])[] = [
 	['二叉树', 'binary tree'],
+	['树', 'tree'],
+	['环', '回路', 'cycle'],
+	['图', 'graph'],
+	['结点', '节点', 'node'],
 	['最小生成树', '最短树', 'minimum spanning tree', 'mst'],
 	['生成树', 'spanning tree'],
 	['哈夫曼树', 'huffman'],

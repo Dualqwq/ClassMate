@@ -114,6 +114,34 @@ describe('期 2 检索层（D6/D7）：查询统一分词 / same-source 退出�
 		assert.strictEqual(results[0].chunkId, 'mst#0');
 	});
 
+	it('基础英文别名命中中文课件：Tree/Cycle/Graph/Node', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('tree-basic#0', 'tree-basic', '树是一类连通且没有回路的图。', ['树']),
+			makeChunk('cycle-basic#0', 'cycle-basic', '回路是从起点出发又返回起点的道路。', ['回路']),
+			makeChunk('graph-basic#0', 'graph-basic', '图由结点和边组成。', ['图', '结点']),
+		]);
+
+		assert.strictEqual(retrieveCoursewareChunks(graph, 'Tree', 4)[0]?.chunkId, 'tree-basic#0');
+		assert.strictEqual(retrieveCoursewareChunks(graph, 'Cycle', 4)[0]?.chunkId, 'cycle-basic#0');
+		assert.strictEqual(retrieveCoursewareChunks(graph, 'Graph', 4)[0]?.chunkId, 'graph-basic#0');
+		assert.strictEqual(retrieveCoursewareChunks(graph, 'Node', 4)[0]?.chunkId, 'graph-basic#0');
+	});
+
+	it('Cycle 的真实回路片段排在循环群/死循环的单字弱命中之前', () => {
+		const graph = buildCoursewareGraph([
+			makeChunk('cycle#0', 'cycle', '回路是从起点出发又返回起点的道路。', ['回路']),
+			makeChunk('cyclic-group#0', 'cyclic-group', '循环群由一个生成元生成。', ['循环群']),
+			makeChunk('infinite-loop#0', 'infinite-loop', '死循环会让程序无法结束。', ['死循环']),
+		]);
+
+		const results = retrieveCoursewareChunks(graph, 'Cycle', 4);
+		assert.strictEqual(results[0]?.chunkId, 'cycle#0');
+		for (const weakMatch of ['cyclic-group#0', 'infinite-loop#0']) {
+			const index = results.findIndex((result) => result.chunkId === weakMatch);
+			assert.ok(index === -1 || index > 0, `${weakMatch} 不得排在真实回路片段之前`);
+		}
+	});
+
 	it('查询侧不再产生 n-gram 碎片词', () => {
 		const graph = buildCoursewareGraph([
 			makeChunk('noise#0', 'noise', '完全无关的内容。', ['无关']),
