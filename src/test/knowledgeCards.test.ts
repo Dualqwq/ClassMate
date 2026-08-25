@@ -373,6 +373,31 @@ describe('knowledge cards', () => {
             { message: "invalid conversion from 'int' to 'char'", expectedTag: 'type_conversion' },
             { message: "narrowing conversion of 'x' from 'int' to 'char'", expectedTag: 'type_conversion' },
             { message: 'unresolved external symbol "void __cdecl f(void)"', expectedTag: 'undefined_reference' },
+            // P4 新增 MSVC 文案变体(每条新增正则至少一条 stderr 样本):
+            // C2065
+            { message: "'cout': undeclared identifier", expectedTag: 'undeclared_identifier' },
+            // C2143
+            { message: "syntax error: missing ';' before '}'", expectedTag: 'missing_semicolon' },
+            // C4244
+            { message: "'initializing': conversion from 'double' to 'int', possible loss of data", expectedTag: 'type_conversion' },
+            // LNK2019 完整形态(P0 已有 unresolved external symbol,此处补全链路形态)
+            { message: 'main.obj : error LNK2019: unresolved external symbol "void __cdecl foo(void)" (?foo@@YAXXZ) referenced in function _main', expectedTag: 'undefined_reference' },
+            // LNK2001 完整形态
+            { message: 'a.obj : error LNK2001: unresolved external symbol "int __cdecl bar(int)" (?bar@@YAHH@Z)', expectedTag: 'undefined_reference' },
+            // LNK2005
+            { message: '_foo already defined in main.obj', expectedTag: 'multiple_definition' },
+            // LNK1104
+            { message: "fatal error LNK1104: cannot open file 'kernel32.lib'", expectedTag: 'missing_library' },
+            // C1083 完整形态
+            { message: "fatal error C1083: Cannot open include file: 'myheader.h': No such file or directory", expectedTag: 'missing_header' },
+            // C2668
+            { message: "'f': ambiguous call to overloaded function", expectedTag: 'overload_ambiguous' },
+            // C2106
+            { message: "'=': left operand must be l-value", expectedTag: 'lvalue_required' },
+            // C4716
+            { message: "'test': must return a value", expectedTag: 'control_flow_return' },
+            // C2227
+            { message: "left of '->member' must point to class/struct/union/generic type", expectedTag: 'pointer_dereference_mismatch' },
         ];
 
         for (const c of cases) {

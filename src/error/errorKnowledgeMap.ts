@@ -387,13 +387,15 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
 
 const ERROR_PATTERNS: PatternEntry[] = [
     {
-        pattern: /expected\s+['\"`;]?['\"`]?;['\"`]?\s+(before|after|at)|expected\s+\w+\s+before\s+['\"`]?;['\"`]?\s*token/,
+        // MSVC C2143: syntax error: missing ';' before 'x'
+        pattern: /expected\s+['\"`;]?['\"`]?;['\"`]?\s+(before|after|at)|expected\s+\w+\s+before\s+['\"`]?;['\"`]?\s*token|missing\s+['\"`;]?;['\"`]?\s+before/,
         tag: 'missing_semicolon',
         message: '可能缺少分号、右括号或语句结束符',
         concept: CONCEPTS.missing_semicolon,
     },
     {
-        pattern: /was not declared in this scope|use of undeclared identifier/,
+        // MSVC C2065: 'x': undeclared identifier
+        pattern: /was not declared in this scope|use of undeclared identifier|undeclared identifier/,
         tag: 'undeclared_identifier',
         message: '使用了未声明的变量、函数或类型',
         concept: CONCEPTS.undeclared_identifier,
@@ -405,7 +407,8 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.function_call_mismatch,
     },
     {
-        pattern: /cannot convert|invalid conversion|narrowing conversion/,
+        // MSVC C4244/C4305: conversion from 'x' to 'y', possible loss of data
+        pattern: /cannot convert|invalid conversion|narrowing conversion|possible loss of data/,
         tag: 'type_conversion',
         message: '类型转换失败或不允许',
         concept: CONCEPTS.type_conversion,
@@ -417,7 +420,8 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.undefined_reference,
     },
     {
-        pattern: /multiple definition of/,
+        // MSVC LNK2005: symbol already defined in object
+        pattern: /multiple definition of|already defined in/,
         tag: 'multiple_definition',
         message: '同一个符号被重复定义',
         concept: CONCEPTS.multiple_definition,
@@ -447,13 +451,16 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.syntax_punctuation,
     },
     {
-        pattern: /cannot find -l/,
+        // MSVC LNK1104: cannot open file 'xxx.lib'
+        pattern: /cannot find -l|cannot open file.*\.lib/,
         tag: 'missing_library',
         message: '找不到链接库',
         concept: CONCEPTS.missing_library,
     },
     {
-        pattern: /no such file or directory|'[^']*'\s+file not found/i,
+        // MSVC C1083 变体: Cannot open include file/source file 'xxx': No such file or directory;
+        // Clang 无定位形态: fatal error: 'xxx' file not found (P2)
+        pattern: /no such file or directory|cannot open include file|cannot open source file|'[^']*'\s+file not found/i,
         tag: 'missing_header',
         message: '找不到头文件或源文件',
         concept: CONCEPTS.missing_header,
@@ -477,7 +484,8 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.operator_operand_mismatch,
     },
     {
-        pattern: /lvalue required/,
+        // MSVC C2106: '=': left operand must be l-value
+        pattern: /lvalue required|left operand must be l-value/,
         tag: 'lvalue_required',
         message: '赋值号左边必须是可修改的左值',
         concept: CONCEPTS.lvalue_required,
@@ -489,19 +497,21 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.array_out_of_bounds,
     },
     {
-        pattern: /is ambiguous|candidate expects|too many arguments|too few arguments/,
+        pattern: /is ambiguous|candidate expects|too many arguments|too few arguments|ambiguous call to overloaded function/,
         tag: 'overload_ambiguous',
         message: '重载调用歧义',
         concept: CONCEPTS.overload_ambiguous,
     },
     {
-        pattern: /control reaches end of non-void function|not all control paths return a value/,
+        // MSVC C4716: 'f': must return a value
+        pattern: /control reaches end of non-void function|not all control paths return a value|must return a value/,
         tag: 'control_flow_return',
         message: '非 void 函数缺少返回值',
         concept: CONCEPTS.control_flow_return,
     },
     {
-        pattern: /base operand of '->'|request for member .* which is of non-class type|invalid types .* for array subscript/,
+        // MSVC C2227: left of '->member' must point to class/struct/union/generic type
+        pattern: /base operand of '->'|request for member .* which is of non-class type|invalid types .* for array subscript|must point to class\/struct\/union/,
         tag: 'pointer_dereference_mismatch',
         message: '指针解引用方式错误（. 与 -> 混淆）',
         concept: CONCEPTS.pointer_dereference_mismatch,
@@ -509,7 +519,7 @@ const ERROR_PATTERNS: PatternEntry[] = [
 ];
 
 /**
- * Match an English g++ error message against known knowledge tags.
+ * Match an English g++/MSVC error message against known knowledge tags.
  */
 export function matchErrorToKnowledge(message: string): KnowledgeMatch[] {
     const normalized = message.toLowerCase();
