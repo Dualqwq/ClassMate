@@ -351,6 +351,7 @@ describe('knowledge cards', () => {
             { message: 'expected identifier', expectedTag: 'syntax_punctuation' },
             { message: 'cannot find -lm', expectedTag: 'missing_library' },
             { message: 'no such file or directory', expectedTag: 'missing_header' },
+            { message: "'missing.h' file not found", expectedTag: 'missing_header' },
             // P0 新增 pattern 的 stderr 样本(每条新增正则至少一条):
             { message: "invalid operands of types 'int' and 'const char [2]' to binary 'operator<<'", expectedTag: 'operator_operand_mismatch' },
             { message: "invalid operands to binary expression ('int' and 'const char[4]')", expectedTag: 'operator_operand_mismatch' },

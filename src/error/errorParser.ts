@@ -97,6 +97,8 @@ function chooseDiagnosticCode(codes: string[]): string {
  * - C:\path\file.cpp:12:34: error: ... (Windows absolute paths)
  * - file.cpp:12:34: note: in file included from
  * - file.cpp:12:34: error: message [-Werror,-Wundefined-identifier]
+ * - file.cpp:2:10: fatal error: xxx.h: No such file or directory (GCC, with location)
+ * - fatal error: 'xxx' file not found (Clang, no location -> no file/line/column)
  * - file.cpp:12:34:{12:8-12:14}: error: ... (Clang source range)
  * - file.cpp(12,34): error: ... (MSVC format)
  * - file +12:34: error: ... (vi format)
@@ -154,13 +156,31 @@ export function extractErrorLocation(line: string): ParsedError | undefined {
 
     // Main diagnostic line. Be careful with Windows absolute paths like C:\dir\file.cpp:12:34:.
     // We split off the severity marker first to avoid mis-parsing the drive-letter colon.
-    const severityMarkerPattern = /:\s*(error|warning|note|remark):\s*/;
+    // "fatal" is accepted as a severity qualifier so GCC's location-bearing
+    // `file.cpp:2:10: fatal error: xxx.h: No such file or directory` parses
+    // through the same path (severity normalized to "error").
+    const severityMarkerPattern = /:\s*((?:fatal )?error|warning|note|remark):\s*/;
     const markerMatch = severityMarkerPattern.exec(trimmed);
     if (!markerMatch) {
+        // Special case: Clang reports missing headers without any file:line
+        // location, e.g. `fatal error: 'xxx.h' file not found`. Parse it so
+        // the diagnostic can reach the knowledge-card pipeline (missing_header).
+        // Other location-less fatal errors (e.g. "fatal error: no input files")
+        // are driver-level messages, still ignored as before.
+        const clangFatalMatch = /^fatal error:\s*'(.+?)'\s+file not found$/i.exec(trimmed);
+        if (clangFatalMatch) {
+            return {
+                raw: trimmed,
+                severity: 'error',
+                message: `'${clangFatalMatch[1]}' file not found`,
+            };
+        }
         return undefined;
     }
 
-    const severity = markerMatch[1] as 'error' | 'warning' | 'note' | 'remark';
+    const severity = (markerMatch[1] === 'fatal error'
+        ? 'error'
+        : markerMatch[1]) as 'error' | 'warning' | 'note' | 'remark';
     const prefix = trimmed.slice(0, markerMatch.index);
     const remainder = trimmed.slice(markerMatch.index + markerMatch[0].length);
 
@@ -228,7 +248,13 @@ export function extractFirstDiagnosticLine(text: string): string | undefined {
         }
 
         // Fast heuristic: a diagnostic line contains a severity marker.
-        if (/:\s*(error|warning|note|remark):\s*/.test(trimmed)) {
+        if (/:\s*(?:fatal )?(?:error|warning|note|remark):\s*/.test(trimmed)) {
+            return trimmed;
+        }
+
+        // Also accept location-less Clang fatal errors (e.g.
+        // `fatal error: 'xxx' file not found`).
+        if (/^fatal error:/i.test(trimmed)) {
             return trimmed;
         }
 

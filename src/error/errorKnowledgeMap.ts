@@ -453,7 +453,7 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.missing_library,
     },
     {
-        pattern: /no such file or directory/i,
+        pattern: /no such file or directory|'[^']*'\s+file not found/i,
         tag: 'missing_header',
         message: '找不到头文件或源文件',
         concept: CONCEPTS.missing_header,

@@ -144,16 +144,44 @@ describe('Error Parser', () => {
 		assert.strictEqual(parsed?.code, '-Wconversion');
 	});
 
-	it('parses Clang fatal error', () => {
+	it('parses Clang fatal error without location', () => {
 		const line = 'fatal error: \'missing.h\' file not found';
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.message, "'missing.h' file not found");
+		assert.strictEqual(parsed?.file, undefined);
+		assert.strictEqual(parsed?.line, undefined);
+		assert.strictEqual(parsed?.column, undefined);
+	});
+
+	it('parses GCC fatal error with location', () => {
+		const line = 'main.cpp:2:10: fatal error: myheader.h: No such file or directory';
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'main.cpp');
+		assert.strictEqual(parsed?.line, 2);
+		assert.strictEqual(parsed?.column, 10);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.message, 'myheader.h: No such file or directory');
+	});
+
+	it('still ignores driver-level fatal errors without file-not-found message', () => {
+		const line = 'fatal error: no input files';
 		const parsed = extractErrorLocation(line);
 		assert.strictEqual(parsed, undefined);
 	});
 
-	it('parses GCC fatal error', () => {
-		const line = 'fatal error: no input files';
-		const parsed = extractErrorLocation(line);
-		assert.strictEqual(parsed, undefined);
+	it('extracts Clang fatal error line from multi-line selection', () => {
+		const selection = [
+			"fatal error: 'missing.h' file not found",
+			'    1 | #include "missing.h"',
+			'      |          ^',
+		].join('\n');
+		assert.strictEqual(
+			extractFirstDiagnosticLine(selection),
+			"fatal error: 'missing.h' file not found"
+		);
 	});
 
 	it('parses multi-line GCC message line', () => {
