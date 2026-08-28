@@ -26,9 +26,11 @@ import { openLocalSettingsPage } from './settings/localSettings';
 import { isLanguageEnabled, onEnabledLanguagesChanged } from './config/languageConfig';
 import { checkGppAvailability, detectMakeTool, findRootMakefile, isCompilableSourceFile, previewGppCommand, spawnGpp, spawnMake } from './compiler/compilerService';
 import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, buildNoCompilableSourceGuidance, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
-import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection, parseCompilerStderrWithIncludes } from './error/errorParser';
+import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
 import type { CompileSelectionRange } from './error/errorParser';
+import { attachSelectionTemplateContext, parseCompilerStderrFull } from './error/templateBacktrace';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
+import { matchTemplateErrorToKnowledge } from './error/templateKnowledgeSignatures';
 import { createSkillLoader } from './prompts/promptLoader';
 import { SystemPromptBuilder } from './prompts/systemPromptBuilder';
 import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
@@ -227,10 +229,33 @@ function createExplainSelectionHandler(
 				displayText = text;
 			}
 
-			const knowledge = matchErrorToKnowledge(parsed?.message ?? text);
+			// P5c:叶子落在 STL 深处时,从完整编译输出找回模板实例化链。
+			// workspaceRoot 用首个工作区根近似(编译输出是虚拟文档,拿不到源文件
+			// 的 workspaceFolder);ClassMate 默认 g++ 输出的学生帧是相对路径,
+			// 此参数只影响 make 等场景的绝对路径帧判定。
+			const templateSummary = attachSelectionTemplateContext(parsed, getCompileOutputContent(), {
+				workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+			});
+
+			// 模板签名命中优先于单消息通用表:叶子文案是 STL 内部的 no match,
+			// 通用表容易绑到笼统概念;按 tag 去重后模板在前。
+			const templateMatches = parsed ? matchTemplateErrorToKnowledge(parsed) : [];
+			const seenTags = new Set(templateMatches.map((m) => m.tag));
+			const knowledge = [
+				...templateMatches,
+				...matchErrorToKnowledge(parsed?.message ?? text).filter((k) => !seenTags.has(k.tag)),
+			];
 			const knowledgeText = knowledge.length > 0
 				? knowledge.map((k) => `- ${k.tag}: ${k.message}`).join('\n')
 				: 'No specific knowledge tag matched.';
+
+			// 有归因帧时 Location 讲学生代码行,叶子位置附注在后。
+			const attributed = parsed?.templateChain?.attributed;
+			const locationLine = !parsed
+				? 'Location: could not parse'
+				: attributed
+					? `Location: ${attributed.file ?? 'unknown'}:${attributed.line ?? '?'}:${attributed.column ?? '?'} (root cause in your code; error leaf: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'})`
+					: `Location: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'}:${parsed.column ?? '?'}`;
 
 			prompt = [
 				'Explain this compile error in beginner-friendly language:',
@@ -239,9 +264,8 @@ function createExplainSelectionHandler(
 				'```',
 				displayText,
 				'```',
-				parsed
-					? `Location: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'}:${parsed.column ?? '?'}`
-					: 'Location: could not parse',
+				...(templateSummary ? [templateSummary, ''] : []),
+				locationLine,
 				'',
 				'Matched knowledge tags:',
 				knowledgeText,
@@ -376,7 +400,14 @@ async function compileHandlerAsync(
 			.join('\n');
 
 		updateCompileOutput(output);
-		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result);
+		await recordCompileOutcome(
+			debugStore,
+			sessionId,
+			workspaceId,
+			fileUri,
+			result,
+			vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath
+		);
 	} catch (error) {
 		// spawn 级失败(超时/取消)也写回文档,不停留在"编译已开始"。
 		updateCompileOutput(`Compilation failed: ${String(error)}`);
@@ -392,12 +423,14 @@ async function recordCompileOutcome(
 	sessionId: string,
 	workspaceId: string,
 	fileUri: string,
-	result: { exitCode: number | null; stderr: string; durationMs: number }
+	result: { exitCode: number | null; stderr: string; durationMs: number },
+	workspaceRoot?: string
 ): Promise<void> {
 	if (result.exitCode !== 0) {
-		// 带include栈传播的解析:头文件错误的归属是诊断行自己的文件,
-		// 并携带 viaIncludes 链路(journey 跳转/展示用)。
-		const parsedErrors = parseCompilerStderrWithIncludes(result.stderr);
+		// 带include栈传播 + 模板实例化回溯链的解析:头文件错误的归属是诊断行
+		// 自己的文件并携带 viaIncludes 链路;模板链(templateChain)把 STL 深处
+		// 的叶子 error 归因回学生代码行(错题本/划词解释用)。
+		const parsedErrors = parseCompilerStderrFull(result.stderr, { workspaceRoot });
 
 		const event: CompileErrorEvent = {
 			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -484,7 +517,7 @@ async function compileWithMakeAsync(
 
 		// 强刷=就地更新同一虚拟文档;不再调 showTextDocument,避免开出第二个 compile_result.txt。
 		updateCompileOutput(output);
-		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result);
+		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result, workspaceRoot);
 	} catch (error) {
 		// spawn 级失败(超时/取消)也写回文档,不停留在"编译已开始"。
 		updateCompileOutput(`Make build failed: ${String(error)}`);
@@ -675,7 +708,12 @@ async function runCodeHandlerAsync(
 				.join('\n');
 			await showCompileOutput(output);
 
-			const parsedErrors = parseCompilerStderrWithIncludes(compileResult.stderr);
+			const parsedErrors = parseCompilerStderrFull(
+				compileResult.stderr,
+				// 运行路径与编译路径同口径:模板链归因需要工作区根来区分
+				// 绝对路径帧是学生代码还是系统头。
+				{ workspaceRoot: vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath }
+			);
 
 			const event: CompileErrorEvent = {
 				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,

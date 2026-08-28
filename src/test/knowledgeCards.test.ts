@@ -77,8 +77,11 @@ describe('knowledge cards', () => {
         const concepts = listKnowledgeConcepts();
         // 12 个 C/C++ 编译概念 + P0 新增 6 个(operator_operand_mismatch / lvalue_required /
         // array_out_of_bounds / overload_ambiguous / control_flow_return /
-        // pointer_dereference_mismatch) + 2 个 make 类概念(#8)。
-        assert.strictEqual(concepts.length, 20);
+        // pointer_dereference_mismatch) + 2 个 make 类概念(#8) + P5b 新增 6 个
+        // 模板/STL 概念(iterator_category_mismatch / comparator_not_defined /
+        // map_value_type_const / stream_output_operator / dependent_name_typename /
+        // vector_bool_proxy,只经签名表命中,无 ERROR_PATTERNS 条目)。
+        assert.strictEqual(concepts.length, 26);
         for (const concept of concepts) {
             assert.ok(concept.title.length > 0, `${concept.tag} title empty`);
             assert.ok(concept.summary.length > 0, `${concept.tag} summary empty`);

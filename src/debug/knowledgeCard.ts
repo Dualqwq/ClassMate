@@ -1,5 +1,7 @@
 import type { ParsedError } from '../error/errorParser';
 import { getKnowledgeConcept, matchErrorToKnowledge } from '../error/errorKnowledgeMap';
+import { resolveAttributedError } from '../error/templateBacktrace';
+import { matchTemplateErrorToKnowledge } from '../error/templateKnowledgeSignatures';
 import { createErrorSignature, signatureKey, signaturesMatch } from './errorFingerprint';
 import type { ErrorLifecycle } from './errorLifecycle';
 import { findFixingEdits } from './errorLifecycle';
@@ -145,8 +147,14 @@ export function generateKnowledgeCard(
         // Pick the first knowledge tag that has a full concept entry. ERROR_PATTERNS
         // is ordered from most specific to most general, so the first match is the
         // best teaching target for this diagnostic.
+        // 模板链签名表优先(P5b):STL 深处的叶子(如 sort+list 的
+        // no match for 'operator-')通用表只能给"运算符不匹配"这类宽泛卡,
+        // 链签名能给出"迭代器类别不满足算法要求"这类根因卡;未命中再回退。
         const matches = matchErrorToKnowledge(parsed.message);
-        const bestMatch = matches.find((m) => getKnowledgeConcept(m.tag) !== undefined);
+        const templateMatches = matchTemplateErrorToKnowledge(parsed);
+        const bestMatch =
+            templateMatches.find((m) => getKnowledgeConcept(m.tag) !== undefined) ??
+            matches.find((m) => getKnowledgeConcept(m.tag) !== undefined);
         if (!bestMatch) {
             continue;
         }
@@ -373,8 +381,11 @@ export function pickRepresentativeError(card: KnowledgeCard, events: DebugEvent[
         }
         for (const parsed of event.parsedErrors) {
             const matches = matchErrorToKnowledge(parsed.message);
-            if (matches.some((m) => m.tag === card.tag)) {
-                return parsed;
+            const templateMatches = matchTemplateErrorToKnowledge(parsed);
+            if (matches.some((m) => m.tag === card.tag) || templateMatches.some((m) => m.tag === card.tag)) {
+                // 模板链叶子(P5b):代表位置归因到最深学生代码帧——错题本卡片
+                // 显示学生代码行而非 STL 行;无链时原样返回,零行为变化。
+                return resolveAttributedError(parsed);
             }
         }
     }

@@ -383,6 +383,111 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
         wrongExample: "app:\n    g++ main.cpp -o app\n# 行首是空格，make 无法识别",
         correctExample: "app:\n\tg++ main.cpp -o app\n# 行首是一个 Tab",
     },
+
+    // ===== P5b 模板/STL 场景专属概念(经 templateKnowledgeSignatures 签名表匹配,
+    // 不走 ERROR_PATTERNS 单消息匹配;语料 tmp-template-error-research/) =====
+
+    iterator_category_mismatch: {
+        tag: 'iterator_category_mismatch',
+        title: '迭代器类别不满足算法要求',
+        summary: 'std::sort 这类算法要求随机访问迭代器（能 it+n、it1-it2 直接跳步）；std::list 的迭代器是双向的，跳不了步，所以编译器解包进 sort 内部报 no match for \'operator-\'。报错落在 STL 源码里，根因却是你的调用——报错行不是你写错的那一行。',
+        commonCauses: [
+            '用 std::list 的迭代器调用 std::sort（list 是双向迭代器，不支持随机访问）',
+            '把 set/map 的迭代器传给要求随机访问的算法',
+        ],
+        suggestedFixes: [
+            'list 自带成员函数 lst.sort()，用它排序',
+            '把数据换成 std::vector / std::deque 后再用 std::sort',
+            'C++20 可用 std::ranges::sort，不满足约束时直接报在调用处，更好懂',
+        ],
+        checkMethod: '换成 vector（或改用 lst.sort()）后重新编译，报错消失即修复。',
+        wrongExample: "#include <algorithm>\n#include <list>\nint main() {\n    std::list<int> lst{3, 1, 2};\n    std::sort(lst.begin(), lst.end());\n}",
+        correctExample: "#include <list>\nint main() {\n    std::list<int> lst{3, 1, 2};\n    lst.sort();          // 或改用 std::vector 再 std::sort\n}",
+        relatedTags: ['operator_operand_mismatch'],
+    },
+    comparator_not_defined: {
+        tag: 'comparator_not_defined',
+        title: '自定义类型缺少比较函数 operator<',
+        summary: '把自定义类型放进 std::set/std::map，或用默认方式 std::sort 排序时，容器/算法要用 operator< 比较元素；类型没定义它，编译器会在 STL 深处报 no match for call to \'(std::less...)\' 或 no match for \'operator<\'，并且输出长达上千行。',
+        commonCauses: [
+            '自定义 struct/class 没有定义 operator<',
+            '想按自定义规则比较，但没有把比较器传给 sort/set/map',
+        ],
+        suggestedFixes: [
+            '给类型定义 bool operator<(const T& other) const',
+            '或给 std::sort 传第三个参数（lambda 比较器），给 set/map 传第二个模板参数',
+        ],
+        checkMethod: '补上 operator< 或比较器后重新编译。',
+        wrongExample: "struct Point { int x, y; };\n#include <set>\nint main() {\n    std::set<Point> s;\n    s.insert({1, 2});   // Point 没有 operator<\n}",
+        correctExample: "#include <set>\nstruct Point {\n    int x, y;\n    bool operator<(const Point& o) const {\n        return x != o.x ? x < o.x : y < o.y;\n    }\n};\nint main() {\n    std::set<Point> s;\n    s.insert({1, 2});\n}",
+        relatedTags: ['operator_operand_mismatch'],
+    },
+    map_value_type_const: {
+        tag: 'map_value_type_const',
+        title: 'map 的键带 const（元素是 pair<const K, V>）',
+        summary: 'std::map 的元素类型是 std::pair<const Key, Value>——键带 const，防止你绕过 map 的排序约束直接改键。遍历/transform 时若把元素收成 pair<K, V>&（非 const、键不带 const），引用绑不上，报错解包进 STL 内部。',
+        commonCauses: [
+            'transform/for_each 的 lambda 形参写成 std::pair<K, V>&（少了 const）',
+            '以为 map 的 value_type 是 pair<K, V>，忘了键是 const 的',
+        ],
+        suggestedFixes: [
+            'lambda 形参改成 const std::pair<const K, V>&',
+            '或按值接收（auto p / std::pair<const K, V> p）',
+            'C++17 可用结构化绑定：for (const auto& [key, value] : m)',
+        ],
+        checkMethod: '修改 lambda/形参的类型后重新编译。',
+        wrongExample: "#include <map>\n#include <algorithm>\nint main() {\n    std::map<std::string, int> m{{\"a\", 1}};\n    for_each(m.begin(), m.end(),\n        [](std::pair<std::string, int>& p) { (void)p; });\n}",
+        correctExample: "#include <map>\n#include <algorithm>\nint main() {\n    std::map<std::string, int> m{{\"a\", 1}};\n    for_each(m.begin(), m.end(),\n        [](const std::pair<const std::string, int>& p) { (void)p; });\n}",
+        relatedTags: ['type_conversion'],
+    },
+    stream_output_operator: {
+        tag: 'stream_output_operator',
+        title: '自定义类型没有流输出运算符 operator<<',
+        summary: 'oss << obj 能编译的前提是存在 operator<<(std::ostream&, const T&)。自定义类型没定义它时，编译器会展开 ostream 的几十个候选重载（报错动辄三百行），但结论只是"找不到能输出你这个类型的重载"。',
+        commonCauses: [
+            '自定义 struct/class 没有写 operator<<',
+            '把 operator<< 写成了成员函数——它通常应是自由函数或友元',
+        ],
+        suggestedFixes: [
+            '定义 friend std::ostream& operator<<(std::ostream& os, const T& obj)',
+            '函数末尾 return os; 以支持链式输出',
+        ],
+        checkMethod: '补上 operator<< 后重新编译，候选列表报错消失。',
+        wrongExample: "#include <sstream>\nstruct Student { std::string name; };\nint main() {\n    std::ostringstream oss;\n    oss << Student{\"Tom\"};   // 没有 operator<<\n}",
+        correctExample: "#include <sstream>\nstruct Student {\n    std::string name;\n    friend std::ostream& operator<<(std::ostream& os, const Student& s) {\n        return os << s.name;\n    }\n};\nint main() {\n    std::ostringstream oss;\n    oss << Student{\"Tom\"};\n}",
+        relatedTags: ['operator_operand_mismatch'],
+    },
+    dependent_name_typename: {
+        tag: 'dependent_name_typename',
+        title: '依赖模板参数的类型名需要 typename 前缀',
+        summary: '在模板里写 T::iterator 这类依赖模板参数的名字时，C++ 默认把它当"值"解析；它其实是类型时必须显式写 typename，否则报 need \'typename\' before ...。这类错误本来就报在你的代码行，不需要看 STL。',
+        commonCauses: [
+            '模板函数/模板类里直接把 T::xxx 当类型用',
+        ],
+        suggestedFixes: [
+            '在依赖名前加 typename：typename T::iterator it;',
+        ],
+        checkMethod: '补上 typename 后重新编译。',
+        wrongExample: "template<class T>\nvoid f() {\n    T::iterator it;   // 编译器不知它是类型还是值\n}",
+        correctExample: "template<class T>\nvoid f() {\n    typename T::iterator it;\n}",
+    },
+    vector_bool_proxy: {
+        tag: 'vector_bool_proxy',
+        title: 'vector<bool> 是位压缩特化，元素访问返回代理对象',
+        summary: 'vector<bool> 为了省空间按位存储，operator[]/解引用返回的是代理对象（_Bit_reference），不是真正的 bool&。所以 auto& 绑不上它、也不能对它取地址。它的行为和其它 vector 不同，初学者建议别和一般容器混着学。',
+        commonCauses: [
+            'for (auto& b : vectorBool) 试图用引用遍历并修改元素',
+            '把 vector<bool>::reference 当 bool& 传给函数',
+        ],
+        suggestedFixes: [
+            '遍历用 auto&& 或值拷贝 auto b = ...',
+            '需要真正的 bool 引用就换 std::vector<char> / std::deque<bool> / std::bitset',
+        ],
+        checkMethod: '改成 auto&& 或值拷贝后重新编译。',
+        wrongExample: "#include <vector>\nint main() {\n    std::vector<bool> flags{true, false};\n    for (auto& b : flags) {   // auto& 绑不上代理对象\n        b = !b;\n    }\n}",
+        correctExample: "#include <vector>\nint main() {\n    std::vector<bool> flags{true, false};\n    for (auto&& b : flags) {  // 或 auto b\n        b = !b;\n    }\n}",
+        relatedTags: ['type_conversion'],
+    },
 };
 
 const ERROR_PATTERNS: PatternEntry[] = [

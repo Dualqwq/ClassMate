@@ -1,3 +1,5 @@
+import type { TemplateChain } from './templateBacktrace';
+
 export interface SourceRange {
     startLine: number;
     startColumn: number;
@@ -25,6 +27,13 @@ export interface ParsedError {
     viaIncludes?: string[];
     /** Optional source range for diagnostics that span multiple tokens. */
     range?: SourceRange;
+    /**
+     * 模板实例化回溯链(仅由 parseCompilerStderrFull/选区富化填充):叶子
+     * error/warning 落在模板库(STL 头等)内部时,链帧从实例化点回溯到学生
+     * 代码,attributed 是最深学生代码帧(归因位置)。单行解析不填;与
+     * viaIncludes 可同时存在(叶子既能有 include 栈也能有模板链)。
+     */
+    templateChain?: TemplateChain;
 }
 
 /**
