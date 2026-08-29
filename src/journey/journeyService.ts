@@ -15,6 +15,16 @@ import { buildJourneyViewModel, type JourneyViewModel } from './journeyViewModel
 const SYNC_THROTTLE_MS = 500;
 
 /**
+ * 复习指令预填文案(#13 后半,设计文档 §4.4 拍板稿):A2 错题本按钮与
+ * A3 命令面板共用;A1 欢迎卡 quick prompt 为 webview 本地同文案常量。
+ * 不带显式 intent——学生手动发送后走普通 answer 链路,不记
+ * hint_requested(复习是主动复盘不是求助,§4.4 事件口径)。
+ */
+export const REVIEW_REQUEST_DRAFT =
+    '帮我复盘一下最近的错题:把我反复出错的几个知识点串起来讲一遍。\n' +
+    '每个先说我当时错在哪,再讲怎么检查,最后给我一个可以自己再试一次的小方向就好,先不要给完整代码。';
+
+/**
  * Journey 面板的 extension 侧编排(#12a/#14a):
  * store 读接口取事件 → buildJourneyViewModel 纯函数派生 → 节流推 sync。
  * 面板不直接读 store;webview 只做渲染与交互回传。
@@ -23,6 +33,8 @@ const SYNC_THROTTLE_MS = 500;
  * - journey:openDiff → code_modified 快照注册 + 原生 vscode.diff(只读);
  * - journey:openFile → ADD2 分组预路由(#18 零闪屏);
  * - journey:requestHint → 聚焦聊天容器 + 权威草稿广播(发送权在学生);
+ * - journey:requestReview → 错题本「让 AI 带我复盘」预填复习草稿
+ *   (与 requestHint 同底座,复盘 ≠ 求助,不带 intent 不记 hint_requested);
  * - journey:clearAll → modal 二次确认 → store.clear()(失败时弹错提示并按
  *   当前数据重推 sync,不假成功);
  * - journey:exportNotebook → 既有 classmate.exportDebugNotebook 命令通路;
@@ -111,6 +123,9 @@ export class JourneyService {
                 return;
             case 'journey:requestHint':
                 this.requestHint(message.text);
+                return;
+            case 'journey:requestReview':
+                this.requestReview();
                 return;
             case 'journey:exportNotebook':
                 await vscode.commands.executeCommand('classmate.exportDebugNotebook');
@@ -237,6 +252,16 @@ export class JourneyService {
             () => undefined,
             () => undefined
         );
+    }
+
+    /**
+     * [让 AI 带我复盘](#13 后半):与 requestHint 同底座(权威草稿预填 +
+     * 聚焦聊天容器,只预填不发送),但语义独立——复盘 ≠ 求助,不复用
+     * requestHint 以免语义混载。public:classmate.reviewMistakes 命令与
+     * 错题本按钮两条入口共用同一预填函数(设计文档 §3.1 A2/A3)。
+     */
+    public requestReview(): void {
+        this.requestHint(REVIEW_REQUEST_DRAFT);
     }
 
     private post(message: JourneyExtensionToWebviewMessage): void {

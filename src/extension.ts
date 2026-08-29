@@ -1331,6 +1331,12 @@ export async function activate(
 			},
 		},
 		{
+			// #13 后半:命令面板复习入口(A3),与错题本按钮(A2)同走
+			// JourneyService.requestReview() 同一预填函数,只预填草稿不自动发送。
+			id: 'classmate.reviewMistakes',
+			handler: () => journeyService.requestReview(),
+		},
+		{
 			id: 'classmate.refreshDebugJourneyTree',
 			handler: () => debugJourneyProvider.refresh(),
 		},

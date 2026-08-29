@@ -227,7 +227,15 @@ export type JourneyWebviewToExtensionMessage =
 	/** 学生手动把某题(problemKey)的 run_error 标记为已解决;解决权在学生,不做自动判定。 */
 	| { type: 'journey:markResolved'; problemKey: string }
 	/** 撤销已解决标记,回到未解决态。 */
-	| { type: 'journey:markUnresolved'; problemKey: string };
+	| { type: 'journey:markUnresolved'; problemKey: string }
+	/**
+	 * 错题本「让 AI 带我复盘」(#13 后半):预填一条复习指令草稿并聚焦
+	 * 聊天容器。与 journey:requestHint 同底座(prefillInputDraft +
+	 * openChatPanel,只预填不发送,发送权在学生),但语义独立:
+	 * 复习是主动复盘,不是卡住求助——预填文案与教学期望均不同,
+	 * 不复用 requestHint 以免语义混载。
+	 */
+	| { type: 'journey:requestReview' };
 
 // extension → webview
 export type JourneyExtensionToWebviewMessage =

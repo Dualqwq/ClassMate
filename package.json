@@ -40,6 +40,7 @@
     "onCommand:classmate.explainSelection",
     "onCommand:classmate.explainError",
     "onCommand:classmate.debugJourney",
+    "onCommand:classmate.reviewMistakes",
     "onCommand:classmate.refreshDebugJourneyTree",
     "onCommand:classmate.closeDebugJourneyTree",
     "onCommand:classmate.openDebugNodeDiff",
@@ -92,6 +93,12 @@
         "title": "Open Debug Journey",
         "category": "ClassMate",
         "icon": "$(history)"
+      },
+      {
+        "command": "classmate.reviewMistakes",
+        "title": "Review My Mistakes",
+        "category": "ClassMate",
+        "icon": "$(book)"
       },
       {
         "command": "classmate.refreshDebugJourneyTree",

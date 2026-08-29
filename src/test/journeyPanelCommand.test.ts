@@ -144,3 +144,53 @@ describe('classmate.debugJourney 命令路径(状态机 §3 权威入口)', () =
         }
     });
 });
+
+/**
+ * classmate.reviewMistakes 命令路径(#13 后半复习入口,方案 A3)。
+ * 命令与错题本「让 AI 带我复盘」按钮(A2)同走 JourneyService.requestReview()
+ * 同一预填函数(等价性由 journeyService.test.ts 用 ChatSession 桩证明:两条
+ * 入口预填同一草稿、零发送动作);此处断言真实宿主里命令已注册且可执行,
+ * 产出与按钮路径相同的可观测 UI 事实——聊天面板打开。
+ */
+function countChatPanelTabs(): number {
+    return vscode.window.tabGroups.all
+        .flatMap((group) => group.tabs)
+        .filter((tab) => {
+            const input = tab.input;
+            return (
+                input instanceof vscode.TabInputWebview &&
+                (input.viewType === 'classmate.chatPanel' ||
+                    input.viewType.endsWith('-classmate.chatPanel'))
+            );
+        }).length;
+}
+
+async function closeAllChatPanels(): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    await waitUntil(() => countChatPanelTabs() === 0);
+}
+
+describe('classmate.reviewMistakes 命令路径(#13 后半复习入口)', () => {
+    it('命令已注册且可执行:执行后聊天面板打开(与错题本按钮同通路)', async () => {
+        const commands = await vscode.commands.getCommands(true);
+        assert.ok(
+            commands.includes('classmate.reviewMistakes'),
+            'classmate.reviewMistakes 应已注册(activationEvents + contributes + registerCommand)'
+        );
+
+        await closeAllChatPanels();
+        let cmdError: string | undefined;
+        try {
+            await vscode.commands.executeCommand('classmate.reviewMistakes');
+        } catch (error) {
+            cmdError = String(error);
+        }
+        assert.strictEqual(cmdError, undefined, `命令执行不得抛错:${cmdError ?? ''}`);
+        await waitUntil(
+            () => countChatPanelTabs() >= 1,
+            10_000,
+            () => `cmdError=${cmdError ?? '无'};tabs=${dumpTabs()}`
+        );
+        await closeAllChatPanels();
+    });
+});

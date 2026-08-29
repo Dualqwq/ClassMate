@@ -34,6 +34,13 @@ const QUICK_PROMPTS: Array<{
 		description: '用初学者能听懂的话说明',
 		text: '我有一个概念不太懂：',
 	},
+	{
+		// #13 后半复习入口(A1):预填 §4.4 拍板文案,与扩展侧
+		// REVIEW_REQUEST_DRAFT 同稿(此处为 webview 本地常量,零消息)。
+		title: '复习我最近常犯的错',
+		description: '把反复出错的知识点串起来讲一遍',
+		text: '帮我复盘一下最近的错题:把我反复出错的几个知识点串起来讲一遍。\n每个先说我当时错在哪,再讲怎么检查,最后给我一个可以自己再试一次的小方向就好,先不要给完整代码。',
+	},
 ];
 
 function formatConversationDate(timestamp: number): string {

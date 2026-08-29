@@ -1,12 +1,13 @@
 import * as assert from 'assert';
-import { describe, it, beforeEach } from 'mocha';
+import { describe, it, beforeEach, after } from 'mocha';
 import * as vscode from 'vscode';
-import { JourneyService } from '../journey/journeyService';
+import { JourneyService, REVIEW_REQUEST_DRAFT } from '../journey/journeyService';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
 import { getResolvedFileUri, getWorkspaceStorageUri } from '../debug/storagePath';
 import { buildRunOutcomeEvent } from '../run/runService';
 import type { RunRecord } from '../run/types';
 import type { JourneyExtensionToWebviewMessage } from '../chat/types';
+import type { ChatSession } from '../chat/ChatSession';
 import type { DebugEvent } from '../debug/types';
 
 function createStubContext(globalStorageUri: vscode.Uri): vscode.ExtensionContext {
@@ -445,5 +446,127 @@ describe('JourneyService 学生手动「已解决」消息链路', () => {
         assert.strictEqual(runEpisode.resolved, true);
         reopenedService.dispose();
         reopenedStore.dispose();
+    });
+});
+
+/**
+ * 复习入口(#13 后半,journey:requestReview)测试辅助:
+ * - ChatSession 桩只记录被调方法(prefill / addUserMessage / startAssistantMessage),
+ *   用于断言「只预填不发送」红线(设计文档 §4.4:不记 hint_requested 的前提是
+ *   不走任何 intent 发送路径);
+ * - 聊天面板打开通路以可观测 UI 事实断言(journeyPanelCommand.test.ts 同口径:
+ *   Tab API 中 viewType === classmate.chatPanel 的 webview 标签),不依赖静态单例。
+ */
+function createChatSessionStub(): {
+    session: ChatSession;
+    calls: { prefills: string[]; addUserMessage: number; startAssistantMessage: number };
+} {
+    const calls = { prefills: [] as string[], addUserMessage: 0, startAssistantMessage: 0 };
+    const session = {
+        prefillInputDraft: (text: string) => {
+            calls.prefills.push(text);
+        },
+        addUserMessage: () => {
+            calls.addUserMessage += 1;
+        },
+        startAssistantMessage: () => {
+            calls.startAssistantMessage += 1;
+        },
+    };
+    return { session: session as unknown as ChatSession, calls };
+}
+
+function countChatPanelTabs(): number {
+    return vscode.window.tabGroups.all
+        .flatMap((group) => group.tabs)
+        .filter((tab) => {
+            const input = tab.input;
+            return (
+                input instanceof vscode.TabInputWebview &&
+                (input.viewType === 'classmate.chatPanel' ||
+                    input.viewType.endsWith('-classmate.chatPanel'))
+            );
+        }).length;
+}
+
+async function waitUntil(condition: () => boolean, timeoutMs = 10_000): Promise<void> {
+    const start = Date.now();
+    while (!condition()) {
+        if (Date.now() - start > timeoutMs) {
+            assert.fail(`waitUntil 超时(chatPanelTabs=${countChatPanelTabs()})`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+}
+
+async function closeAllEditors(): Promise<void> {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+}
+
+describe('JourneyService 复习入口(#13 后半 journey:requestReview)', () => {
+    let context: vscode.ExtensionContext;
+    let store: DebugJourneyStore;
+
+    beforeEach(async () => {
+        const tmpUri = vscode.Uri.file(
+            `${process.env.TEMP ?? '/tmp'}/classmate-review-test-${Date.now()}-${Math.random()
+                .toString(36)
+                .slice(2, 9)}`
+        );
+        await vscode.workspace.fs.createDirectory(tmpUri);
+        context = createStubContext(tmpUri);
+        store = new DebugJourneyStore(context, 'test-workspace');
+    });
+
+    after(async () => {
+        // requestHint 通路对 classmate.openChatPanel 是 fire-and-forget,
+        // 收尾统一清掉测试期间打开的聊天面板,不留 UI 残留污染后续用例。
+        await closeAllEditors();
+        await waitUntil(() => countChatPanelTabs() === 0);
+    });
+
+    it('journey:requestReview 预填复习草稿(含「复盘」),不产生任何发送动作,聊天面板打开', async () => {
+        const { session, calls } = createChatSessionStub();
+        const service = new JourneyService(store, {
+            chatSession: session,
+            confirmClear: async () => false,
+        });
+
+        await service.handleMessage({ type: 'journey:requestReview' });
+
+        assert.strictEqual(calls.prefills.length, 1);
+        assert.ok(calls.prefills[0].includes('复盘'), '预填文案应是复习指令(§4.4 拍板稿)');
+        assert.ok(calls.prefills[0].includes('先不要给完整代码'), '保留「先不要给完整代码」边界句');
+        assert.strictEqual(calls.addUserMessage, 0, '只预填不发送:不得产生学生消息');
+        assert.strictEqual(calls.startAssistantMessage, 0, '只预填不发送:不得开启助手回复');
+        // 打开聊天面板通路(classmate.openChatPanel)真实执行 → 可观测 tab 出现。
+        await waitUntil(() => countChatPanelTabs() >= 1);
+        service.dispose();
+        await closeAllEditors();
+        await waitUntil(() => countChatPanelTabs() === 0);
+    });
+
+    it('命令路径(requestReview)与按钮路径(handleMessage)预填同一草稿', () => {
+        const { session, calls } = createChatSessionStub();
+        const service = new JourneyService(store, {
+            chatSession: session,
+            confirmClear: async () => false,
+        });
+
+        // 命令路径 = extension.ts 直接调公开方法(A3);按钮路径 = handleMessage case(A2)。
+        service.requestReview();
+        assert.deepStrictEqual(calls.prefills, [REVIEW_REQUEST_DRAFT]);
+        const commandPathPrefill = calls.prefills[0];
+
+        calls.prefills.length = 0;
+        void service.handleMessage({ type: 'journey:requestReview' });
+        assert.deepStrictEqual(calls.prefills, [commandPathPrefill], '两条入口必须预填同一文案');
+        service.dispose();
+    });
+
+    it('无 chatSession 注入时降级不抛错(与 requestHint 同)', async () => {
+        const service = new JourneyService(store, { confirmClear: async () => false });
+        await service.handleMessage({ type: 'journey:requestReview' });
+        service.dispose();
     });
 });

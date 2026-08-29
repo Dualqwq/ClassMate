@@ -12,8 +12,10 @@ import { sendMessage } from '../vscodeApi';
 /**
  * 错题本页签(#14a,设计稿 §6.1):分组栏 + 排序栏 + 卡片列表。
  * 分组支持「按知识标签」(现状,每张卡一次标签聚合)与「按题目」
- * (#14b problemKey,由文件名派生);导出接通既有 classmate.exportDebugNotebook
- * 命令通路(LLM 聚合发送 + 学生显式触发 + 自选保存位置)。
+ * (#14b problemKey,由文件名派生);「让 AI 带我复盘」(#13 后半)发
+ * journey:requestReview 预填复习草稿(只预填不发送);导出接通既有
+ * classmate.exportDebugNotebook 命令通路(LLM 聚合发送 + 学生显式触发 +
+ * 自选保存位置)。
  */
 export const MistakeBookTab: React.FC<{ cards: MistakeCardVM[] }> = ({ cards }) => {
 	const [sortMode, setSortMode] = React.useState<MistakeSortMode>('recommended');
@@ -48,6 +50,13 @@ export const MistakeBookTab: React.FC<{ cards: MistakeCardVM[] }> = ({ cards }) 
 					<option value="recommended">推荐序(未解决优先)</option>
 					<option value="recent">最近出现优先</option>
 				</select>
+				<button
+					className="journey-button"
+					onClick={() => sendMessage({ type: 'journey:requestReview' })}
+					title="让 AI 把你反复出错的知识点串起来讲一遍(只预填草稿,由你确认发送)"
+				>
+					让 AI 带我复盘
+				</button>
 				<button
 					className="journey-button"
 					onClick={() => sendMessage({ type: 'journey:exportNotebook' })}
