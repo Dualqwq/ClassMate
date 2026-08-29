@@ -310,22 +310,25 @@ export function resolveAttributedError(parsed: ParsedError): ParsedError {
 }
 
 /**
- * 一行式链摘要(给 LLM 的 answer prompt 用,英文与既有 prompt 风格一致)。
- * 例:`Root-cause frame: main.cpp:7:14 (required from here); error leaf: stl_algo.h:1914:50`
+ * 一行式链摘要(给划词解释的 LLM prompt 用,自然中文,与中文选区提示词
+ * 同风格;src/chat/selectionExplainPrompts.ts 的位置行共用「根因/报错叶子」
+ * 两个词)。括号内的链帧标签(frameLabel)与文件:行号是编译器报错原文,
+ * 一律原样保留。
+ * 例:`根因帧：main.cpp:7:14（required from here）；报错叶子：stl_algo.h:1914:50`
  */
 export function describeTemplateChain(parsed: ParsedError): string | undefined {
     const chain = parsed.templateChain;
     if (!chain) {
         return undefined;
     }
-    const leafLoc = `${parsed.file ?? 'unknown'}:${parsed.line ?? '?'}`;
+    const leafLoc = `${parsed.file ?? '未知文件'}:${parsed.line ?? '?'}`;
     const attributed = chain.attributed;
     if (!attributed) {
-        return `Template instantiation chain stays inside library headers; error leaf: ${leafLoc}`;
+        return `模板实例化链全部落在库头文件内部，没有指向你写的代码；报错叶子：${leafLoc}`;
     }
     const frameLabel = attributed.kind === 'here' ? 'required from here' : attributed.signature ?? attributed.kind;
-    const loc = `${attributed.file ?? 'unknown'}:${attributed.line ?? '?'}${attributed.column !== undefined ? `:${attributed.column}` : ''}`;
-    return `Root-cause frame: ${loc} (${frameLabel}); error leaf: ${leafLoc}`;
+    const loc = `${attributed.file ?? '未知文件'}:${attributed.line ?? '?'}${attributed.column !== undefined ? `:${attributed.column}` : ''}`;
+    return `根因帧：${loc}（${frameLabel}）；报错叶子：${leafLoc}`;
 }
 
 /**

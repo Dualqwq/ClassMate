@@ -316,7 +316,7 @@ describe('template attribution helpers (P5a)', () => {
         const leaf = firstError(parseCompilerStderrFull(C1_DEFAULT));
         assert.strictEqual(
             describeTemplateChain(leaf),
-            'Root-cause frame: c1_sort_list.cpp:7:14 (required from here); error leaf: D:/mingw64/include/c++/16.1.0/bits/stl_algo.h:1914'
+            '根因帧：c1_sort_list.cpp:7:14（required from here）；报错叶子：D:/mingw64/include/c++/16.1.0/bits/stl_algo.h:1914'
         );
     });
 
@@ -330,9 +330,7 @@ describe('template attribution helpers (P5a)', () => {
         assert.ok(leaf.templateChain);
         assert.strictEqual(leaf.templateChain!.attributed, undefined);
         assert.ok(
-            describeTemplateChain(leaf)!.startsWith(
-                'Template instantiation chain stays inside library headers'
-            )
+            describeTemplateChain(leaf)!.startsWith('模板实例化链全部落在库头文件内部')
         );
         assert.strictEqual(resolveAttributedError(leaf), leaf);
     });
@@ -345,7 +343,7 @@ describe('template attribution helpers (P5a)', () => {
         const summary = attachSelectionTemplateContext(parsed, C1_DEFAULT);
         assert.strictEqual(
             summary,
-            'Root-cause frame: c1_sort_list.cpp:7:14 (required from here); error leaf: D:/mingw64/include/c++/16.1.0/bits/stl_algo.h:1914'
+            '根因帧：c1_sort_list.cpp:7:14（required from here）；报错叶子：D:/mingw64/include/c++/16.1.0/bits/stl_algo.h:1914'
         );
         assert.strictEqual(parsed.templateChain?.attributed?.file, 'c1_sort_list.cpp');
 

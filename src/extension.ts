@@ -15,6 +15,12 @@ import { showTextDocumentRespectingPanels } from './ui/panelGrouping';
 import { registerInlineExplainButton } from './ui/inlineExplainButton';
 import { ChatSession } from './chat/ChatSession';
 import { buildJourneyDigest } from './chat/journeyDigestBuilder';
+import {
+	buildCodeExplainPrompt,
+	buildCompileErrorSelectionPrompt,
+	formatSelectionKnowledgeText,
+	formatSelectionLocationLine,
+} from './chat/selectionExplainPrompts';
 import { ChatSessionStorage } from './chat/chatSessionStorage';
 import type { ChatReference, LLMConfig, MessageIntent } from './chat/types';
 import { ConversationDiagnosticRecorder } from './chat/conversationDiagnostics';
@@ -246,31 +252,18 @@ function createExplainSelectionHandler(
 				...templateMatches,
 				...matchErrorToKnowledge(parsed?.message ?? text).filter((k) => !seenTags.has(k.tag)),
 			];
-			const knowledgeText = knowledge.length > 0
-				? knowledge.map((k) => `- ${k.tag}: ${k.message}`).join('\n')
-				: 'No specific knowledge tag matched.';
+			const knowledgeText = formatSelectionKnowledgeText(knowledge);
 
-			// 有归因帧时 Location 讲学生代码行,叶子位置附注在后。
-			const attributed = parsed?.templateChain?.attributed;
-			const locationLine = !parsed
-				? 'Location: could not parse'
-				: attributed
-					? `Location: ${attributed.file ?? 'unknown'}:${attributed.line ?? '?'}:${attributed.column ?? '?'} (root cause in your code; error leaf: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'})`
-					: `Location: ${parsed.file ?? 'unknown'}:${parsed.line ?? '?'}:${parsed.column ?? '?'}`;
+			// 位置行:有归因帧时讲学生代码行,叶子位置附注在后(中文提示词
+			// 组装见 selectionExplainPrompts,学生气泡/Journey 落库/LLM 三处共用)。
+			const locationLine = formatSelectionLocationLine(parsed);
 
-			prompt = [
-				'Explain this compile error in beginner-friendly language:',
-				'',
-				'Raw error:',
-				'```',
+			prompt = buildCompileErrorSelectionPrompt({
 				displayText,
-				'```',
-				...(templateSummary ? [templateSummary, ''] : []),
+				templateSummary,
 				locationLine,
-				'',
-				'Matched knowledge tags:',
 				knowledgeText,
-			].join('\n');
+			});
 		} else {
 			if (!isLanguageEnabled(lang)) {
 				void vscode.window.showInformationMessage(
@@ -280,7 +273,7 @@ function createExplainSelectionHandler(
 			}
 
 			intent = 'code_explanation';
-			prompt = `Explain this code:\n\n\`\`\`${lang}\n${text}\n\`\`\``;
+			prompt = buildCodeExplainPrompt(lang, text);
 		}
 
 		const hintEvent: HintRequestedEvent = {

@@ -18,7 +18,7 @@ function getDisplayContent(message: ChatMessage): string {
 		message.isCommandGenerated &&
 		message.intent === 'code_explanation'
 	) {
-		return 'Explain selected code';
+		return '解释选中的代码';
 	}
 	return message.content;
 }
