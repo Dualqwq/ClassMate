@@ -183,9 +183,9 @@ describe('buildJourneyDigest', () => {
         assert.strictEqual(buildJourneyDigest(events, { maxChars: 0 }), '');
     });
 
-    it('每节条数有兜底上限,防止单节独占', () => {
+    it('每节条数有兜底上限,防止单节独占(2026-08-29 拍板放宽为 25)', () => {
         const events: DebugEvent[] = [];
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 30; i++) {
             events.push(compileError({
                 id: `err-${i}`,
                 timestamp: 1_000 + i * 1_000,
@@ -203,9 +203,44 @@ describe('buildJourneyDigest', () => {
         const digest = buildJourneyDigest(events, { currentFilePath: 'file:///w/f0.cpp' });
         const compileLines = digest.split('\n')
             .filter((line) => /^- f\d+\.cpp/.test(line));
-        assert.strictEqual(compileLines.length, 5);
+        assert.strictEqual(compileLines.length, 25);
         // 相关文件即使最旧也必须保留在截断前列。
         assert.match(digest, /f0\.cpp:5/);
+        // 丢弃的是第 25 条之后的最旧条目(f1..f5):总长远小于新预算,
+        // 证明这里生效的是条数兜底上限而非字符预算。
+        assert.match(digest, /f6\.cpp:5/);
+        assert.doesNotMatch(digest, /f5\.cpp:5/);
+        assert.ok(digest.length < 10_000);
+    });
+
+    it('内容超过旧 2000 预算但在新预算内时不再截断(放宽到 10000 生效)', () => {
+        const events: DebugEvent[] = [];
+        for (let i = 0; i < 25; i++) {
+            // 长且唯一的原始 message(不命中任何知识 pattern,原样进摘要),
+            // 单条约 90 字符,25 条合计远超旧 2000 上限。
+            const message = `diagnostic ${i} ${'x'.repeat(60)}`;
+            events.push(compileError({
+                id: `err-${i}`,
+                timestamp: 1_000 + i * 1_000,
+                fileUri: `file:///w/f${i}.cpp`,
+                stderr: `f${i}.cpp:5:5: error: ${message}`,
+                parsedErrors: [{
+                    raw: `error: ${message}`,
+                    file: `file:///w/f${i}.cpp`,
+                    line: 5,
+                    severity: 'error',
+                    message,
+                }],
+            }));
+        }
+        const digest = buildJourneyDigest(events);
+        const compileLines = digest.split('\n')
+            .filter((line) => /^- f\d+\.cpp/.test(line));
+        assert.ok(digest.length > 2_000, '新预算下 25 条长条目不应被截断到 2000 以内');
+        assert.ok(digest.length <= 10_000, '摘要总长仍不得超过新预算 10000');
+        assert.strictEqual(compileLines.length, 25);
+        assert.match(digest, /diagnostic 0/);
+        assert.match(digest, /diagnostic 24/);
     });
 });
 

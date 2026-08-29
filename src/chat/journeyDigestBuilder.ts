@@ -11,7 +11,8 @@ import { RUN_ERROR_KIND_LABELS } from '../run/runErrorKind';
  * - 纯函数、无副作用:输入事件数组,输出字符串,可单测;
  * - 复用 FE1/FE3 的派生口径(buildJourneyViewModel 的折叠、解决判定与
  *   deriveProblemKey 题目归并),不另造一套生命周期推导;
- * - 预算纪律:整块默认 ≤2000 字符,超出按「当前文件 > 同题目 > 其余最近」
+ * - 预算纪律:整块默认 ≤10000 字符(2026-08-29 拍板由 2000 放宽,全局统一
+ *   不分复习/普通回答场景),超出按「当前文件 > 同题目 > 其余最近」
  *   截断;无内容时返回 '',由 prompt 构造端保证完全不注入占位块;
  * - 新鲜度标注:每条条目按本地自然日差标注相对时间(口径见 formatRelativeAge:
  *   今天 HH:mm / 昨天 HH:mm / N 天前 / M月D日),免责句尾部追加最早/最新条目
@@ -21,13 +22,13 @@ import { RUN_ERROR_KIND_LABELS } from '../run/runErrorKind';
  * - 只进模型上下文,不改 ChatState、不进会话存储、不产生 UI 消息。
  */
 
-/** 整块字符预算(含标题与免责声明行)。 */
-export const JOURNEY_DIGEST_MAX_CHARS = 2000;
+/** 整块字符预算(含标题与免责声明行)。2026-08-29 拍板 2000 → 10000(全局统一)。 */
+export const JOURNEY_DIGEST_MAX_CHARS = 10000;
 
-/** 各节在预算截断前的事件条数上限(预算通常先触顶,这里是兜底防单节独大)。 */
-const MAX_COMPILE_ERROR_LINES = 5;
-const MAX_RUN_ERROR_LINES = 5;
-const MAX_MISTAKE_PATTERN_LINES = 5;
+/** 各节在预算截断前的事件条数上限(与整块预算同比例 5 → 25,兜底防单节独大)。 */
+const MAX_COMPILE_ERROR_LINES = 25;
+const MAX_RUN_ERROR_LINES = 25;
+const MAX_MISTAKE_PATTERN_LINES = 25;
 
 export interface JourneyDigestOptions {
     /** 当前打开文件的路径(file:// URI 或普通路径);用于相关度排序。 */
