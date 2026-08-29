@@ -1333,8 +1333,14 @@ export async function activate(
 		{
 			// #13 后半:命令面板复习入口(A3),与错题本按钮(A2)同走
 			// JourneyService.requestReview() 同一预填函数,只预填草稿不自动发送。
+			// requestReview 含判空读取已改 async:handler 自行 catch 防
+			// unhandled rejection(日志沿用仓内 console.error('ClassMate …') 口径)。
 			id: 'classmate.reviewMistakes',
-			handler: () => journeyService.requestReview(),
+			handler: () => {
+				void journeyService.requestReview().catch((error: unknown) => {
+					console.error('ClassMate reviewMistakes failed:', error);
+				});
+			},
 		},
 		{
 			id: 'classmate.refreshDebugJourneyTree',

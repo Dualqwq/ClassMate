@@ -25,6 +25,15 @@ export const REVIEW_REQUEST_DRAFT =
     '每个先说我当时错在哪,再讲怎么检查,最后给我一个可以自己再试一次的小方向就好,先不要给完整代码。';
 
 /**
+ * 复盘空态引导文案(#13 后半空态提示):store 真空(已清空/尚无记录)时,
+ * 「让 AI 带我复盘」改预填本文案而不是复盘指令——真空时模型没有任何
+ * 记录可依据(digest 为空不注入),照发复盘指令只会得到无依据的回答。
+ * 文案须同时传达「没有记录」与「下一步做什么」。
+ */
+export const EMPTY_REVIEW_DRAFT =
+    '错题本里现在没有记录。可以先编译运行一下你的代码,等出现报错后再来复盘。';
+
+/**
  * Journey 面板的 extension 侧编排(#12a/#14a):
  * store 读接口取事件 → buildJourneyViewModel 纯函数派生 → 节流推 sync。
  * 面板不直接读 store;webview 只做渲染与交互回传。
@@ -125,7 +134,7 @@ export class JourneyService {
                 this.requestHint(message.text);
                 return;
             case 'journey:requestReview':
-                this.requestReview();
+                await this.requestReview();
                 return;
             case 'journey:exportNotebook':
                 await vscode.commands.executeCommand('classmate.exportDebugNotebook');
@@ -259,9 +268,24 @@ export class JourneyService {
      * 聚焦聊天容器,只预填不发送),但语义独立——复盘 ≠ 求助,不复用
      * requestHint 以免语义混载。public:classmate.reviewMistakes 命令与
      * 错题本按钮两条入口共用同一预填函数(设计文档 §3.1 A2/A3)。
+     *
+     * store 真空时改预填空态引导文案(EMPTY_REVIEW_DRAFT):复盘引用的是
+     * store 里的历史记录,已清空/尚无记录时模型没有任何可依据的事实。
+     * 判空用 getIndex().total === 0 的廉价索引读取,不用 getEvents() 全量
+     * 加载(判空只需计数,total 由 append/裁剪路径维护;resolved 标记
+     * 独立存储,与判空无关)。读取失败按非空降级:空态文案断言「没有
+     * 记录」,误判会与学生面板可见的卡片直接矛盾;按非空最坏回到修复前
+     * 行为(模型对空 digest 诚实说明),不会反向误导。
      */
-    public requestReview(): void {
-        this.requestHint(REVIEW_REQUEST_DRAFT);
+    public async requestReview(): Promise<void> {
+        let storeEmpty = false;
+        try {
+            storeEmpty = (await this._store.getIndex()).total === 0;
+        } catch {
+            // 判空读取失败 → 按非空降级(理由见上),不阻断预填与打开面板。
+            storeEmpty = false;
+        }
+        this.requestHint(storeEmpty ? EMPTY_REVIEW_DRAFT : REVIEW_REQUEST_DRAFT);
     }
 
     private post(message: JourneyExtensionToWebviewMessage): void {

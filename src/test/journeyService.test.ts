@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import { describe, it, beforeEach, after } from 'mocha';
 import * as vscode from 'vscode';
-import { JourneyService, REVIEW_REQUEST_DRAFT } from '../journey/journeyService';
+import { JourneyService, REVIEW_REQUEST_DRAFT, EMPTY_REVIEW_DRAFT } from '../journey/journeyService';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
 import { getResolvedFileUri, getWorkspaceStorageUri } from '../debug/storagePath';
 import { buildRunOutcomeEvent } from '../run/runService';
@@ -525,18 +525,21 @@ describe('JourneyService 复习入口(#13 后半 journey:requestReview)', () => 
         await waitUntil(() => countChatPanelTabs() === 0);
     });
 
-    it('journey:requestReview 预填复习草稿(含「复盘」),不产生任何发送动作,聊天面板打开', async () => {
+    it('store 真空时预填空态引导文案,不产生任何发送动作,聊天面板打开', async () => {
         const { session, calls } = createChatSessionStub();
         const service = new JourneyService(store, {
             chatSession: session,
             confirmClear: async () => false,
         });
+        // 清场:确保计数从 0 开始,不被其他用例残留面板干扰。
+        await closeAllEditors();
+        await waitUntil(() => countChatPanelTabs() === 0);
 
         await service.handleMessage({ type: 'journey:requestReview' });
 
-        assert.strictEqual(calls.prefills.length, 1);
-        assert.ok(calls.prefills[0].includes('复盘'), '预填文案应是复习指令(§4.4 拍板稿)');
-        assert.ok(calls.prefills[0].includes('先不要给完整代码'), '保留「先不要给完整代码」边界句');
+        assert.deepStrictEqual(calls.prefills, [EMPTY_REVIEW_DRAFT]);
+        assert.ok(calls.prefills[0].includes('没有记录'), '空态文案须传达「没有记录」');
+        assert.ok(calls.prefills[0].includes('编译运行'), '空态文案须传达「下一步做什么」');
         assert.strictEqual(calls.addUserMessage, 0, '只预填不发送:不得产生学生消息');
         assert.strictEqual(calls.startAssistantMessage, 0, '只预填不发送:不得开启助手回复');
         // 打开聊天面板通路(classmate.openChatPanel)真实执行 → 可观测 tab 出现。
@@ -546,7 +549,26 @@ describe('JourneyService 复习入口(#13 后半 journey:requestReview)', () => 
         await waitUntil(() => countChatPanelTabs() === 0);
     });
 
-    it('命令路径(requestReview)与按钮路径(handleMessage)预填同一草稿', () => {
+    it('store 有事件时维持原复习指令预填(含「复盘」),零发送动作', async () => {
+        await store.append(sampleEvent(1_000));
+        const { session, calls } = createChatSessionStub();
+        const service = new JourneyService(store, {
+            chatSession: session,
+            confirmClear: async () => false,
+        });
+
+        await service.handleMessage({ type: 'journey:requestReview' });
+
+        assert.deepStrictEqual(calls.prefills, [REVIEW_REQUEST_DRAFT]);
+        assert.ok(calls.prefills[0].includes('复盘'), '预填文案应是复习指令(§4.4 拍板稿)');
+        assert.ok(calls.prefills[0].includes('先不要给完整代码'), '保留「先不要给完整代码」边界句');
+        assert.strictEqual(calls.addUserMessage, 0, '只预填不发送:不得产生学生消息');
+        assert.strictEqual(calls.startAssistantMessage, 0, '只预填不发送:不得开启助手回复');
+        service.dispose();
+    });
+
+    it('命令路径(requestReview)与按钮路径(handleMessage)预填同一草稿,零发送动作', async () => {
+        await store.append(sampleEvent(1_000));
         const { session, calls } = createChatSessionStub();
         const service = new JourneyService(store, {
             chatSession: session,
@@ -554,13 +576,37 @@ describe('JourneyService 复习入口(#13 后半 journey:requestReview)', () => 
         });
 
         // 命令路径 = extension.ts 直接调公开方法(A3);按钮路径 = handleMessage case(A2)。
-        service.requestReview();
+        await service.requestReview();
         assert.deepStrictEqual(calls.prefills, [REVIEW_REQUEST_DRAFT]);
         const commandPathPrefill = calls.prefills[0];
+        assert.strictEqual(calls.addUserMessage, 0, '命令路径零发送动作');
+        assert.strictEqual(calls.startAssistantMessage, 0, '命令路径零发送动作');
 
         calls.prefills.length = 0;
-        void service.handleMessage({ type: 'journey:requestReview' });
+        await service.handleMessage({ type: 'journey:requestReview' });
         assert.deepStrictEqual(calls.prefills, [commandPathPrefill], '两条入口必须预填同一文案');
+        assert.strictEqual(calls.addUserMessage, 0, '按钮路径零发送动作');
+        assert.strictEqual(calls.startAssistantMessage, 0, '按钮路径零发送动作');
+        service.dispose();
+    });
+
+    it('判空读取失败时按非空降级,仍预填原复习指令', async () => {
+        // 降级理由:空态文案断言「错题本没有记录」,若判空误判而 store 实际有
+        // 记录,预填空态会与学生面板可见的卡片直接矛盾(信任事故);按非空
+        // 降级最坏回到修复前行为(模型对空 digest 诚实说明),不会反向误导。
+        const { session, calls } = createChatSessionStub();
+        const service = new JourneyService(store, {
+            chatSession: session,
+            confirmClear: async () => false,
+        });
+        (store as unknown as { getIndex: () => Promise<never> }).getIndex = () =>
+            Promise.reject(new Error('simulated index read failure'));
+
+        await service.requestReview();
+
+        assert.deepStrictEqual(calls.prefills, [REVIEW_REQUEST_DRAFT]);
+        assert.strictEqual(calls.addUserMessage, 0);
+        assert.strictEqual(calls.startAssistantMessage, 0);
         service.dispose();
     });
 
