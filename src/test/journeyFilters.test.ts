@@ -712,3 +712,188 @@ describe('时间线晚→早排序(2026-08-29 实测修复)', () => {
         );
     });
 });
+
+describe('时间线排序与展示时间一致性(2026-08-29 真实事件审计锚定)', () => {
+    // 用户实测报告「一条 15:57 的记录出现在 15:58 上面」。对真实事件库
+    // (workspace c704560c2e598e84,2026-08-29 15:56–15:58 共 5 事件)做端到端
+    // 审计的结论:①未解决置顶区/天组间/组内卡/卡内条目四层全部晚→早;
+    // ②卡头展示时间就是排序键本身(firstSeenAt,EpisodeCard 渲染
+    // formatFirstSeen(episode.firstSeenAt),排序比较器用同一字段);
+    // ③同一 compile_error 折叠出的 error/warning 两张卡并列时间戳,排序稳定。
+    // 本 describe 用真实事件形状(含纯路径 parsed.file 与 percent 编码 URI
+    // 混合形态)把上述结论锚死,防回归。
+    const T_1556_15 = 1_787_990_175_701;
+    const T_1556_30 = 1_787_990_190_398;
+    const T_1557_02 = 1_787_990_222_158;
+    const T_1557_04 = 1_787_990_224_007;
+    const T_1558_34 = 1_787_990_314_360;
+    const SESSION_NOW = new Date('2026-08-29T16:00:00').getTime();
+    const B_URI = 'file:///c%3A/Users/14092/Desktop/%E6%99%BA%E7%90%86%E6%9D%AF/test_directory/b.cpp';
+    const B_EXE_URI = 'file:///c%3A/Users/14092/Desktop/%E6%99%BA%E7%90%86%E6%9D%AF/test_directory/b.exe';
+    const A_URI = 'file:///c%3A/Users/14092/Desktop/%E6%99%BA%E7%90%86%E6%9D%AF/test_directory/a.cpp';
+
+    /** 真实事件形状:解析诊断行 file 是纯 Windows 路径(非 URI)。 */
+    function realShapeCompileError(
+        id: string,
+        timestamp: number,
+        fileUri: string,
+        parsed: Array<{ severity: 'error' | 'warning'; message: string; line: number; column: number }>
+    ): CompileErrorEvent {
+        const stem = fileUri.split('/').pop()!.replace(/\.\w+$/, '');
+        const parsedFile = `c:\\ws\\${stem}.cpp`;
+        return {
+            id,
+            type: 'compile_error',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri,
+            stderr: parsed.map((p) => `${parsedFile}:${p.line}:${p.column}: ${p.severity}: ${p.message}`).join('\n'),
+            parsedErrors: parsed.map((p) => ({
+                raw: `${parsedFile}:${p.line}:${p.column}: ${p.severity}: ${p.message}`,
+                file: parsedFile,
+                line: p.line,
+                column: p.column,
+                severity: p.severity,
+                message: p.message,
+            })),
+            exitCode: 1,
+            durationMs: 800,
+        };
+    }
+
+    function realShapeRunError(id: string, timestamp: number): RunErrorEvent {
+        return {
+            id,
+            type: 'run_error',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri: B_EXE_URI,
+            sourceFileUri: B_URI,
+            executablePath: 'c:\\ws\\b.exe',
+            stdout: '',
+            stderr: '',
+            exitCode: 3_221_225_501,
+            durationMs: 96,
+            kind: 'runtime_arithmetic_exception',
+        };
+    }
+
+    /** 2026-08-29 15:56–15:58 真实 5 事件的形状复刻。 */
+    function realSessionEvents(): DebugEvent[] {
+        return [
+            {
+                id: 'e1',
+                type: 'compile_success',
+                timestamp: T_1556_15,
+                sessionId: 'session',
+                workspaceId: 'ws',
+                fileUri: B_URI,
+                exitCode: 0,
+                durationMs: 8270,
+            },
+            realShapeRunError('e2', T_1556_30),
+            {
+                id: 'e3',
+                type: 'code_modified',
+                timestamp: T_1557_02,
+                sessionId: 'session',
+                workspaceId: 'ws',
+                fileUri: B_URI,
+                before: 'int main() {\n    cout << 1 / 0 << endl;\n}',
+                after: 'int main() {\n    cout << 1 / 0 << end;\n}',
+                diff: '-     cout << 1 / 0 << endl;\n+     cout << 1 / 0 << end;',
+                trigger: 'pre_compile',
+            },
+            realShapeCompileError('e4', T_1557_04, B_URI, [
+                { severity: 'warning', message: 'division by zero', line: 4, column: 15 },
+                { severity: 'error', message: "no match for 'operator<<'", line: 4, column: 19 },
+            ]),
+            realShapeCompileError('e5', T_1558_34, A_URI, [
+                { severity: 'error', message: 'bits/stdc+.h: No such file or directory', line: 1, column: 9 },
+            ]),
+        ];
+    }
+
+    it('真实 5 事件:置顶区四卡严格晚→早(15:58 在 15:57 之上),并列时间戳顺序稳定', () => {
+        const view = buildJourneyViewModel(realSessionEvents());
+        const { unresolved, byDay } = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER },
+            SESSION_NOW
+        );
+
+        // 全部未解决(无 run_success、无手动标记)→ 按日区为空。
+        assert.strictEqual(byDay.length, 0);
+        // 卡间晚→早:15:58 a.cpp 卡在最上,两张 15:57:04 卡(b.cpp 警告/错误)
+        // 并列时间戳按 parsedErrors 首现顺序稳定展开,15:56:30 运行卡最下。
+        assert.deepStrictEqual(
+            unresolved.map((e) => [e.errorEventId, e.firstSeenAt]),
+            [
+                ['e5', T_1558_34],
+                ['e4', T_1557_04],
+                ['e4', T_1557_04],
+                ['e2', T_1556_30],
+            ]
+        );
+        // 同一事件折叠的 warning/error 两卡:排序键相同 → 输入序稳定复现。
+        assert.strictEqual(unresolved[1].severity, 'warning');
+        assert.strictEqual(unresolved[2].severity, 'error');
+    });
+
+    it('卡头展示时间与排序键同源:firstSeenAt 恒等于卡内最早条目时间', () => {
+        const view = buildJourneyViewModel(realSessionEvents());
+        for (const ep of view.episodes) {
+            assert.ok(ep.entries.length > 0);
+            const earliestEntry = Math.min(...ep.entries.map((e) => e.timestamp));
+            assert.strictEqual(
+                ep.firstSeenAt,
+                earliestEntry,
+                `卡 ${ep.errorEventId} 的卡头时间(firstSeenAt)必须与排序/展示一致`
+            );
+        }
+        // 视图模型 episodes 数组本身也保持 firstSeenAt 非升序。
+        for (let i = 1; i < view.episodes.length; i++) {
+            assert.ok(
+                view.episodes[i - 1].firstSeenAt >= view.episodes[i].firstSeenAt,
+                'episodes 数组自上而下必须晚→早'
+            );
+        }
+    });
+
+    it('设计语义锚定:未解决 15:57 卡在置顶区,已解决 15:58 卡在按日区——置顶压按日是 FE1 设计而非排序错误', () => {
+        // b.cpp 15:57 编译失败后再无同文件编译(未解决);a.cpp 15:58 编译失败
+        // → 15:59 编译成功(已解决进「今天」组)。渲染顺序必然是
+        // [置顶区 15:57] → [今天组 15:58],学生看到的「15:57 在 15:58 上面」
+        // 由此而来,属未解决置顶设计,不改排序语义。
+        const events: DebugEvent[] = [
+            realShapeCompileError('b-err', T_1557_04, B_URI, [
+                { severity: 'error', message: 'no match for operator', line: 4, column: 19 },
+            ]),
+            realShapeCompileError('a-err', T_1558_34, A_URI, [
+                { severity: 'error', message: 'bits/stdc+.h: No such file or directory', line: 1, column: 9 },
+            ]),
+            {
+                id: 'a-ok',
+                type: 'compile_success',
+                timestamp: T_1558_34 + 60_000,
+                sessionId: 'session',
+                workspaceId: 'ws',
+                fileUri: A_URI,
+                exitCode: 0,
+                durationMs: 700,
+            },
+        ];
+        const view = buildJourneyViewModel(events);
+        const { unresolved, byDay } = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER },
+            SESSION_NOW
+        );
+        assert.deepStrictEqual(unresolved.map((e) => e.errorEventId), ['b-err']);
+        assert.strictEqual(byDay.length, 1);
+        assert.strictEqual(byDay[0].label, '今天');
+        assert.deepStrictEqual(byDay[0].episodes.map((e) => e.errorEventId), ['a-err']);
+    });
+});
