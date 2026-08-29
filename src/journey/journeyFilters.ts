@@ -178,17 +178,39 @@ export function buildTimelineSections(
     return { unresolved, byDay: dayOrder.map((label) => ({ label, episodes: byDayMap.get(label)! })) };
 }
 
-/** 文件下拉选项:全部 episode 出现过的文件(去重,按名称排)。 */
+/**
+ * 文件下拉选项:全部 episode 出现过的文件,按「同一程序」收敛去重,按名称排。
+ *
+ * 2026-08-29 实测修复:编译卡与运行卡对同一个文件携带两种形态的 fileUri——
+ * 编译卡取解析诊断行里的报错文件(journeyViewModel 的 parsed.file,纯
+ * Windows 路径如 c:\ws\b.cpp,含头文件错误场景须指向真实报错文件的既有
+ * 设计),运行卡取事件自带的 sourceFileUri/fileUri(percent 编码 file://
+ * URI)。旧实现按 fileUri 精确字符串去重,同一文件出两个选项、label 渲染
+ * 同名(用户实测「文件下拉出现两个 b.cpp」)。
+ * 收敛口径与 fileMatchesEpisode 的 stem 感知一致:同一程序(b.cpp↔b.exe↔
+ * 两种 URI/路径形态)就是一个筛选桶,筛选语义本就同桶,拆成两个同名选项
+ * 只会让学生困惑,故收敛为一个选项。取值优先 file:// URI 形态(事件自带
+ * 规范形态,纯路径是解析器从 stderr 剥出的);label 沿用 fileName。
+ */
 export function collectFileOptions(view: JourneyViewModel): Array<{ value: string; label: string }> {
-    const files = new Map<string, string>();
+    const files = new Map<string, { value: string; label: string }>();
     for (const episode of view.episodes) {
-        if (episode.fileUri) {
-            files.set(episode.fileUri, episode.fileName ?? episode.fileUri);
+        if (!episode.fileUri) {
+            continue;
+        }
+        const label = episode.fileName ?? episode.fileUri;
+        const stem = deriveProblemKey(episode.fileUri);
+        const key = stem !== undefined && stem.length > 0 ? stem : episode.fileUri;
+        const existing = files.get(key);
+        if (!existing) {
+            files.set(key, { value: episode.fileUri, label });
+            continue;
+        }
+        if (!existing.value.startsWith('file://') && episode.fileUri.startsWith('file://')) {
+            files.set(key, { value: episode.fileUri, label: existing.label });
         }
     }
-    return [...files.entries()]
-        .map(([value, label]) => ({ value, label }))
-        .sort((a, b) => a.label.localeCompare(b.label));
+    return [...files.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 /**

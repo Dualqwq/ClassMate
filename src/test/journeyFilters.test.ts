@@ -509,6 +509,94 @@ describe('文件筛选与跨程序归并(2026-08-29 实测修复)', () => {
     });
 });
 
+describe('文件下拉同一程序收敛为一个选项(2026-08-29 实测修复)', () => {
+    // 用户实测:编译错误和运行错误都有的时候,文件下拉出现两个 b.cpp。
+    // 根因:编译卡 fileUri 是解析诊断行里的报错文件(parsed.file,纯路径,
+    // journeyViewModel 既有设计——头文件错误须指向真实报错文件),运行卡
+    // fileUri 是事件自带的 sourceFileUri(percent 编码 URI);旧
+    // collectFileOptions 按精确字符串去重,同一文件出两个同名 label 选项。
+    // 修复口径:与 fileMatchesEpisode 的 stem 感知一致,同一程序收敛为
+    // 一个选项;取值优先 file:// URI 形态,label 沿用 fileName。
+    const B_SOURCE_URI = 'file:///w/%E6%99%BA%E7%90%86%E6%9D%AF/b.cpp';
+    const B_EXE_URI = 'file:///w/%E6%99%BA%E7%90%86%E6%9D%AF/b.exe';
+
+    function flattenIds(sections: ReturnType<typeof buildTimelineSections>): string[] {
+        return [
+            ...sections.unresolved,
+            ...sections.byDay.flatMap((g) => g.episodes),
+        ].map((e) => e.errorEventId);
+    }
+
+    function mixedFormView(): JourneyViewModel {
+        return viewOf([
+            // 编译卡:报错文件被解析器剥成纯 Windows 路径
+            episode({
+                errorEventId: 'c-b',
+                fileUri: 'c:\\ws\\b.cpp',
+                fileName: 'b.cpp',
+                resolved: false,
+            }),
+            // 运行卡:源文件归位后的 percent 编码 URI
+            episode({
+                errorEventId: 'r-b',
+                fileUri: B_SOURCE_URI,
+                fileName: 'b.cpp',
+                resolved: false,
+            }),
+            // 另一个程序 a.cpp(纯路径形态)
+            episode({
+                errorEventId: 'c-a',
+                fileUri: 'c:\\ws\\a.cpp',
+                fileName: 'a.cpp',
+                resolved: false,
+            }),
+        ]);
+    }
+
+    it('① 编译卡纯路径与运行卡 URI 是同一文件:下拉只出一个 b.cpp', () => {
+        assert.deepStrictEqual(collectFileOptions(mixedFormView()), [
+            { value: 'c:\\ws\\a.cpp', label: 'a.cpp' },
+            { value: B_SOURCE_URI, label: 'b.cpp' },
+        ]);
+    });
+
+    it('② 收敛后任选一个 b.cpp 值,同程序的编译卡与运行卡都可见,a.cpp 不串入', () => {
+        const view = mixedFormView();
+        for (const value of ['c:\\ws\\b.cpp', B_SOURCE_URI]) {
+            const sections = buildTimelineSections(
+                view,
+                { ...EMPTY_FILTER, file: value },
+                NOW
+            );
+            assert.deepStrictEqual(
+                flattenIds(sections).sort(),
+                ['c-b', 'r-b'],
+                `选 ${value} 应看到 b.cpp 编译卡 + 运行卡,不见 a.cpp`
+            );
+        }
+    });
+
+    it('③ 旧事件只有 exe URI 时与编译卡按 stem 收敛,label 保留源文件名', () => {
+        const view = viewOf([
+            episode({
+                errorEventId: 'c-b',
+                fileUri: 'c:\\ws\\b.cpp',
+                fileName: 'b.cpp',
+                resolved: false,
+            }),
+            episode({
+                errorEventId: 'r-b',
+                fileUri: B_EXE_URI,
+                fileName: 'b.exe',
+                resolved: false,
+            }),
+        ]);
+        assert.deepStrictEqual(collectFileOptions(view), [
+            { value: B_EXE_URI, label: 'b.cpp' },
+        ]);
+    });
+});
+
 describe('时间线晚→早排序(2026-08-29 实测修复)', () => {
     // 多天真实事件流:3 天前仍未解决的编译错(置顶区)+ 昨天/今天各一至两张
     // 已解决编译卡。锁定三个层级的「自上而下从晚到早」:天组之间、卡之间、
