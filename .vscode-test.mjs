@@ -1,4 +1,5 @@
 import { defineConfig } from '@vscode/test-cli';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
 	label: 'unitTests',
@@ -32,5 +33,10 @@ export default defineConfig({
 	mocha: {
 		ui: 'bdd',
 		timeout: 20000,
+		// junction worktree 下双 mocha 实例修复:runner 在加载测试文件之前
+		// require 本钩子(见 scripts/test-mocha-singleton-alias.cjs 顶部说明),
+		// 把 require cache 里 runner 那份 mocha 镜像到另一种盘符大小写键上,
+		// 保证测试文件 `import { describe } from 'mocha'` 拿到同一实例。
+		require: [fileURLToPath(new URL('./scripts/test-mocha-singleton-alias.cjs', import.meta.url))],
 	},
 });
