@@ -37,6 +37,7 @@ import { WorkspaceContextProvider } from './workspace/workspaceContextProvider';
 import { ActivationProfiler, getActivationProfile, isActivationProfilingEnabled } from './activationProfiler';
 import { DebugJourneyStore } from './debug/debugJourneyStore';
 import { computeLineDiff } from './debug/diff';
+import { deriveProblemKeyFromMaterial } from './debug/problemMaterial';
 import { getWorkspaceId } from './debug/storagePath';
 import { ClaudeAdapter } from './llm/ClaudeAdapter';
 import { OpenAIAdapter } from './llm/OpenAIAdapter';
@@ -416,6 +417,19 @@ async function compileHandlerAsync(
 }
 
 /**
+ * 源文件 URI → 题目材料键(question.md/PDF 标题,run 条目归属 ②)。
+ * 无材料/读盘失败时返回 undefined:事件不带该字段,消费侧回退文件名 stem
+ * (现状行为),旧持久化事件与此形态一致。
+ */
+async function deriveEventProblemKey(fileUri: string): Promise<string | undefined> {
+	try {
+		return await deriveProblemKeyFromMaterial(vscode.Uri.parse(fileUri));
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * Record the outcome of a build (g++ or make) into the debug journey store.
  */
 async function recordCompileOutcome(
@@ -426,6 +440,8 @@ async function recordCompileOutcome(
 	result: { exitCode: number | null; stderr: string; durationMs: number },
 	workspaceRoot?: string
 ): Promise<void> {
+	// 题目材料键算一次,成功/失败两种事件共用;失败不阻塞编译事件写入。
+	const problemKey = await deriveEventProblemKey(fileUri);
 	if (result.exitCode !== 0) {
 		// 带include栈传播 + 模板实例化回溯链的解析:头文件错误的归属是诊断行
 		// 自己的文件并携带 viaIncludes 链路;模板链(templateChain)把 STL 深处
@@ -439,6 +455,7 @@ async function recordCompileOutcome(
 			sessionId,
 			workspaceId,
 			fileUri,
+			...(problemKey !== undefined ? { problemKey } : {}),
 			stderr: result.stderr,
 			parsedErrors,
 			exitCode: result.exitCode,
@@ -453,6 +470,7 @@ async function recordCompileOutcome(
 			sessionId,
 			workspaceId,
 			fileUri,
+			...(problemKey !== undefined ? { problemKey } : {}),
 			exitCode: result.exitCode,
 			durationMs: result.durationMs,
 		};
@@ -693,6 +711,9 @@ async function runCodeHandlerAsync(
 
 	const relatedErrorId = await getLastCompileErrorEventId(debugStore, fileUri, workspaceId);
 	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource, relatedErrorId);
+	// 题目材料键(question.md/PDF 标题)与 recordCompileOutcome 同口径:
+	// 编译/运行事件按同一题目键归并,run 条目才能挂进编译 episode。
+	const problemKey = await deriveEventProblemKey(fileUri);
 
 	try {
 		const compileResult = await spawnGpp(document.fileName);
@@ -722,6 +743,7 @@ async function runCodeHandlerAsync(
 				sessionId,
 				workspaceId,
 				fileUri,
+				...(problemKey !== undefined ? { problemKey } : {}),
 				stderr: compileResult.stderr,
 				parsedErrors,
 				exitCode: compileResult.exitCode,
@@ -738,6 +760,7 @@ async function runCodeHandlerAsync(
 			sessionId,
 			workspaceId,
 			fileUri,
+			...(problemKey !== undefined ? { problemKey } : {}),
 			exitCode: compileResult.exitCode,
 			durationMs: compileResult.durationMs,
 		};

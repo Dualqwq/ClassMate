@@ -593,3 +593,174 @@ describe('学生手动「已解决」标记(重置语义与绝不自动翻转)',
         assert.match(card.phenomenon, /退出码 3221225620/);
     });
 });
+
+describe('run 条目归属:源文件归位与题目材料键(FE3 遗留)', () => {
+    it('新 run 事件:跳转/展示归位源文件,problemKey 用题目材料键', () => {
+        const view = buildJourneyViewModel([
+            runError({
+                fileUri: 'file:///w/00_两数之和/main.exe',
+                executablePath: 'C:/w/00_两数之和/main.exe',
+                sourceFileUri: 'file:///w/00_两数之和/main.cpp',
+                problemKey: '两数之和',
+            }),
+        ]);
+        const episode = view.episodes[0];
+        assert.strictEqual(episode.fileUri, 'file:///w/00_两数之和/main.cpp', 'episode 跳转归位到源文件');
+        assert.strictEqual(episode.fileName, 'main.cpp');
+        assert.strictEqual(episode.problemKey, '两数之和');
+
+        const card = view.mistakeCards.find((c) => c.tag === 'runtime_segmentation_fault');
+        assert.ok(card);
+        assert.strictEqual(card.fileUri, 'file:///w/00_两数之和/main.cpp', '错题卡跳转同样归位源文件');
+        assert.strictEqual(card.problemKey, '两数之和');
+    });
+
+    it('旧 run 事件(无新字段):回退 exe 路径与文件名 stem(现状行为)', () => {
+        const view = buildJourneyViewModel([runError()]);
+        const episode = view.episodes[0];
+        assert.strictEqual(episode.fileUri, 'file:///w/main.exe');
+        assert.strictEqual(episode.fileName, 'main.exe');
+        assert.strictEqual(episode.problemKey, 'main');
+    });
+
+    it('run_success 同样归位源文件与材料键', () => {
+        const view = buildJourneyViewModel([
+            runSuccess({
+                fileUri: 'file:///w/p1/main.exe',
+                sourceFileUri: 'file:///w/p1/main.cpp',
+                problemKey: '两数之和',
+            }),
+        ]);
+        const episode = view.episodes[0];
+        assert.strictEqual(episode.fileUri, 'file:///w/p1/main.cpp');
+        assert.strictEqual(episode.problemKey, '两数之和');
+    });
+
+    it('同材料键归并:run 条目进入编译 episode 条目流(不靠文件名)', () => {
+        const view = buildJourneyViewModel([
+            compileError({
+                id: 'err-p1',
+                fileUri: 'file:///w/p1/main.cpp',
+                problemKey: '两数之和',
+            }),
+            runSuccess({
+                id: 'run-p1-ok',
+                timestamp: 3_500,
+                fileUri: 'file:///w/p1/main.exe',
+                sourceFileUri: 'file:///w/p1/main.cpp',
+                problemKey: '两数之和',
+            }),
+        ]);
+        const compileEpisode = view.episodes.find((e) => e.errorEventId === 'err-p1');
+        assert.ok(compileEpisode);
+        assert.ok(
+            compileEpisode.entries.some((e) => e.kind === 'run_success'),
+            '同材料键的 run 条目应归并进编译 episode'
+        );
+    });
+
+    it('不同材料键且不同 stem:互不归并(不同目录的同名文件是不同题)', () => {
+        const view = buildJourneyViewModel([
+            compileError({
+                id: 'err-p1',
+                fileUri: 'file:///w/p1/main.cpp',
+                problemKey: '题A',
+            }),
+            runSuccess({
+                id: 'run-p2-ok',
+                timestamp: 3_500,
+                fileUri: 'file:///w/p2/main.exe',
+                sourceFileUri: 'file:///w/p2/main.cpp',
+                problemKey: '题B',
+            }),
+        ]);
+        const compileEpisode = view.episodes.find((e) => e.errorEventId === 'err-p1');
+        assert.ok(compileEpisode);
+        assert.strictEqual(
+            compileEpisode.entries.some((e) => e.kind === 'run_success'),
+            false,
+            '材料键不同即不同题,不得靠同名 stem 误并'
+        );
+    });
+
+    it('升级窗口兼容:旧编译事件(无材料键)+ 新 run 事件按 stem 兜底归并', () => {
+        const view = buildJourneyViewModel([
+            compileError(),
+            runSuccess({
+                id: 'run-new',
+                timestamp: 3_500,
+                fileUri: 'file:///w/main.exe',
+                sourceFileUri: 'file:///w/main.cpp',
+                problemKey: '两数之和',
+            }),
+        ]);
+        const compileEpisode = view.episodes.find((e) => e.errorEventId === 'err-1');
+        assert.ok(compileEpisode);
+        assert.ok(
+            compileEpisode.entries.some((e) => e.kind === 'run_success'),
+            '旧编译 + 新 run 的升级窗口按文件名 stem 兜底归并'
+        );
+    });
+
+    it('解决态(材料键):标记 ≥ 最新同键 run_error 呈已解决;stem 标记不串材料键题', () => {
+        const marked = buildJourneyViewModel(
+            [runError({ problemKey: '两数之和', sourceFileUri: 'file:///w/main.cpp' })],
+            { resolvedMarks: { '两数之和': 5_000 } }
+        );
+        const episode = marked.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(episode);
+        assert.strictEqual(episode.resolved, true);
+        assert.strictEqual(episode.resolvedByStudent, true);
+        const card = marked.mistakeCards.find((c) => c.tag === 'runtime_segmentation_fault');
+        assert.ok(card);
+        assert.strictEqual(card.resolvedCount, 1);
+
+        const stemMark = buildJourneyViewModel(
+            [runError({ problemKey: '两数之和', sourceFileUri: 'file:///w/main.cpp' })],
+            { resolvedMarks: { main: 5_000 } }
+        );
+        const stemEpisode = stemMark.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(stemEpisode);
+        assert.strictEqual(stemEpisode.resolved, false, 'stem 标记不得解决材料键命中的同 stem 题');
+    });
+
+    it('解决态(材料键)回归:同键新 run_error 覆盖旧标记;run_success 绝不翻转', () => {
+        const secondErrorAt = 4_000 + SEMANTIC_DEDUPE_WINDOW_MS + 1_000;
+        const reset = buildJourneyViewModel(
+            [
+                runError({
+                    id: 'bad-old',
+                    timestamp: 4_000,
+                    problemKey: '两数之和',
+                    sourceFileUri: 'file:///w/main.cpp',
+                }),
+                runError({
+                    id: 'bad-new',
+                    timestamp: secondErrorAt,
+                    problemKey: '两数之和',
+                    sourceFileUri: 'file:///w/main.cpp',
+                }),
+            ],
+            { resolvedMarks: { '两数之和': 5_000 } }
+        );
+        for (const episode of reset.episodes.filter((e) => e.runErrorKind !== undefined)) {
+            assert.strictEqual(episode.resolved, false, '新同题错误覆盖旧标记');
+        }
+
+        const successNoFlip = buildJourneyViewModel(
+            [
+                runError({ problemKey: '两数之和', sourceFileUri: 'file:///w/main.cpp' }),
+                runSuccess({
+                    id: 'ok-later',
+                    timestamp: 8_000,
+                    problemKey: '两数之和',
+                    sourceFileUri: 'file:///w/main.cpp',
+                }),
+            ],
+            { resolvedMarks: { '两数之和': 5_000 } }
+        );
+        const markedEpisode = successNoFlip.episodes.find((e) => e.runErrorKind !== undefined);
+        assert.ok(markedEpisode);
+        assert.strictEqual(markedEpisode.resolved, true, '运行成功不得撤销学生的已解决标记');
+    });
+});

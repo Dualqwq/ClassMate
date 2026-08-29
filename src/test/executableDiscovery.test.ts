@@ -6,6 +6,7 @@ import { describe, it } from 'mocha';
 import {
 	discoverExecutable,
 	findNewestExecutable,
+	findSourceFileForExecutable,
 	hasRootMakefile,
 	parseMakeLinkTarget,
 	resolveGppExecutablePath,
@@ -176,5 +177,42 @@ describe('hasRootMakefile', () => {
 		} finally {
 			await fs.rm(dir, { recursive: true, force: true });
 		}
+	});
+});
+
+describe('findSourceFileForExecutable (exe → 源文件归位)', () => {
+	it('同目录同 stem 的 .cpp 命中(真实临时目录)', async () => {
+		const dir = await makeTempDir();
+		try {
+			const source = path.join(dir, 'main.cpp');
+			await fs.writeFile(source, 'int main(){}');
+			const exe = process.platform === 'win32' ? path.join(dir, 'main.exe') : path.join(dir, 'main');
+			assert.strictEqual(await findSourceFileForExecutable(exe), source);
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('注入 fileExists:按 .cpp → .cc → .cxx → .c++ → .c 顺序尝试', async () => {
+		const dir = path.join('ws', 'bin');
+		const seen: string[] = [];
+		const result = await findSourceFileForExecutable(path.join(dir, 'main.exe'), async (candidate) => {
+			seen.push(candidate);
+			return candidate.endsWith('.c');
+		});
+		assert.strictEqual(result, path.join(dir, 'main.c'));
+		assert.deepStrictEqual(seen, [
+			path.join(dir, 'main.cpp'),
+			path.join(dir, 'main.cc'),
+			path.join(dir, 'main.cxx'),
+			path.join(dir, 'main.c++'),
+			path.join(dir, 'main.c'),
+		]);
+	});
+
+	it('同目录没有同 stem 源文件时返回 undefined(消费方回退 exe 路径)', async () => {
+		const dir = path.join('ws', 'bin');
+		const result = await findSourceFileForExecutable(path.join(dir, 'main.exe'), async () => false);
+		assert.strictEqual(result, undefined);
 	});
 });

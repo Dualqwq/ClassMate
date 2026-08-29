@@ -63,6 +63,29 @@ const TEXT_LIKE_EXTENSIONS = new Set([
 	'.md', '.markdown', '.txt', '.in', '.out', '.ans', '.json', '.o', '.obj',
 ]);
 
+/** exe → 源文件归位时按教学常见度排序尝试的源文件扩展名。 */
+const SOURCE_EXTENSIONS_FOR_EXE = ['.cpp', '.cc', '.cxx', '.c++', '.c'];
+
+/**
+ * exe → 源文件归位(run 条目归属):同目录同 stem 依次尝试常见 C/C++ 源文件
+ * 扩展名(main.exe → main.cpp)。make-echo/latest-exe/user-picked 场景没有
+ * 权威源文件信息时的兜底;源码不在 exe 同目录(如 src/ → build/ 布局)时
+ * 返回 undefined,消费方回退 exe 路径(现状行为)。纯 Node 实现,便于单测。
+ */
+export async function findSourceFileForExecutable(
+	exePath: string,
+	fileExists: (candidate: string) => Promise<boolean> = defaultFileExists
+): Promise<string | undefined> {
+	const parsed = path.parse(exePath);
+	for (const extension of SOURCE_EXTENSIONS_FOR_EXE) {
+		const candidate = path.join(parsed.dir, parsed.name + extension);
+		if (await fileExists(candidate)) {
+			return candidate;
+		}
+	}
+	return undefined;
+}
+
 /**
  * 工作区根目录最新的可执行文件(make 场景兜底)。只看根目录一层:
  * 与"根目录最新 .exe"的拍板一致,不递归子目录。

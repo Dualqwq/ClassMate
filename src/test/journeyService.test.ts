@@ -311,6 +311,33 @@ describe('RunService → DebugJourneyStore 写入路径(buildRunOutcomeEvent)', 
         assert.deepStrictEqual(runtimeCard.fixes, []);
         service.dispose();
     });
+
+    it('归位信息(attribution)写入事件:fileUri 保持 exe,源文件与题目键走新可选字段', () => {
+        const attribution = { sourceFileUri: 'file:///w/main.cpp', problemKey: '两数之和' };
+        const success = buildRunOutcomeEvent(record(), { sessionId: 's', workspaceId: 'w' }, attribution);
+        assert.strictEqual(success.type, 'run_success');
+        assert.strictEqual(success.fileUri, vscode.Uri.file('C:/ws/main.exe').toString());
+        assert.strictEqual(success.sourceFileUri, 'file:///w/main.cpp');
+        assert.strictEqual(success.problemKey, '两数之和');
+
+        const failure = buildRunOutcomeEvent(
+            record({ exitCode: 139, stderr: 'Segmentation fault (core dumped)' }),
+            { sessionId: 's', workspaceId: 'w' },
+            attribution
+        );
+        if (failure.type !== 'run_error') {
+            return assert.fail('unreachable');
+        }
+        assert.strictEqual(failure.fileUri, vscode.Uri.file('C:/ws/main.exe').toString());
+        assert.strictEqual(failure.sourceFileUri, 'file:///w/main.cpp');
+        assert.strictEqual(failure.problemKey, '两数之和');
+    });
+
+    it('无归位信息(旧形态)时事件不带新字段,消费侧按现状回退', () => {
+        const event = buildRunOutcomeEvent(record(), { sessionId: 's', workspaceId: 'w' });
+        assert.strictEqual('sourceFileUri' in event, false);
+        assert.strictEqual('problemKey' in event, false);
+    });
 });
 
 /** 与幂等窗口错开的第二个时间戳,保证两条 run 事件不被指纹折叠。 */

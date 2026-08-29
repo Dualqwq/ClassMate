@@ -2,10 +2,11 @@ import * as path from 'path';
 import { stat } from 'fs/promises';
 import * as vscode from 'vscode';
 import { getCompileOutputContent } from '../compiler/outputPanel';
+import { deriveProblemKeyFromMaterial } from '../debug/problemMaterial';
 import type { DebugJourneyStore } from '../debug/debugJourneyStore';
 import type { RunErrorEvent, RunSuccessEvent } from '../debug/types';
 import { RunHistoryStore, truncateOutput } from '../storage/runHistoryStore';
-import { discoverExecutable } from './executableDiscovery';
+import { discoverExecutable, findSourceFileForExecutable } from './executableDiscovery';
 import { runExecutable } from './runner';
 import { runInIntegratedTerminal } from './runTerminal';
 import { classifyRunError } from './runErrorClassifier';
@@ -36,7 +37,12 @@ export class RunService {
 	private _lastStdin = '';
 	private _lastResult: RunRecord | undefined;
 	private _interactiveHint: { exePath: string } | undefined;
-	private _selectedExecutable: { path: string; source: ExecutableSource } | undefined;
+	/**
+	 * 当前选中的 exe 与其源文件归位信息:sourcePath 只在 g++ 场景
+	 * (source-derived,exe 由该源文件推导)有值;其余发现来源在写事件时
+	 * 走同目录 stem 匹配兜底。sourcePath 不进面板快照(webview 契约不变)。
+	 */
+	private _selectedExecutable: { path: string; source: ExecutableSource; sourcePath?: string } | undefined;
 	private _notice: string | undefined;
 	private _discoverInterval: ReturnType<typeof setInterval> | undefined;
 
@@ -109,7 +115,14 @@ export class RunService {
 		const result = await discoverExecutable(workspaceRoot, activeSource, makeOutput || undefined);
 		if (result.exePath && result.source) {
 			this._notice = undefined;
-			this._selectedExecutable = { path: result.exePath, source: result.source };
+			this._selectedExecutable = {
+				path: result.exePath,
+				source: result.source,
+				// g++ 场景:exe 由该源文件推导,归位所需的映射在这里捕获。
+				...(result.source === 'source-derived' && activeSource
+					? { sourcePath: activeSource }
+					: {}),
+			};
 			this._stopAutoDiscover();
 			return this._selectedExecutable;
 		}
@@ -236,10 +249,14 @@ export class RunService {
 		if (!this._debugStore) {
 			return;
 		}
-		const event = buildRunOutcomeEvent(record, {
-			sessionId: this._sessionId ?? 'unknown',
-			workspaceId: this._debugStore.workspaceId,
-		});
+		const event = buildRunOutcomeEvent(
+			record,
+			{
+				sessionId: this._sessionId ?? 'unknown',
+				workspaceId: this._debugStore.workspaceId,
+			},
+			await this._resolveRunAttribution(record)
+		);
 		try {
 			await this._debugStore.append(event);
 		} catch (error) {
@@ -247,11 +264,40 @@ export class RunService {
 		}
 	}
 
+	/**
+	 * 运行事件的归属信息(FE3 遗留 ①②):exe → 源文件 URI + 题目材料键。
+	 * source-derived 场景用发现时捕获的源文件;其余发现来源退同目录同 stem
+	 * 匹配;题目材料只认源文件(或 exe)所在目录的 question.md/PDF 标题。
+	 * 任何失败都回退「无归位字段」——运行结果本身必须照常写入 Journey,
+	 * 消费侧再回退 exe 路径与文件名 stem(现状行为)。
+	 */
+	private async _resolveRunAttribution(
+		record: RunRecord
+	): Promise<{ sourceFileUri?: string; problemKey?: string }> {
+		try {
+			const sourcePath = this._selectedExecutable?.sourcePath
+				?? await findSourceFileForExecutable(record.exePath);
+			const anchorUri = vscode.Uri.file(sourcePath ?? record.exePath);
+			const problemKey = await deriveProblemKeyFromMaterial(anchorUri);
+			return {
+				...(sourcePath ? { sourceFileUri: anchorUri.toString() } : {}),
+				...(problemKey !== undefined ? { problemKey } : {}),
+			};
+		} catch {
+			return {};
+		}
+	}
+
 	/** 组装面板快照:当前选中 + 上次结果 + 按 exe 分组的历史(新的在前)。 */
 	public async buildSnapshot(): Promise<RunPanelSnapshot> {
 		const grouped = await this._store.readAll();
 		return {
-			executable: this._selectedExecutable,
+			executable: this._selectedExecutable
+				? {
+					path: this._selectedExecutable.path,
+					source: this._selectedExecutable.source,
+				}
+				: undefined,
 			notice: this._notice,
 			running: this._running,
 			currentStartedAt: this._currentStartedAt,
@@ -320,22 +366,29 @@ async function fileExists(candidate: string): Promise<boolean> {
  * 运行记录 → Debug Journey 事件(纯函数,单测入口)。
  * exitCode === 0 且未超时、未触发交互兜底 → run_success;否则 → run_error,
  * kind 由 classifyRunError 按平台 stderr 模式判定。
+ * attribution 是宿主侧算好的归属信息(源文件 URI + 题目材料键),缺省时
+ * 事件不带归位字段,消费侧回退 exe 路径/文件名 stem(旧事件同形态)。
  */
 export function buildRunOutcomeEvent(
 	record: Pick<
 		RunRecord,
 		'id' | 'exePath' | 'startedAt' | 'durationMs' | 'exitCode' | 'timedOut' | 'needsInteractiveInput' | 'stdout' | 'stderr'
 	>,
-	ids: { sessionId: string; workspaceId: string }
+	ids: { sessionId: string; workspaceId: string },
+	attribution?: { sourceFileUri?: string; problemKey?: string }
 ): RunSuccessEvent | RunErrorEvent {
 	const baseEvent = {
 		id: record.id,
 		timestamp: record.startedAt ?? Date.now(),
 		sessionId: ids.sessionId,
 		workspaceId: ids.workspaceId,
+		// fileUri 语义保持 exe 路径不变(侧边栏树分组/事件过滤/指纹零扰动);
+		// 源文件归位走可选 sourceFileUri,消费侧优先读它。
 		fileUri: vscode.Uri.file(record.exePath).toString(),
 		exitCode: record.exitCode,
 		durationMs: record.durationMs,
+		...(attribution?.sourceFileUri ? { sourceFileUri: attribution.sourceFileUri } : {}),
+		...(attribution?.problemKey ? { problemKey: attribution.problemKey } : {}),
 	};
 
 	if (record.exitCode === 0 && !record.timedOut && !record.needsInteractiveInput) {

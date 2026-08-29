@@ -6,7 +6,7 @@ import { createErrorSignature, signatureKey, signaturesMatch } from './errorFing
 import type { ErrorLifecycle } from './errorLifecycle';
 import { findFixingEdits } from './errorLifecycle';
 import { formatFixAsDiff, normalizeCodeForDiff } from './formatDiff';
-import { deriveProblemKey } from './problemKey';
+import { eventProblemKey } from './problemKey';
 import type { CompileErrorEvent, DebugEvent, RunErrorEvent } from './types';
 import {
     formatRunErrorPhenomenon,
@@ -190,6 +190,9 @@ export function generateKnowledgeCard(
             sourceEvents: [errorEvent.id],
             correctingEditIds: editIds,
             concreteFixes,
+            // 题目分组键(run 条目归属 ②):宿主写事件时算好的材料键;
+            // 旧事件无该字段时保持 undefined,由消费侧回退文件名 stem。
+            ...(errorEvent.problemKey !== undefined ? { problemKey: errorEvent.problemKey } : {}),
         });
     }
 
@@ -208,11 +211,13 @@ export function generateRunErrorKnowledgeCard(
     resolvedMarks: Record<string, number> = {}
 ): KnowledgeCard {
     const concept = getRunErrorKnowledgeConcept(errorEvent.kind);
-    const problemKey = deriveProblemKey(errorEvent.fileUri);
+    // 题目键优先事件字段(材料键/源文件归位),缺省回退 exe 文件名 stem——
+    // 旧持久化事件与现行 resolved.json 键的语义保持不变。
+    const problemKey = eventProblemKey(errorEvent);
     const latestSameProblemErrorAt = problemKey === undefined
         ? undefined
         : allEvents.reduce<number | undefined>((latest, event) => {
-            if (event.type !== 'run_error' || deriveProblemKey(event.fileUri) !== problemKey) {
+            if (event.type !== 'run_error' || eventProblemKey(event) !== problemKey) {
                 return latest;
             }
             return Math.max(latest ?? 0, event.timestamp);
@@ -245,7 +250,8 @@ export function generateRunErrorKnowledgeCard(
             errorEvent.exitCode,
             errorEvent.errorDetail
         ),
-        fileUri: errorEvent.fileUri,
+        // 源文件归位(①):错题本跳转优先 exe 对应源文件;旧事件回退 exe 路径。
+        fileUri: errorEvent.sourceFileUri ?? errorEvent.fileUri,
         problemKey,
         severity: 'error',
     };
@@ -276,14 +282,14 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
         // 稳定破平，避免输入数组顺序决定 phenomenon/fileUri/problemKey。
         const runtimeRepresentative = group
             .filter((card) => card.phenomenon !== undefined)
-            .sort((a, b) => {
-                if (b.lastSeenAt !== a.lastSeenAt) {
-                    return b.lastSeenAt - a.lastSeenAt;
-                }
-                const aId = a.sourceEvents[0] ?? '';
-                const bId = b.sourceEvents[0] ?? '';
-                return aId === bId ? 0 : aId < bId ? 1 : -1;
-            })[0];
+            .sort(byLatestOccurrence)[0];
+        // 编译卡题目键传播(run 条目归属 ②):按 tag 全局合并的编译卡沿用
+        // 「挂到最新代表题目」的既有口径,取最新一张带题目键的编译卡;
+        // 组内无任何题目键时保持 undefined,消费侧回退代表性报错文件的
+        // stem(现状行为,兼容旧事件)。
+        const compileKeyRepresentative = group
+            .filter((card) => card.phenomenon === undefined && card.problemKey !== undefined)
+            .sort(byLatestOccurrence)[0];
         let frequency = 0;
         let resolvedCount = 0;
         let unresolvedCount = 0;
@@ -340,11 +346,23 @@ export function mergeKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCard[] {
                     problemKey: runtimeRepresentative.problemKey,
                     severity: runtimeRepresentative.severity,
                 }
-                : {}),
+                : compileKeyRepresentative
+                    ? { problemKey: compileKeyRepresentative.problemKey }
+                    : {}),
         });
     }
 
     return merged;
+}
+
+/** 最新 occurrence 在前;同 lastSeenAt 用事件 id 稳定破平(降序)。 */
+function byLatestOccurrence(a: KnowledgeCard, b: KnowledgeCard): number {
+    if (b.lastSeenAt !== a.lastSeenAt) {
+        return b.lastSeenAt - a.lastSeenAt;
+    }
+    const aId = a.sourceEvents[0] ?? '';
+    const bId = b.sourceEvents[0] ?? '';
+    return aId === bId ? 0 : aId < bId ? 1 : -1;
 }
 
 /**

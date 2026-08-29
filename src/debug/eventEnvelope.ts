@@ -45,6 +45,10 @@ export function stableStringify(value: unknown): string {
  * parsedErrors 只取 error/warning 的 (file,line,severity,message) 四元组
  * (severity 参与指纹:同一位置的 error 与 warning 是不同事件,不得互相去重
  * 或折叠);code_modified 用 before/after 内容哈希区分不同修改。
+ *
+ * 归位字段(problemKey/sourceFileUri)刻意不参与指纹:它们是「这条事件属于
+ * 哪道题/哪个源文件」的派生上下文,不是事件身份——run_error 的身份已由
+ * executablePath+exitCode+kind 唯一化,题目材料改名不应影响写入幂等与折叠。
  */
 function semanticPayload(event: DebugEvent): unknown {
     switch (event.type) {

@@ -257,8 +257,8 @@ export function buildJourneyDigest(
                 episode.problemKey
             ));
         } else if (episode.runErrorKind !== undefined) {
-            // run_error 独立 episode(FE3):fileUri 是 exe 路径,problemKey 已
-            // 由视图模型归并到源文件同名题(main.cpp ↔ main.exe)。
+            // run_error 独立 episode(FE3):fileUri 已优先归位源文件(旧事件回
+            // 退 exe 路径),problemKey 优先题目材料键、缺省回退文件名 stem。
             items.push(markRelevant(
                 runErrorItem(episode, nowMs),
                 episode.fileUri,

@@ -13,7 +13,7 @@ import {
     type KnowledgeCard,
 } from '../debug/knowledgeCard';
 import { buildKnowledgeCardsFromEvents } from '../debug/knowledgeCardBuilder';
-import { deriveProblemKey } from '../debug/problemKey';
+import { deriveProblemKey, eventProblemKey } from '../debug/problemKey';
 import {
     isCodeModified,
     isCompileError,
@@ -217,10 +217,10 @@ function buildEntriesForLifecycle(
     });
 
     const windowEnd = lifecycle.resolvedAt ?? Number.MAX_SAFE_INTEGER;
-    // run 条目按题目键归并(main.cpp / main.exe → main):run 事件的 fileUri
-    // 是 exe 路径,与编译错误的源文件 URI 永不相等,精确匹配会让运行记录
-    // 永远进不了编译 episode 的条目流。
-    const errorProblemKey = deriveProblemKey(errorEvent.fileUri);
+    // run 条目按题目键归并(main.cpp / main.exe → main;有题目材料时用材料键):
+    // run 事件的 fileUri 是 exe 路径,与编译错误的源文件 URI 永不相等,精确
+    // 匹配会让运行记录永远进不了编译 episode 的条目流。
+    const errorProblemKey = eventProblemKey(errorEvent);
     for (const event of sortedEvents) {
         if (event.id === errorEvent.id) {
             continue;
@@ -231,10 +231,25 @@ function buildEntriesForLifecycle(
         // 只串同一文件的修复过程;无文件信息的错误不设此限制。run 条目用
         // 题目键比较(见上),其余类型仍要求 fileUri 精确一致。
         if (errorEvent.fileUri && event.fileUri) {
-            const sameSource = isRunError(event) || isRunSuccess(event)
-                ? deriveProblemKey(event.fileUri) === errorProblemKey &&
-                  errorProblemKey !== undefined
-                : event.fileUri === errorEvent.fileUri;
+            let sameSource: boolean;
+            if (isRunError(event) || isRunSuccess(event)) {
+                // 题目键优先(新事件两侧都带材料键/事件字段);文件名 stem 作
+                // 第二判据兜底——覆盖升级窗口(旧编译事件 + 新 run 事件只有
+                // stem 可比)与无材料目录,保持与旧版 stem 归并完全兼容。
+                // 两侧都有材料键且不同时不再靠 stem 误并:材料键不同即不同题
+                // (不同目录的 main.cpp 各自是独立题目)。
+                const runKey = eventProblemKey(event);
+                const runStem = deriveProblemKey(event.sourceFileUri)
+                    ?? deriveProblemKey(event.fileUri);
+                const compileStem = deriveProblemKey(errorEvent.fileUri);
+                const bothHaveMaterialKey =
+                    event.problemKey !== undefined && errorEvent.problemKey !== undefined;
+                sameSource =
+                    (runKey !== undefined && runKey === errorProblemKey) ||
+                    (!bothHaveMaterialKey && runStem !== undefined && runStem === compileStem);
+            } else {
+                sameSource = event.fileUri === errorEvent.fileUri;
+            }
             if (!sameSource) {
                 continue;
             }
@@ -449,7 +464,7 @@ export function buildJourneyViewModel(
         if (!isRunError(event)) {
             continue;
         }
-        const pk = deriveProblemKey(event.fileUri);
+        const pk = eventProblemKey(event);
         if (!pk) {
             continue;
         }
@@ -457,7 +472,7 @@ export function buildJourneyViewModel(
     }
     for (const event of sortedEvents) {
         if (isRunError(event)) {
-            const problemKey = deriveProblemKey(event.fileUri);
+            const problemKey = eventProblemKey(event);
             const markedAt =
                 problemKey !== undefined ? resolvedMarks[problemKey] : undefined;
             const latestErrorAt =
@@ -466,11 +481,14 @@ export function buildJourneyViewModel(
                 markedAt !== undefined &&
                 latestErrorAt !== undefined &&
                 markedAt >= latestErrorAt;
+            // 源文件归位(①):跳转/展示优先 exe 对应的源文件;旧事件/找不到
+            // 源文件时回退 exe 路径(现状)。
+            const locationUri = event.sourceFileUri ?? event.fileUri;
             episodes.push({
                 errorEventId: event.id,
                 message: describeRunOutcome(event.exitCode, event.kind, event.errorDetail),
-                fileUri: event.fileUri,
-                fileName: baseFileName(event.fileUri),
+                fileUri: locationUri,
+                fileName: baseFileName(locationUri),
                 severity: 'error',
                 runErrorKind: event.kind,
                 firstSeenAt: event.timestamp,
@@ -495,11 +513,12 @@ export function buildJourneyViewModel(
         if (!isRunSuccess(event)) {
             continue;
         }
+        const runSuccessLocation = event.sourceFileUri ?? event.fileUri;
         episodes.push({
             errorEventId: event.id,
             message: describeRunOutcome(event.exitCode),
-            fileUri: event.fileUri,
-            fileName: baseFileName(event.fileUri),
+            fileUri: runSuccessLocation,
+            fileName: baseFileName(runSuccessLocation),
             severity: 'info',
             firstSeenAt: event.timestamp,
             resolved: true,
@@ -512,7 +531,7 @@ export function buildJourneyViewModel(
                     label: describeRunOutcome(event.exitCode),
                 },
             ],
-            problemKey: deriveProblemKey(event.fileUri),
+            problemKey: eventProblemKey(event),
         });
     }
 

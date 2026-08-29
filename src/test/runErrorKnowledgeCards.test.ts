@@ -211,4 +211,45 @@ describe('run_error knowledge cards', () => {
         assert.strictEqual(cards[0].resolvedCount, 1);
         assert.strictEqual(cards[0].unresolvedCount, 0);
     });
+
+    it('run 卡优先事件归位字段:fileUri 指源文件,解决态按材料键;stem 标记不串题', () => {
+        const material = buildKnowledgeCardsFromEvents(
+            [
+                runError({
+                    fileUri: 'file:///w/p1/main.exe',
+                    sourceFileUri: 'file:///w/p1/main.cpp',
+                    problemKey: '两数之和',
+                }),
+            ],
+            { resolvedMarks: { '两数之和': 2_000 } }
+        )[0];
+        assert.strictEqual(material.fileUri, 'file:///w/p1/main.cpp');
+        assert.strictEqual(material.problemKey, '两数之和');
+        assert.strictEqual(material.resolvedCount, 1);
+        assert.strictEqual(material.unresolvedCount, 0);
+
+        const stemMark = buildKnowledgeCardsFromEvents(
+            [
+                runError({
+                    fileUri: 'file:///w/p1/main.exe',
+                    sourceFileUri: 'file:///w/p1/main.cpp',
+                    problemKey: '两数之和',
+                }),
+            ],
+            { resolvedMarks: { main: 2_000 } }
+        )[0];
+        assert.strictEqual(stemMark.resolvedCount, 0, 'stem 标记不得解决材料键命中的同 stem 题');
+    });
+
+    it('编译卡携带事件材料键;同 tag 全局合并挂到最新 occurrence 的题目', () => {
+        const single = buildKnowledgeCardsFromEvents([compileError({ problemKey: '题A' })]);
+        assert.strictEqual(single[0].problemKey, '题A');
+
+        const merged = buildKnowledgeCardsFromEvents([
+            compileError({ id: 'c1', timestamp: 1_000, problemKey: '题A' }),
+            compileError({ id: 'c2', timestamp: 2_000, problemKey: '题B' }),
+        ]);
+        assert.strictEqual(merged.length, 1);
+        assert.strictEqual(merged[0].problemKey, '题B', '全局卡挂到最新代表题目(既有口径)');
+    });
 });

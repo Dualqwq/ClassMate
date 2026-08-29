@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { describe, it, beforeEach } from 'mocha';
 import * as vscode from 'vscode';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
-import { isCompileError, type DebugEvent } from '../debug/types';
+import { isCompileError, isRunError, type DebugEvent } from '../debug/types';
 import { SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
 import { getEventsFileUri, getWorkspaceStorageUri } from '../debug/storagePath';
 
@@ -403,6 +403,60 @@ describe('DebugJourneyStore', () => {
         assert.strictEqual(events[0].id, 'legacy-1');
         assert.strictEqual(events[0].schemaVersion, 1);
         assert.strictEqual((events[0] as { fingerprint?: string }).fingerprint, undefined);
+    });
+
+    it('run 归位字段往返:problemKey/sourceFileUri 随事件持久化读回', async () => {
+        await store.append({
+            id: 'run-1',
+            type: 'run_error',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/main.exe',
+            executablePath: 'C:/w/main.exe',
+            stdout: '',
+            stderr: 'boom',
+            exitCode: 139,
+            durationMs: 10,
+            kind: 'runtime_segmentation_fault',
+            sourceFileUri: 'file:///w/main.cpp',
+            problemKey: '两数之和',
+        });
+
+        const events = await store.getEvents();
+        assert.strictEqual(events.length, 1);
+        const stored = events[0];
+        if (!isRunError(stored)) {
+            return assert.fail('unreachable');
+        }
+        assert.strictEqual(stored.sourceFileUri, 'file:///w/main.cpp');
+        assert.strictEqual(stored.problemKey, '两数之和');
+    });
+
+    it('旧 run 事件(无归位字段)读回后字段为 undefined,照常可用', async () => {
+        const legacyLine = JSON.stringify({
+            id: 'legacy-run',
+            type: 'run_error',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/main.exe',
+            executablePath: 'C:/w/main.exe',
+            stdout: '',
+            stderr: 'Segmentation fault',
+            exitCode: 139,
+            durationMs: 10,
+            kind: 'runtime_segmentation_fault',
+        });
+        await vscode.workspace.fs.writeFile(
+            getEventsFileUri(getWorkspaceStorageUri(context.globalStorageUri, 'test-workspace')),
+            Buffer.from(legacyLine + '\n', 'utf-8')
+        );
+
+        const events = await store.getEvents();
+        assert.strictEqual(events.length, 1);
+        assert.strictEqual(events[0].problemKey, undefined);
+        assert.strictEqual((events[0] as { sourceFileUri?: string }).sourceFileUri, undefined);
     });
 });
 
