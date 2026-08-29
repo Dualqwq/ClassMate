@@ -261,6 +261,14 @@ export class DebugJourneyStore {
     }
 
     public async clear(): Promise<void> {
+        // 语义指纹幂等窗口同步作废:窗口描述「本实例最近落过盘什么」,clear 一旦
+        // 被调用,它与磁盘的对应关系即不再可信——不重置的话,清除之后窗口内
+        // 重编同一错误会被当重复吞掉,清除后的第一条新错误丢失。选择在入口
+        // 无条件重置(而非「全部删除成功后才重置」):clear 中途抛错(如 events
+        // 已删、resolved 失败的部分清除态)后磁盘真相已变,保留旧指纹反而会
+        // 继续吞事件;无条件重置的最坏后果只是窗口内多写一条同指纹重复,
+        // 消费侧 foldByFingerprint 本就按指纹折叠兜底,无正确性风险。
+        this._recentFingerprints.clear();
         // 文件删除失败不许静默:杀软/索引器锁文件(EBUSY、Permission denied)
         // 时若吞掉错误,「清除」会假成功——旧事件仍在磁盘上,digest 照样注入。
         // 只有 FileNotFound(本就不存在,幂等清除的正常形态)才容忍。

@@ -247,6 +247,43 @@ describe('DebugJourneyStore', () => {
         );
     });
 
+    it('clear 重置语义指纹窗口:清除后窗口内同错误重新落盘(不被幂等去重吞掉)', async () => {
+        let now = 100_000;
+        const windowedStore = new DebugJourneyStore(context, 'test-workspace', { now: () => now });
+        const makeEvent = (id: string): DebugEvent => ({
+            id,
+            type: 'compile_error',
+            // 与既有幂等窗口用例同口径:时间戳是易变字段,不参与指纹,
+            // 两次事件语义指纹完全相同。
+            timestamp: now,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/a.cpp',
+            stderr: 'b.h:5:10: error: x',
+            parsedErrors: [{ raw: 'r', file: 'b.h', line: 5, severity: 'error', message: 'x' }],
+            exitCode: 1,
+            durationMs: 100,
+        });
+
+        await windowedStore.append(makeEvent('before-clear'));
+        await windowedStore.clear();
+
+        // 窗口内(5s 未过)重编完全相同的错误:清除语义=从头记录,必须落盘;
+        // 修复前此处被残留的幂等指纹跳过,清除后的第一条错误丢失。
+        now += 500;
+        await windowedStore.append(makeEvent('after-clear'));
+
+        const events = await windowedStore.getEvents();
+        assert.deepStrictEqual(
+            events.map((e) => e.id),
+            ['after-clear'],
+            '清除后同指纹错误必须重新落盘,不得被幂等窗口吞掉'
+        );
+        const index = await windowedStore.getIndex();
+        assert.strictEqual(index.total, 1);
+        windowedStore.dispose();
+    });
+
     it('appends incrementally: repeated appendMany keep order and content (O(1) 追加)', async () => {
         for (let round = 0; round < 3; round++) {
             await store.appendMany([
