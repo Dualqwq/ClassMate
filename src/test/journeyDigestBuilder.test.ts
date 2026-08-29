@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { describe, it } from 'mocha';
-import { buildJourneyDigest } from '../chat/journeyDigestBuilder';
+import { buildJourneyDigest, formatRelativeAge } from '../chat/journeyDigestBuilder';
 import type {
     CompileErrorEvent,
     DebugEvent,
@@ -206,5 +206,167 @@ describe('buildJourneyDigest', () => {
         assert.strictEqual(compileLines.length, 5);
         // 相关文件即使最旧也必须保留在截断前列。
         assert.match(digest, /f0\.cpp:5/);
+    });
+});
+
+/** 固定本地时刻辅助:2026-08-28 12:00(本地时区),月按 0 基。 */
+const NOW = new Date(2026, 7, 28, 12, 0, 0, 0).getTime();
+const at = (month0: number, day: number, hours: number, minutes: number): number =>
+    new Date(2026, month0, day, hours, minutes, 0, 0).getTime();
+
+function compileErrorAt(id: string, timestamp: number, fileName: string, line: number): CompileErrorEvent {
+    return compileError({
+        id,
+        timestamp,
+        fileUri: `file:///w/${fileName}`,
+        stderr: `${fileName}:${line}:5: error: x was not declared in this scope`,
+        parsedErrors: [{
+            raw: 'error: x was not declared in this scope',
+            file: `file:///w/${fileName}`,
+            line,
+            severity: 'error',
+            message: 'x was not declared in this scope',
+        }],
+    });
+}
+
+describe('formatRelativeAge 新鲜度标注口径', () => {
+    it('同一自然日(含未来时间戳兜底) → 今天 HH:mm', () => {
+        assert.strictEqual(formatRelativeAge(at(7, 28, 9, 30), NOW), '今天 09:30');
+        assert.strictEqual(formatRelativeAge(at(7, 28, 0, 5), NOW), '今天 00:05');
+        assert.strictEqual(formatRelativeAge(at(7, 28, 23, 59), NOW), '今天 23:59');
+    });
+
+    it('上一个自然日 → 昨天 HH:mm', () => {
+        assert.strictEqual(formatRelativeAge(at(7, 27, 23, 5), NOW), '昨天 23:05');
+    });
+
+    it('距今 2–6 个自然日 → N 天前', () => {
+        assert.strictEqual(formatRelativeAge(at(7, 26, 12, 0), NOW), '2 天前');
+        assert.strictEqual(formatRelativeAge(at(7, 24, 0, 0), NOW), '4 天前');
+        assert.strictEqual(formatRelativeAge(at(7, 22, 23, 0), NOW), '6 天前');
+    });
+
+    it('距今 ≥7 个自然日 → 绝对日期 M月D日(跨月按本地日期)', () => {
+        assert.strictEqual(formatRelativeAge(at(7, 21, 12, 0), NOW), '8月21日');
+        // 8月15日距今 13 个自然日,输出的是绝对日期本身而非天数差。
+        assert.strictEqual(formatRelativeAge(at(7, 15, 0, 0), NOW), '8月15日');
+        assert.strictEqual(formatRelativeAge(at(6, 20, 12, 0), NOW), '7月20日');
+    });
+
+    it('纯函数:同 (timestamp, nowMs) 恒定输出', () => {
+        const ts = at(7, 25, 8, 15);
+        assert.strictEqual(formatRelativeAge(ts, NOW), formatRelativeAge(ts, NOW));
+    });
+});
+
+describe('buildJourneyDigest 新鲜度标注', () => {
+    it('条目按口径标注今天/昨天/N 天前/M月D日,附在行尾全角括号内', () => {
+        const digest = buildJourneyDigest([
+            compileErrorAt('e-today', at(7, 28, 9, 30), 'today.cpp', 1),
+            compileErrorAt('e-yesterday', at(7, 27, 18, 45), 'yesterday.cpp', 2),
+            compileErrorAt('e-three', at(7, 25, 8, 0), 'three.cpp', 3),
+            compileErrorAt('e-old', at(7, 10, 10, 0), 'old.cpp', 4),
+        ], { nowMs: NOW });
+        assert.ok(digest.includes('- today.cpp:1 变量/函数未声明 [编译错误]（今天 09:30）'));
+        assert.ok(digest.includes('- yesterday.cpp:2 变量/函数未声明 [编译错误]（昨天 18:45）'));
+        assert.ok(digest.includes('- three.cpp:3 变量/函数未声明 [编译错误]（3 天前）'));
+        assert.ok(digest.includes('- old.cpp:4 变量/函数未声明 [编译错误]（8月10日）'));
+    });
+
+    it('免责句尾部追加最早/最新条目的时间跨度提示', () => {
+        const digest = buildJourneyDigest([
+            compileErrorAt('e-old', at(7, 10, 10, 0), 'old.cpp', 4),
+            compileErrorAt('e-today', at(7, 28, 9, 30), 'today.cpp', 1),
+        ], { nowMs: NOW });
+        assert.match(digest, /Freshness: the oldest entry is from 8月10日, and the newest entry is from 今天 09:30\./);
+        // 固定声明仍在,未破坏既有口径断言。
+        assert.match(digest, /never invent details that are not listed/);
+    });
+
+    it('单条目时跨度句最早与最新同值(确定性边界)', () => {
+        const digest = buildJourneyDigest(
+            [compileErrorAt('only', at(7, 28, 9, 30), 'only.cpp', 1)],
+            { nowMs: NOW }
+        );
+        assert.match(digest, /Freshness: the oldest entry is from 今天 09:30, and the newest entry is from 今天 09:30\./);
+    });
+
+    it('nowMs 注入下输出逐字节确定,且改 nowMs 会改变标注(不依赖真实时钟)', () => {
+        const events: DebugEvent[] = [
+            compileErrorAt('ce', at(7, 27, 9, 0), 'main.cpp', 12),
+            runError({ timestamp: at(7, 26, 21, 10) }),
+        ];
+        const a = buildJourneyDigest(events, { nowMs: NOW });
+        const b = buildJourneyDigest(events, { nowMs: NOW });
+        assert.strictEqual(a, b);
+        const later = buildJourneyDigest(events, { nowMs: NOW + 40 * 86_400_000 });
+        assert.notStrictEqual(a, later);
+    });
+
+    it('标注字符计入字符预算:贴边用例下截断点因标注后移', () => {
+        // 两条未匹配知识 pattern 的编译错误(无错题卡干扰),同节两条。
+        // 刻意用不同文件:同文件的下一次编译会让旧错误被生命周期判定为
+        // 「已消失即解决」(errorLifecycle 既有语义),条目就不剩两条了。
+        const events: DebugEvent[] = [
+            compileError({
+                id: 'u-old',
+                timestamp: at(7, 26, 9, 0),
+                fileUri: 'file:///w/oldmsg.cpp',
+                stderr: 'oldmsg.cpp:5:5: error: zz-alpha-unknown-diagnostic',
+                parsedErrors: [{
+                    raw: 'error: zz-alpha-unknown-diagnostic',
+                    file: 'file:///w/oldmsg.cpp',
+                    line: 5,
+                    severity: 'error',
+                    message: 'zz-alpha-unknown-diagnostic',
+                }],
+            }),
+            compileError({
+                id: 'u-new',
+                timestamp: at(7, 27, 9, 0),
+                fileUri: 'file:///w/newmsg.cpp',
+                stderr: 'newmsg.cpp:6:5: error: zz-beta-unknown-diagnostic',
+                parsedErrors: [{
+                    raw: 'error: zz-beta-unknown-diagnostic',
+                    file: 'file:///w/newmsg.cpp',
+                    line: 6,
+                    severity: 'error',
+                    message: 'zz-beta-unknown-diagnostic',
+                }],
+            }),
+        ];
+        const full = buildJourneyDigest(events, { nowMs: NOW });
+        const fullItems = full.split('\n').filter((line) => line.startsWith('- '));
+        assert.strictEqual(fullItems.length, 2);
+        const lastItem = fullItems[fullItems.length - 1];
+        const ann = lastItem.match(/（[^（）]*）$/);
+        assert.ok(ann, '条目行应以相对时间标注结尾');
+        // 预算 = 整块长度 - 末条标注长度:若标注计入预算,末条恰好放不下。
+        const budget = full.length - ann[0].length;
+        const tight = buildJourneyDigest(events, { nowMs: NOW, maxChars: budget });
+        const tightItems = tight.split('\n').filter((line) => line.startsWith('- '));
+        assert.strictEqual(tightItems.length, 1);
+        assert.ok(!tight.includes(lastItem));
+        assert.ok(tight.length <= budget);
+    });
+
+    it('每条条目行以标注结尾;剥掉标注后的长度作预算会截掉条目(标注计入预算)', () => {
+        const events: DebugEvent[] = [];
+        for (let i = 0; i < 3; i++) {
+            events.push(compileErrorAt(`e-${i}`, at(7, 26 - i, 10, 0), `g${i}.cpp`, i + 1));
+        }
+        const full = buildJourneyDigest(events, { nowMs: NOW });
+        const fullItems = full.split('\n').filter((line) => line.startsWith('- '));
+        assert.ok(fullItems.length >= 3);
+        for (const line of fullItems) {
+            assert.match(line, /（[^（）]*）$/);
+        }
+        const stripped = full.replace(/（[^（）\n]*）$/gm, '');
+        assert.ok(stripped.length < full.length);
+        const tight = buildJourneyDigest(events, { nowMs: NOW, maxChars: stripped.length });
+        const tightItems = tight.split('\n').filter((line) => line.startsWith('- '));
+        assert.ok(tightItems.length < fullItems.length, '无标注口径的预算装不下带标注条目');
+        assert.ok(tight.length <= stripped.length);
     });
 });
