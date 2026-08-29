@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatReference } from '../../../src/chat/types';
+import { planCodeBlockFold } from '../../../src/chat/codeBlockFold';
 import { inferenceLinkifyAnswer } from '../../../src/chat/answerReferenceRenderer';
 import { transformReferenceUrl } from '../../../src/chat/linkifyAnswer';
 import { sendMessage } from '../vscodeApi';
@@ -21,26 +22,43 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 }) => {
 	const match = /language-(\w+)/.exec(className || '');
 	const language = match ? match[1] : 'text';
+	const code = String(children).replace(/\n$/, '');
+	// 折叠计划由代码内容唯一决定(同内容同渲染,流式期间也确定);expanded
+	// 只表达学生的手动选择,内容增长不会重置已展开的块。
+	const fold = planCodeBlockFold(code);
+	const [expanded, setExpanded] = React.useState(false);
+	const collapsed = fold.shouldCollapse && !expanded;
 
 	return (
-		<SyntaxHighlighter
-			language={language}
-			style={vscDarkPlus}
-			customStyle={{
-				margin: '8px 0',
-				borderRadius: '6px',
-				fontSize: '12px',
-				background: 'var(--vscode-editor-background)',
-			}}
-			codeTagProps={{
-				style: {
-					fontFamily: 'var(--vscode-editor-font-family), monospace',
+		<div className="code-block-shell">
+			<SyntaxHighlighter
+				language={language}
+				style={vscDarkPlus}
+				customStyle={{
+					margin: '8px 0',
+					borderRadius: '6px',
 					fontSize: '12px',
-				},
-			}}
-		>
-			{String(children).replace(/\n$/, '')}
-		</SyntaxHighlighter>
+					background: 'var(--vscode-editor-background)',
+				}}
+				codeTagProps={{
+					style: {
+						fontFamily: 'var(--vscode-editor-font-family), monospace',
+						fontSize: '12px',
+					},
+				}}
+			>
+				{collapsed ? fold.previewText : code}
+			</SyntaxHighlighter>
+			{fold.shouldCollapse && (
+				<button
+					type="button"
+					className="code-fold-toggle"
+					onClick={() => setExpanded(!expanded)}
+				>
+					{collapsed ? `展开（${fold.totalLines} 行）` : '收起'}
+				</button>
+			)}
+		</div>
 	);
 };
 

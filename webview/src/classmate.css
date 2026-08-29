@@ -645,6 +645,27 @@ label:focus-within {
 	background: var(--vscode-toolbar-hoverBackground);
 }
 
+/* ---- 代码块折叠(MarkdownRenderer 的 CodeBlock) ---- */
+/* 折叠/展开按钮:风格对齐 .reference-chip/.message-action-button 一族
+   (透明底 + 面板边框 + inherit 前景色),助手气泡与用户气泡两种底色都可用。 */
+.code-fold-toggle {
+	display: inline-block;
+	margin: 0 0 8px;
+	padding: 2px 7px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 5px;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	font-size: 10px;
+}
+
+.code-fold-toggle:hover {
+	border-color: var(--vscode-focusBorder);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+
 @media (prefers-reduced-motion: reduce) {
 	.processing-spinner {
 		animation: none;
