@@ -14,6 +14,7 @@ import {
 } from '../debug/knowledgeCard';
 import { buildKnowledgeCardsFromEvents } from '../debug/knowledgeCardBuilder';
 import { deriveProblemKey, eventProblemKey } from '../debug/problemKey';
+import { formatFileDisplayPath, sameProgramFile } from '../debug/fileIdentity';
 import {
     isCodeModified,
     isCompileError,
@@ -72,6 +73,13 @@ export interface JourneyEpisodeVM {
      */
     fileUri?: string;
     fileName?: string;
+    /**
+     * 卡头链接的学生可读位置(2026-08-29 跨目录撞名修复):工作区相对路径
+     * (如 `problem1/a.cpp`,正斜杠);文件在工作区外时为规范化绝对路径,
+     * 未提供工作区根时不落字段(渲染层回退 fileName)。跨目录同名文件在
+     * 时间线上靠它区分(裸 `a.cpp:12` 分不清是哪个 a.cpp)。
+     */
+    fileLabel?: string;
     line?: number;
     /** 该错误的 include 引入链路(从最内层到最外层,如 ["b.h:6","a.cpp:1"])。 */
     viaIncludes?: string[];
@@ -153,6 +161,12 @@ export interface JourneyViewModel {
     episodes: JourneyEpisodeVM[];
     /** sortKnowledgeCards 序:未解决 > 频率 > 平均尝试 > 最近。 */
     mistakeCards: MistakeCardVM[];
+    /**
+     * 工作区根 fsPath(2026-08-29 跨目录撞名修复):JourneyService 从
+     * workspaceFolders 取,随 sync 载荷下发——webview 侧 collectFileOptions
+     * 用它把文件选项渲染成工作区相对路径,不新增 extension↔webview 消息类型。
+     */
+    workspaceRoot?: string;
 }
 
 const HINT_INTENT_LABELS: Record<string, string> = {
@@ -229,25 +243,27 @@ function buildEntriesForLifecycle(
         if (errorEvent.fileUri && event.fileUri) {
             let sameSource: boolean;
             if (isRunError(event) || isRunSuccess(event)) {
-                // 归并双条件(2026-08-29 实测修复):①程序 stem 一致是必要条件
+                // 归并双条件(2026-08-29 实测修复):①程序身份一致是必要条件
                 // ——run 事件的 fileUri 是 exe 路径,与编译错误的源文件 URI 永不
                 // 相等,精确匹配会让运行记录永远进不了编译 episode 的条目流,
-                // 故按「源文件→exe 同名」(main.cpp ↔ main.exe,优先
-                // sourceFileUri 归位)判定同一程序;②材料键只作否决不作充分
+                // 故按「同一程序」判定(优先 sourceFileUri 归位;main.cpp ↔
+                // main.exe 同目录同 stem);②材料键只作否决不作充分
                 // 条件——同目录多份源码共享同一题面材料时材料键相同,单靠材料
                 // 键相等会把 b.exe 的运行条目并进 a.cpp 的编译卡(文件筛选因此
                 // 串卡);两侧都带材料键且不同(不同目录同名文件各属各题)绝不
-                // 归并,单侧缺键(旧事件/无材料目录)按 stem 兜底,升级窗口行为
-                // 与旧版一致。
-                const runStem = deriveProblemKey(event.sourceFileUri)
-                    ?? deriveProblemKey(event.fileUri);
-                const compileStem = deriveProblemKey(errorEvent.fileUri);
+                // 归并,单侧缺键(旧事件/无材料目录)按程序身份兜底,升级窗口
+                // 行为与旧版一致。
+                // 2026-08-29 跨目录撞名修复:程序身份由裸 stem 等值收紧为
+                // 「同目录 + 同 stem」(sameProgramFile)——stem 世界(无
+                // question.md,两侧都无材料键)下 problem1/a.cpp 的编译卡不再
+                // 吸收 problem2/a.exe 的运行条目;任一侧无目录证据(旧事件
+                // 相对路径)退回 stem 兜底,升级窗口行为与旧版一致。
+                const runSourceUri = event.sourceFileUri ?? event.fileUri;
                 const sameProblem =
                     event.problemKey === undefined ||
                     errorEvent.problemKey === undefined ||
                     event.problemKey === errorEvent.problemKey;
-                sameSource =
-                    runStem !== undefined && runStem === compileStem && sameProblem;
+                sameSource = sameProgramFile(runSourceUri, errorEvent.fileUri) && sameProblem;
             } else {
                 sameSource = event.fileUri === errorEvent.fileUri;
             }
@@ -377,10 +393,13 @@ function foldByFingerprint(events: DebugEvent[]): DebugEvent[] {
  */
 export function buildJourneyViewModel(
     events: DebugEvent[],
-    options?: { resolvedMarks?: Record<string, number> }
+    options?: { resolvedMarks?: Record<string, number>; workspaceRoot?: string }
 ): JourneyViewModel {
     const sortedEvents = [...foldByFingerprint(events)].sort((a, b) => a.timestamp - b.timestamp);
     const lifecycles = buildErrorLifecycles(sortedEvents);
+    // 工作区根(JourneyService 下发):episode 的 fileLabel(工作区相对展示
+    // 路径)用它计算;未提供时 fileLabel 不落字段,视图模型其余部分零变化。
+    const workspaceRoot = options?.workspaceRoot;
 
     // ×8 根因修复(消费派生折叠):buildErrorLifecycles 对同一 compile_error
     // 事件的每条 error/warning 解析行各建一个 lifecycle,而卡片渲染若统一取
@@ -442,6 +461,9 @@ export function buildJourneyViewModel(
                 message: parsed?.message ?? '',
                 fileUri: locationFile,
                 fileName: baseFileName(locationFile),
+                ...(workspaceRoot !== undefined
+                    ? { fileLabel: formatFileDisplayPath(locationFile, workspaceRoot) }
+                    : {}),
                 line: parsed?.line,
                 ...(parsed?.viaIncludes ? { viaIncludes: [...parsed.viaIncludes] } : {}),
                 severity:
@@ -495,6 +517,9 @@ export function buildJourneyViewModel(
                 message: describeRunOutcome(event.exitCode, event.kind, event.errorDetail),
                 fileUri: locationUri,
                 fileName: baseFileName(locationUri),
+                ...(workspaceRoot !== undefined
+                    ? { fileLabel: formatFileDisplayPath(locationUri, workspaceRoot) }
+                    : {}),
                 severity: 'error',
                 runErrorKind: event.kind,
                 firstSeenAt: event.timestamp,
@@ -525,6 +550,9 @@ export function buildJourneyViewModel(
             message: describeRunOutcome(event.exitCode),
             fileUri: runSuccessLocation,
             fileName: baseFileName(runSuccessLocation),
+            ...(workspaceRoot !== undefined
+                ? { fileLabel: formatFileDisplayPath(runSuccessLocation, workspaceRoot) }
+                : {}),
             severity: 'info',
             firstSeenAt: event.timestamp,
             resolved: true,
@@ -601,6 +629,8 @@ export function buildJourneyViewModel(
         },
         episodes: [...unresolved, ...resolvedEpisodes],
         mistakeCards,
+        // 未提供根时不下发字段:digest 等无根调用方的视图模型形状与旧版逐字段一致。
+        ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
     };
 }
 

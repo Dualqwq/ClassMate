@@ -1,6 +1,6 @@
 import type { JourneyEntryVM, JourneyEpisodeVM, JourneyViewModel, MistakeCardVM } from './journeyViewModel';
 import { RUN_ERROR_KINDS, RUN_ERROR_KIND_LABELS, type RunErrorKind } from '../run/runErrorKind';
-import { deriveProblemKey } from '../debug/problemKey';
+import { formatFileDisplayPath, sameProgramFile } from '../debug/fileIdentity';
 
 /**
  * Journey 面板的过滤/分组纯函数(#12a)。
@@ -64,22 +64,23 @@ export interface EpisodeDayGroup {
 }
 
 /**
- * 文件档匹配(2026-08-29 实测修复):精确 URI 相等,或同一程序——文件名
- * stem 相同(如 a.cpp ↔ a.exe)视为同一文件档。学生在文件下拉选 a.exe 时
- * 理应看到 a.cpp 的编译错误:同一程序的编译+运行是一条时间线,而旧事件
- * (run 只有 exe fileUri、无 sourceFileUri)的选项值只有 exe URI,纯精确
- * 匹配会让 a.cpp 编译卡在筛 a.exe 时消失。
+ * 文件档匹配:精确 URI 相等,或同一程序——**同目录且同文件名 stem**
+ * (如 a.cpp ↔ a.exe)视为同一文件档。学生在文件下拉选 a.exe 时理应看到
+ * a.cpp 的编译错误:同一程序的编译+运行是一条时间线,而旧事件(run 只有
+ * exe fileUri、无 sourceFileUri)的选项值只有 exe URI,纯精确匹配会让
+ * a.cpp 编译卡在筛 a.exe 时消失。
+ *
+ * 2026-08-29 跨目录撞名修复:旧实现只比裸 stem(problem1/a.cpp 与
+ * problem2/a.cpp 同 stem 'a'),按任一 a.cpp 筛选会把另一个目录的同名
+ * 文件条目也带出来。现改为带目录限定的 stem 等值(sameProgramFile):
+ * 两侧都是绝对目录时必须同目录;任一侧无目录证据(旧事件相对路径/裸名)
+ * 退回 stem 兜底,升级窗口行为与旧版一致。
  */
 function fileMatchesEpisode(episodeFileUri: string | undefined, filterFile: string): boolean {
     if (episodeFileUri === filterFile) {
         return true;
     }
-    const filterStem = deriveProblemKey(filterFile);
-    return (
-        filterStem !== undefined &&
-        filterStem.length > 0 &&
-        filterStem === deriveProblemKey(episodeFileUri)
-    );
+    return sameProgramFile(filterFile, episodeFileUri);
 }
 
 /** episode 是否通过级别/文件/未解决过滤(条目类型过滤只作用于条目列表)。 */
@@ -187,30 +188,47 @@ export function buildTimelineSections(
  * 设计),运行卡取事件自带的 sourceFileUri/fileUri(percent 编码 file://
  * URI)。旧实现按 fileUri 精确字符串去重,同一文件出两个选项、label 渲染
  * 同名(用户实测「文件下拉出现两个 b.cpp」)。
- * 收敛口径与 fileMatchesEpisode 的 stem 感知一致:同一程序(b.cpp↔b.exe↔
- * 两种 URI/路径形态)就是一个筛选桶,筛选语义本就同桶,拆成两个同名选项
- * 只会让学生困惑,故收敛为一个选项。取值优先 file:// URI 形态(事件自带
- * 规范形态,纯路径是解析器从 stderr 剥出的);label 沿用 fileName。
+ *
+ * 2026-08-29 跨目录撞名修复(用户实测「problem1/a.cpp 与 problem2/a.cpp
+ * 分不开」):中间版的 stem 收敛键(problemKey 只取 basename)会把不同目录
+ * 的同名文件并成一个选项。现按「同一程序」成对判定(sameProgramFile,与
+ * fileMatchesEpisode 完全同口径)分桶:同一文件的双 URI 形态(纯路径 vs
+ * file://、分隔符/盘符大小写差异)与同目录 a.cpp↔a.exe 收敛为一个选项,
+ * 异目录同 stem 文件分开为各自选项。
+ * 取值优先 file:// URI 形态(事件自带规范形态,纯路径是解析器从 stderr
+ * 剥出的);label 用工作区相对路径(view.workspaceRoot 由 JourneyService
+ * 随视图模型下发),桶内优先取源文件扩展名(.cpp/.cc/.cxx/.c)episode 的
+ * label——a.cpp↔a.exe 桶对学生应叫 a.cpp 而不是 a.exe。
  */
+const SOURCE_FILE_EXT = /\.(cpp|cc|cxx|c)$/i;
+
 export function collectFileOptions(view: JourneyViewModel): Array<{ value: string; label: string }> {
-    const files = new Map<string, { value: string; label: string }>();
+    const buckets: Array<{ value: string; label: string; labelIsSource: boolean }> = [];
     for (const episode of view.episodes) {
         if (!episode.fileUri) {
             continue;
         }
-        const label = episode.fileName ?? episode.fileUri;
-        const stem = deriveProblemKey(episode.fileUri);
-        const key = stem !== undefined && stem.length > 0 ? stem : episode.fileUri;
-        const existing = files.get(key);
+        const label = formatFileDisplayPath(episode.fileUri, view.workspaceRoot);
+        if (label === undefined) {
+            continue;
+        }
+        const labelIsSource = SOURCE_FILE_EXT.test(episode.fileUri);
+        const existing = buckets.find((bucket) => sameProgramFile(bucket.value, episode.fileUri));
         if (!existing) {
-            files.set(key, { value: episode.fileUri, label });
+            buckets.push({ value: episode.fileUri, label, labelIsSource });
             continue;
         }
         if (!existing.value.startsWith('file://') && episode.fileUri.startsWith('file://')) {
-            files.set(key, { value: episode.fileUri, label: existing.label });
+            existing.value = episode.fileUri;
+        }
+        if (!existing.labelIsSource && labelIsSource) {
+            existing.label = label;
+            existing.labelIsSource = true;
         }
     }
-    return [...files.values()].sort((a, b) => a.label.localeCompare(b.label));
+    return buckets
+        .map(({ value, label }) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 /**

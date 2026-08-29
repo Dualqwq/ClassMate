@@ -517,8 +517,12 @@ describe('文件下拉同一程序收敛为一个选项(2026-08-29 实测修复)
     // collectFileOptions 按精确字符串去重,同一文件出两个同名 label 选项。
     // 修复口径:与 fileMatchesEpisode 的 stem 感知一致,同一程序收敛为
     // 一个选项;取值优先 file:// URI 形态,label 沿用 fileName。
-    const B_SOURCE_URI = 'file:///w/%E6%99%BA%E7%90%86%E6%9D%AF/b.cpp';
-    const B_EXE_URI = 'file:///w/%E6%99%BA%E7%90%86%E6%9D%AF/b.exe';
+    // 2026-08-29 跨目录撞名修复后的 fixture 修正:原常量把编译卡的
+    // `c:\ws\b.cpp` 与运行卡的 `file:///w/智理杯/b.*` 当作同一文件(仅凭
+    // stem 收敛,编码了「目录无关」的错误前提)。收敛语义现要求同目录,
+    // 两个常量改为与编译卡同目录的真实 percent 编码形态;全部断言零修改。
+    const B_SOURCE_URI = 'file:///c%3A/ws/b.cpp';
+    const B_EXE_URI = 'file:///c%3A/ws/b.exe';
 
     function flattenIds(sections: ReturnType<typeof buildTimelineSections>): string[] {
         return [

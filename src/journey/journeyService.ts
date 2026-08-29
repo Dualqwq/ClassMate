@@ -171,7 +171,12 @@ export class JourneyService {
     public async buildView(): Promise<JourneyViewModel> {
         const events = await this._store.getEvents();
         const resolvedMarks = await this._store.getResolvedMarks();
-        return buildJourneyViewModel(events, { resolvedMarks });
+        // 工作区根随视图模型下发(2026-08-29 跨目录撞名修复):webview 的
+        // collectFileOptions 用它把文件筛选选项渲染成工作区相对路径
+        // (problem1/a.cpp vs problem2/a.cpp),不新增 extension↔webview
+        // 消息类型。取首个工作区文件夹,与 openFile 的既有口径一致。
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        return buildJourneyViewModel(events, { resolvedMarks, workspaceRoot });
     }
 
     /**

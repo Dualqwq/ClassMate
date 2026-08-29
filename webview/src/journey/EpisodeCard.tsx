@@ -25,8 +25,11 @@ function formatFirstSeen(timestamp: number): string {
 }
 
 function buildHintText(episode: JourneyEpisodeVM): string {
-	const location = episode.fileName
-		? `(${episode.fileName}${episode.line ? `:${episode.line}` : ''})`
+	// 位置优先用工作区相对路径(fileLabel,跨目录同名文件靠它区分),旧数据
+	// 回退裸文件名。
+	const displayName = episode.fileLabel ?? episode.fileName;
+	const location = displayName
+		? `(${displayName}${episode.line ? `:${episode.line}` : ''})`
 		: '';
 	return `我在修这个错但一直没搞定：「${episode.message}」${location}。请先告诉我下一步应该从哪里排查，不要直接给完整代码。`;
 }
@@ -95,7 +98,7 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 							})
 						}
 					>
-						{episode.fileName}
+						{episode.fileLabel ?? episode.fileName}
 						{episode.line ? `:${episode.line}` : ''}
 					</button>
 				)}
