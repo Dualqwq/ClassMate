@@ -4,6 +4,10 @@ import type { RunExtensionToWebviewMessage, RunWebviewToExtensionMessage } from 
 
 declare const acquireVsCodeApi: () => {
 	postMessage: (message: unknown) => void;
+	/** webview 本地状态(随面板重载尽力恢复,与扩展宿主无关)。 */
+	getState: () => unknown;
+	/** webview 本地状态写入;某些宿主环境(测试)可能未实现,调用方需容忍失败。 */
+	setState: (state: unknown) => void;
 };
 
 // VS Code only allows one call to acquireVsCodeApi() per webview. Keep a single
@@ -68,6 +72,30 @@ export type AnyExtensionToWebviewMessage =
 
 export function sendMessage(message: AnyWebviewToExtensionMessage): void {
 	vscode.postMessage(message);
+}
+
+/**
+ * webview 本地持久化读取(getState)。失败(宿主不支持/已释放)一律按
+ * "无数据"降级返回 undefined,调用方自行走无持久化路径。
+ */
+export function readWebviewPersistedState(): unknown {
+	try {
+		return vscode.getState();
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * webview 本地持久化写入(setState)。失败只意味着面板重载后走降级,
+ * 不影响当前会话,故吞掉异常。
+ */
+export function writeWebviewPersistedState(state: unknown): void {
+	try {
+		vscode.setState(state);
+	} catch {
+		// 尽力而为:不持久化只损失"重载后还原映射"的便利,不影响安全性。
+	}
 }
 
 export function subscribeToExtension(callback: (message: AnyExtensionToWebviewMessage) => void): () => void {

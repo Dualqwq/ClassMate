@@ -1264,3 +1264,102 @@ label:focus-within {
 	color: var(--vscode-descriptionForeground);
 	margin: 8px 0 4px;
 }
+
+/* ========== Composer 粘贴折叠(占位 chips / 提示行 / 预览弹层) ========== */
+
+.paste-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 6px;
+}
+
+.paste-chip {
+	max-width: 260px;
+	overflow: hidden;
+	padding: 3px 8px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 6px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+	font-size: 10px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.paste-chip:hover {
+	border-color: var(--vscode-focusBorder);
+	color: var(--vscode-foreground);
+}
+
+/* 失效占位(映射丢失,如重载降级):红色描边提示,点击只弹错误提示。 */
+.paste-chip-orphan {
+	border-color: var(--vscode-editorError-foreground);
+	color: var(--vscode-editorError-foreground);
+}
+
+.composer-notice {
+	margin-bottom: 6px;
+	font-size: 10px;
+}
+
+.composer-notice-info {
+	color: var(--vscode-descriptionForeground);
+}
+
+.composer-notice-error {
+	color: var(--vscode-editorError-foreground);
+}
+
+.paste-preview-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 100;
+	display: grid;
+	place-items: center;
+	background: rgba(0, 0, 0, 0.45);
+}
+
+.paste-preview {
+	display: flex;
+	flex-direction: column;
+	width: min(640px, 90vw);
+	max-height: 80vh;
+	overflow: hidden;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 8px;
+	background: var(--vscode-editor-background, var(--vscode-sideBar-background));
+}
+
+.paste-preview-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	font-size: 11px;
+}
+
+.paste-preview-close {
+	padding: 0 6px;
+	border: 0;
+	background: transparent;
+	color: var(--vscode-foreground);
+	cursor: pointer;
+	font-size: 14px;
+}
+
+.paste-preview-body {
+	overflow: auto;
+	margin: 0;
+	padding: 10px;
+	color: var(--vscode-editor-foreground);
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: 11px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+	user-select: text;
+}
