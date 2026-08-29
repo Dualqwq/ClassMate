@@ -260,8 +260,8 @@ describe('template backtrace chain parsing (P5a)', () => {
     });
 
     it('parses MSVC see-reference notes (constructed, untested on real MSVC)', () => {
-        // 真实 MSVC 的错误行是 `error C2676:` 形态(码后无冒号),extractErrorLocation
-        // 目前不解析;这里用 bare-severity 形态验证链帧句式本身。
+        // bare-severity 形态(无诊断码)验证链帧句式本身;真实带码形态
+        // (`error C2676:`)见下一个用例。
         const sample = [
             "main.cpp(9): note: see reference to function template instantiation 'void std::sort<std::_List_iterator<int>>(const _RanIt,const _RanIt)' being compiled",
             "main.cpp(12,5): error: binary '-': 'std::_List_iterator<int>' does not define this operator",
@@ -272,6 +272,23 @@ describe('template backtrace chain parsing (P5a)', () => {
         assert.strictEqual(hits[0].chain.frames[0].kind, 'instantiation');
         assert.strictEqual(hits[0].chain.frames[0].line, 9);
         assert.strictEqual(hits[0].chain.attributed?.file, 'main.cpp');
+    });
+
+    it('attaches MSVC chain when the leaf uses the real `error Cxxxx:` coded form (constructed, untested on real MSVC)', () => {
+        // 真实 MSVC 叶子行带诊断码(`error C2676:`),此前 extractErrorLocation
+        // 不解析、链扫不到叶子;errorParser 放行带码行后该形态应同样成链。
+        const sample = [
+            "main.cpp(9): note: see reference to function template instantiation 'void std::sort<std::_List_iterator<int>>(const _RanIt,const _RanIt)' being compiled",
+            "main.cpp(12,5): error C2676: binary '-': 'std::_List_iterator<int>' does not define this operator or a conversion to a type acceptable to the predefined operator",
+        ].join('\n');
+        const hits = collectTemplateChains(sample);
+        assert.strictEqual(hits.length, 1);
+        assert.strictEqual(hits[0].chain.frames.length, 1);
+        assert.strictEqual(hits[0].chain.frames[0].kind, 'instantiation');
+        assert.strictEqual(hits[0].chain.frames[0].line, 9);
+        assert.strictEqual(hits[0].chain.attributed?.file, 'main.cpp');
+        assert.strictEqual(hits[0].chain.attributed?.line, 9);
+        assert.ok(hits[0].leafRaw.includes('error C2676:'));
     });
 });
 

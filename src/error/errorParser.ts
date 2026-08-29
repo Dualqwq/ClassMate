@@ -14,7 +14,7 @@ export interface ParsedError {
     column?: number;
     severity?: 'error' | 'warning' | 'note' | 'remark';
     message: string;
-    /** Clang/GCC warning/error code, e.g. "-Wunused-variable" or "-Wundefined-identifier". */
+    /** Clang/GCC warning/error code, e.g. "-Wunused-variable"; MSVC diagnostic code, e.g. "C2676"/"LNK2019". */
     code?: string;
     /** True if this line is a "In file included from" context note from Clang/GCC. */
     isIncludeContext?: boolean;
@@ -109,7 +109,10 @@ function chooseDiagnosticCode(codes: string[]): string {
  * - file.cpp:2:10: fatal error: xxx.h: No such file or directory (GCC, with location)
  * - fatal error: 'xxx' file not found (Clang, no location -> no file/line/column)
  * - file.cpp:12:34:{12:8-12:14}: error: ... (Clang source range)
- * - file.cpp(12,34): error: ... (MSVC format)
+ * - file.cpp(12,34): error C2065: 'x': undeclared identifier (MSVC format with diagnostic code)
+ * - file.cpp(3): fatal error C1083: ... (MSVC fatal error, severity normalized to error)
+ * - file.cpp(12,34): error: ... (MSVC format, bare severity without code)
+ * - main.obj : error LNK2019: ... (MSVC linker line, no line/column)
  * - file +12:34: error: ... (vi format)
  */
 export function extractErrorLocation(line: string): ParsedError | undefined {
@@ -133,19 +136,43 @@ export function extractErrorLocation(line: string): ParsedError | undefined {
         };
     }
 
-    // MSVC format: file(line,column): severity: message
+    // MSVC format: file(line,column): severity: message. Real MSVC inserts an
+    // optional diagnostic-code token between severity and colon
+    // (`error C2676:` / `warning C4244:` / `fatal error C1083:`); the code is
+    // captured into ParsedError.code and kept out of the message, mirroring
+    // the trailing [-W...] stripping on the GCC path below. "fatal error" is
+    // normalized to severity=error, same as the GCC path.
     // Also supports Windows absolute paths naturally.
-    const msvcPattern = /^(.+?)\((\d+)(?:,(\d+))?\):\s*(error|warning|note|remark):\s*(.+)$/;
+    const msvcPattern = /^(.+?)\((\d+)(?:,(\d+))?\):\s*(?:fatal\s+)?(error|warning|note|remark)(?:\s+([A-Z]+\d+))?\s*:\s*(.+)$/;
     const msvcMatch = msvcPattern.exec(trimmed);
     if (msvcMatch) {
-        const message = msvcMatch[5];
         return {
             raw: trimmed,
             file: msvcMatch[1],
             line: parseInt(msvcMatch[2], 10),
             column: msvcMatch[3] ? parseInt(msvcMatch[3], 10) : undefined,
             severity: msvcMatch[4] as 'error' | 'warning' | 'note' | 'remark',
-            message: message.trim(),
+            message: msvcMatch[6].trim(),
+            code: msvcMatch[5],
+        };
+    }
+
+    // MSVC linker line: no line/column, the file (object/tool name) and its
+    // colon are separated by a space, and the diagnostic code is mandatory:
+    //   main.obj : error LNK2019: unresolved external symbol ...
+    //   LINK : fatal error LNK1104: cannot open file 'xxx.lib'
+    // The severity-to-code shape is disjoint from severityMarkerPattern below
+    // (which requires the colon adjacent to the severity), so GCC/Clang lines
+    // fall through to their own paths.
+    const msvcLinkerPattern = /^(.+?)\s*:\s*(?:fatal\s+)?(error|warning|note|remark)\s+([A-Z]+\d+)\s*:\s*(.+)$/;
+    const msvcLinkerMatch = msvcLinkerPattern.exec(trimmed);
+    if (msvcLinkerMatch) {
+        return {
+            raw: trimmed,
+            file: msvcLinkerMatch[1],
+            severity: msvcLinkerMatch[2] as 'error' | 'warning' | 'note' | 'remark',
+            message: msvcLinkerMatch[4].trim(),
+            code: msvcLinkerMatch[3],
         };
     }
 

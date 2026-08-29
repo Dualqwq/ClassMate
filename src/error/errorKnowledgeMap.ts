@@ -558,8 +558,8 @@ const ERROR_PATTERNS: PatternEntry[] = [
     {
         // GCC: 'class std::vector<int>' has no member named 'pushback'
         // Clang: no member named 'pushback' in 'std::vector<int>'
-        // (真实 MSVC C2039 诊断行 errorParser 尚不解析,见 CHANGELOG 已知边界)
-        pattern: /no member named/,
+        // MSVC C2039: 'pushback': is not a member of 'std::vector<int>'
+        pattern: /no member named|is not a member of/,
         tag: 'member_not_found',
         message: '访问了类不存在的成员名',
         concept: CONCEPTS.member_not_found,
@@ -610,7 +610,9 @@ const ERROR_PATTERNS: PatternEntry[] = [
         concept: CONCEPTS.make_missing_separator,
     },
     {
-        pattern: /invalid operands|no match for.*operator/,
+        // MSVC C2676: binary '++': 'std::list<int>' does not define this operator
+        // (or a conversion to a type acceptable to the predefined operator)
+        pattern: /invalid operands|no match for.*operator|does not define this operator/,
         tag: 'operator_operand_mismatch',
         message: '运算符操作数类型不匹配',
         concept: CONCEPTS.operator_operand_mismatch,

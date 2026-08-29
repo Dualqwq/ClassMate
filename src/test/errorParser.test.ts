@@ -292,6 +292,94 @@ describe('Error Parser', () => {
 		assert.strictEqual(parsed?.severity, 'warning');
 	});
 
+	it('parses MSVC error line with diagnostic code (real MSVC form)', () => {
+		const line = "main.cpp(12,5): error C2676: binary '++': 'std::list<int>' does not define this operator";
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'main.cpp');
+		assert.strictEqual(parsed?.line, 12);
+		assert.strictEqual(parsed?.column, 5);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.code, 'C2676');
+		assert.strictEqual(parsed?.message, "binary '++': 'std::list<int>' does not define this operator");
+	});
+
+	it('parses MSVC warning line with diagnostic code', () => {
+		const line = "main.cpp(8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data";
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'main.cpp');
+		assert.strictEqual(parsed?.line, 8);
+		assert.strictEqual(parsed?.column, undefined);
+		assert.strictEqual(parsed?.severity, 'warning');
+		assert.strictEqual(parsed?.code, 'C4244');
+		assert.strictEqual(parsed?.message, "'initializing': conversion from 'double' to 'int', possible loss of data");
+	});
+
+	it('parses MSVC fatal error line with code, severity normalized to error', () => {
+		const line = "main.cpp(3): fatal error C1083: Cannot open include file: 'x.h': No such file or directory";
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'main.cpp');
+		assert.strictEqual(parsed?.line, 3);
+		assert.strictEqual(parsed?.column, undefined);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.code, 'C1083');
+		assert.strictEqual(parsed?.message, "Cannot open include file: 'x.h': No such file or directory");
+	});
+
+	it('keeps code undefined for bare MSVC severity without code', () => {
+		const line = 'C:\\\\Users\\\\dev\\\\main.cpp(42,10): error: invalid syntax';
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.code, undefined);
+		assert.strictEqual(parsed?.message, 'invalid syntax');
+	});
+
+	it('parses MSVC linker line without line/column', () => {
+		const line = 'main.obj : error LNK2019: unresolved external symbol "void __cdecl foo(void)" (?foo@@YAXXZ) referenced in function _main';
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'main.obj');
+		assert.strictEqual(parsed?.line, undefined);
+		assert.strictEqual(parsed?.column, undefined);
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.code, 'LNK2019');
+		assert.strictEqual(parsed?.message, 'unresolved external symbol "void __cdecl foo(void)" (?foo@@YAXXZ) referenced in function _main');
+	});
+
+	it('parses MSVC fatal linker line (LINK : fatal error LNK1104)', () => {
+		const line = "LINK : fatal error LNK1104: cannot open file 'kernel32.lib'";
+		const parsed = extractErrorLocation(line);
+		assert.ok(parsed);
+		assert.strictEqual(parsed?.file, 'LINK');
+		assert.strictEqual(parsed?.severity, 'error');
+		assert.strictEqual(parsed?.code, 'LNK1104');
+		assert.strictEqual(parsed?.message, "cannot open file 'kernel32.lib'");
+	});
+
+	it('does not misparse GCC diagnostic lines via the MSVC code/linker patterns', () => {
+		// GCC 路径回归锚:这些行此前走 severityMarkerPattern,放宽 MSVC 码位与
+		// 新增链接器 pattern 后必须仍走原路径、字段语义不变。
+		const gcc = extractErrorLocation("main.cpp:12:34: error: 'x' was not declared in this scope");
+		assert.ok(gcc);
+		assert.strictEqual(gcc?.file, 'main.cpp');
+		assert.strictEqual(gcc?.code, undefined);
+		assert.strictEqual(gcc?.message, "'x' was not declared in this scope");
+
+		const gccFatal = extractErrorLocation('main.cpp:2:10: fatal error: xxx.h: No such file or directory');
+		assert.ok(gccFatal);
+		assert.strictEqual(gccFatal?.severity, 'error');
+		assert.strictEqual(gccFatal?.file, 'main.cpp');
+		assert.strictEqual(gccFatal?.message, 'xxx.h: No such file or directory');
+
+		const gccBracket = extractErrorLocation("main.cpp:3:5: warning: unused variable 'x' [-Wunused-variable]");
+		assert.ok(gccBracket);
+		assert.strictEqual(gccBracket?.code, '-Wunused-variable');
+		assert.strictEqual(gccBracket?.message, "unused variable 'x'");
+	});
+
 	it('parses vi format', () => {
 		const line = 'main.cpp +12:34: error: invalid syntax';
 		const parsed = extractErrorLocation(line);

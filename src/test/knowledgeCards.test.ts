@@ -8,6 +8,7 @@ import {
     type KnowledgeCard,
 } from '../debug/knowledgeCard';
 import { getKnowledgeConcept, listKnowledgeConcepts, matchErrorToKnowledge } from '../error/errorKnowledgeMap';
+import { extractErrorLocation } from '../error/errorParser';
 import type { CompileErrorEvent, DebugEvent, CodeModifiedEvent, CompileSuccessEvent } from '../debug/types';
 import { buildErrorLifecycles } from '../debug/errorLifecycle';
 
@@ -422,6 +423,12 @@ describe('knowledge cards', () => {
             { message: "'class std::vector<int>' has no member named 'pushback'; did you mean 'push_back'?", expectedTag: 'member_not_found' },
             { message: "'struct Point' has no member named 'SetX'", expectedTag: 'member_not_found' },
             { message: "no member named 'pushback' in 'std::vector<int>'", expectedTag: 'member_not_found' },
+            // member_not_found 补 MSVC C2039 变体(errorParser 放行带码行后端到端可达):
+            { message: "'pushback': is not a member of 'std::vector<int>'", expectedTag: 'member_not_found' },
+            // operator_operand_mismatch 补 MSVC C2676 变体(官方完整文案,
+            // https://learn.microsoft.com/cpp/error-messages/compiler-errors-2/compiler-error-c2676):
+            { message: "binary '++': 'std::list<int>' does not define this operator or a conversion to a type acceptable to the predefined operator", expectedTag: 'operator_operand_mismatch' },
+            { message: "binary '++': 'std::list<int>' does not define this operator", expectedTag: 'operator_operand_mismatch' },
         ];
 
         for (const c of cases) {
@@ -429,6 +436,43 @@ describe('knowledge cards', () => {
             assert.ok(
                 matches.some((m) => m.tag === c.expectedTag),
                 `expected ${c.expectedTag} for "${c.message}", got ${matches.map((m) => m.tag).join(', ')}`
+            );
+        }
+    });
+
+    it('matches expected tags for real MSVC diagnostic lines end-to-end (parse full line, then match message)', () => {
+        // 真实 MSVC 输出在 severity 与冒号之间插诊断码(C2676/LNK2019/…),
+        // 此前整行解析不出 ParsedError,知识卡链路拿不到。本用例从整行出发,
+        // 断言「extractErrorLocation 放行 → message 剥码 → matchErrorToKnowledge 命中」
+        // 全链路;文案依据 Microsoft Learn 各错误文档原文。
+        const cases: { line: string; expectedTag: string }[] = [
+            { line: "main.cpp(12,5): error C2676: binary '++': 'std::list<int>' does not define this operator", expectedTag: 'operator_operand_mismatch' },
+            { line: "main.cpp(3): fatal error C1083: Cannot open include file: 'x.h': No such file or directory", expectedTag: 'missing_header' },
+            { line: "main.cpp(8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data", expectedTag: 'type_conversion' },
+            { line: "main.cpp(2): error C2039: 'pushback': is not a member of 'std::vector<int>'", expectedTag: 'member_not_found' },
+            { line: "main.cpp(6): error C2065: 'cout': undeclared identifier", expectedTag: 'undeclared_identifier' },
+            { line: "main.cpp(4): error C2143: syntax error: missing ';' before '}'", expectedTag: 'missing_semicolon' },
+            { line: "main.cpp(9): error C2668: 'f': ambiguous call to overloaded function", expectedTag: 'overload_ambiguous' },
+            { line: "main.cpp(7): error C2106: '=': left operand must be l-value", expectedTag: 'lvalue_required' },
+            { line: "main.cpp(11): warning C4716: 'test': must return a value", expectedTag: 'control_flow_return' },
+            { line: "main.cpp(5): error C2227: left of '->member' must point to class/struct/union/generic type", expectedTag: 'pointer_dereference_mismatch' },
+            { line: 'main.obj : error LNK2019: unresolved external symbol "void __cdecl foo(void)" (?foo@@YAXXZ) referenced in function _main', expectedTag: 'undefined_reference' },
+            { line: 'a.obj : error LNK2005: _foo already defined in main.obj', expectedTag: 'multiple_definition' },
+            { line: "LINK : fatal error LNK1104: cannot open file 'kernel32.lib'", expectedTag: 'missing_library' },
+        ];
+
+        for (const c of cases) {
+            const parsed = extractErrorLocation(c.line);
+            assert.ok(parsed, `line should parse: ${c.line}`);
+            assert.strictEqual(
+                parsed!.severity === 'error' || parsed!.severity === 'warning',
+                true,
+                `line should carry error/warning severity: ${c.line}`
+            );
+            const matches = matchErrorToKnowledge(parsed!.message);
+            assert.ok(
+                matches.some((m) => m.tag === c.expectedTag),
+                `expected ${c.expectedTag} for "${c.line}" (parsed message: "${parsed!.message}"), got ${matches.map((m) => m.tag).join(', ')}`
             );
         }
     });
