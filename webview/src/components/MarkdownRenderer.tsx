@@ -5,6 +5,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatReference } from '../../../src/chat/types';
 import { planCodeBlockFold } from '../../../src/chat/codeBlockFold';
+import { isBlockLevelCode } from '../../../src/chat/codeBlockRender';
 import { inferenceLinkifyAnswer } from '../../../src/chat/answerReferenceRenderer';
 import { transformReferenceUrl } from '../../../src/chat/linkifyAnswer';
 import { sendMessage } from '../vscodeApi';
@@ -31,19 +32,37 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 
 	return (
 		<div className="code-block-shell">
+			{/*
+			 * 代码块形状单源:全应用唯一的块级代码块渲染点,用户/助手两种
+			 * 气泡共用本组件;形状属性(圆角/内边距/背景/滚动/换行)在此
+			 * 显式钉死,不依赖 vscDarkPlus 主题隐式值,气泡层只允许主题色
+			 * 差异,禁止形状分叉。显式 wordBreak:'normal' 抵消气泡容器
+			 * wordBreak:'break-word' 的继承,防止长行破坏代码几何形状。
+			 * 长行选横向滚动(overflow auto + whiteSpace pre)而非 wrap:
+			 * 缩进与列对齐是初学者读代码的结构线索,wrap 会破坏代码几何;
+			 * 且 wrapLongLines 会强制逐行 flex 渲染,与折叠预览叠加更脆弱。
+			 */}
 			<SyntaxHighlighter
 				language={language}
 				style={vscDarkPlus}
 				customStyle={{
 					margin: '8px 0',
+					padding: '8px 12px',
 					borderRadius: '6px',
 					fontSize: '12px',
+					lineHeight: '1.5',
 					background: 'var(--vscode-editor-background)',
+					overflow: 'auto',
+					whiteSpace: 'pre',
+					wordBreak: 'normal',
+					tabSize: 4,
 				}}
 				codeTagProps={{
 					style: {
 						fontFamily: 'var(--vscode-editor-font-family), monospace',
 						fontSize: '12px',
+						whiteSpace: 'pre',
+						wordBreak: 'normal',
 					},
 				}}
 			>
@@ -79,15 +98,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, ref
 					const { children, className, node, ref, ...rest } = props;
 					void node;
 					void ref;
-					const isInline = !className;
-					if (isInline) {
+					const text = String(children ?? '');
+					// 块级判定单源:react-markdown v9 对无语言标注的围栏块不给
+					// className,不能靠「没有 className = 行内」区分,否则多行
+					// 围栏会掉进行内 .code-chip 渲染(逐行背景碎块+小圆角)。
+					// 含换行即块级,判定纯函数见 src/chat/codeBlockRender.ts。
+					if (!isBlockLevelCode(className, text)) {
 						// 语义着色:std:: 前缀 → std;限定名取末段查 references;全大写 → 宏;其余中性。
-						const text = String(children ?? '').trim();
+						const inlineText = text.trim();
 						let kindClass = '';
-						if (text.startsWith('std::')) {
+						if (inlineText.startsWith('std::')) {
 							kindClass = 'kind-std';
 						} else {
-							const tail = (text.split('::').pop() ?? text).trim();
+							const tail = (inlineText.split('::').pop() ?? inlineText).trim();
 							if (/^[A-Za-z_]\w*$/.test(tail)) {
 								const matched = references?.find((r) => r.symbol === tail && r.kind);
 								if (matched?.kind) {
@@ -106,7 +129,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, ref
 							</code>
 						);
 					}
-					return <CodeBlock className={className}>{children as string}</CodeBlock>;
+					return <CodeBlock className={className}>{text}</CodeBlock>;
 				},
 				pre({ children }) {
 					return <>{children}</>;
