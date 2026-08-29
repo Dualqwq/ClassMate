@@ -491,3 +491,106 @@ describe('journey digest injection (#13)', () => {
 		assert.doesNotMatch(prompt, /Student debugging history digest/);
 	});
 });
+
+describe('review-recap history framing guard (复盘请求不得把当前代码问题包装成历史错题)', () => {
+	const DIGEST_SAMPLE = [
+		'=== Student debugging history digest ===',
+		'The notes below summarize this student’s recent compile and run history recorded in this workspace.',
+		'- main.cpp:12 变量/函数未声明 [编译错误]',
+	].join('\n');
+
+	function buildPrompt(userText: string, journeyDigestContext?: string) {
+		const messages = new AnswerPromptBuilder().build({
+			skillCore: 'skill',
+			pedagogy: 'pedagogy',
+			answerPlan: {
+				requestType: 'mistake_summary',
+				depthLevel: 2,
+				responsePattern: ['summary'],
+				mustInclude: [],
+				mustAvoid: [],
+				allowCompleteCode: false,
+				skillQuery: {
+					requestType: 'mistake_summary',
+					concepts: ['继承'],
+					purposes: ['debug'],
+					learnerLevel: 'beginner',
+					hintLevel: 2,
+					maxSections: 1,
+					maxTokens: 500,
+				},
+			},
+			assembledSkillContext: 'inheritance guidance',
+			workspaceSnapshot: {
+				snapshotId: 'snap-1',
+				createdAt: 1,
+				minimal: { catalog: { files: [], questionFiles: [] } },
+				loadedItems: [],
+			},
+			userText,
+			conversationHistory: [],
+			journeyDigestContext,
+		});
+		return messages.map((message) => message.content).join('\n');
+	}
+
+	it('复盘措辞命中时注入历史错题锚定约束', () => {
+		for (const question of [
+			'带我复盘一下我的错题',
+			'讲讲我上次错在哪里',
+			'我之前犯过的错误有哪些',
+			'总结一下我反复出错的地方',
+		]) {
+			const prompt = buildPrompt(question);
+			assert.ok(
+				prompt.includes('review or recap their mistakes'),
+				`复盘类问题"${question}"必须注入历史错题锚定约束`
+			);
+			assert.ok(
+				prompt.includes('do not claim the student made them before'),
+				`复盘类问题"${question}"必须禁止把当前代码问题说成历史错误`
+			);
+		}
+	});
+
+	it('普通提问不注入复盘约束', () => {
+		for (const question of [
+			'这段代码为什么编译不过',
+			'哪里错了',
+			'帮我讲讲循环的写法',
+			'这个报错是什么意思',
+		]) {
+			const prompt = buildPrompt(question);
+			assert.ok(
+				!prompt.includes('review or recap their mistakes'),
+				`普通问题"${question}"不得注入复盘约束`
+			);
+		}
+	});
+
+	it('同时命中验证类与复盘类时两个约束块并存', () => {
+		const prompt = buildPrompt('我上次错的地方现在还有几行');
+		assert.ok(
+			prompt.includes('NOT evidence'),
+			'验证类声明(HISTORY_NOT_EVIDENCE_STATEMENT)必须同时注入'
+		);
+		assert.ok(
+			prompt.includes('review or recap their mistakes'),
+			'复盘类声明(REVIEW_RECAP_GROUNDING_STATEMENT)必须同时注入'
+		);
+	});
+
+	it('digest 存在与缺席两种形态都注入复盘约束', () => {
+		const withDigest = buildPrompt('带我复盘', DIGEST_SAMPLE);
+		const withoutDigest = buildPrompt('带我复盘');
+		assert.ok(
+			withDigest.includes('review or recap their mistakes'),
+			'digest 存在时必须注入复盘约束'
+		);
+		assert.ok(withDigest.includes('Student debugging history digest'));
+		assert.ok(
+			withoutDigest.includes('there is NO history to cite'),
+			'digest 缺席时同样必须注入复盘约束(最需防虚构的场景)'
+		);
+	});
+});

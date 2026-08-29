@@ -59,6 +59,29 @@ export const STATE_VERIFICATION_QUESTION_PATTERN =
 	/几行|几条|多少行|写(完|好)(了|没|没有)?|实现(了|没|没有)?|存(在|不存在)|是不是|现在(呢|怎么样|什么样|的状态)|还有没有|空(的|吗|么)|注释(掉?了|状态)?(吗|么|没有)?/;
 
 /**
+ * 复盘/错题回顾类请求的措辞(#13 后半)。学生让 AI"带我复盘/讲讲我的错题/
+ * 上次错在哪"时,模型容易把当前代码里现存的坏味道包装成"你反复出错的
+ * 错题"——而 Debug Journey digest 里可能根本没有对应记录,学生会误以为
+ * 系统在引用已清除的历史错题。命中即注入 REVIEW_RECAP_GROUNDING_STATEMENT。
+ *
+ * 关键词取舍(只收高置信度的"历史指涉"信号,且要求紧邻):
+ * - 收:复盘 / 错题(含错题本) / 反复(出错|犯错|错) / (上次|上一次|上回)后紧跟
+ *   (犯|错|的错|那个错|那道错) / (之前|以前|以往|先前)后紧跟(犯|做错|写错|的错) /
+ *   犯过的错 / 历史错误 / 总结…错误(错题)。紧邻约束是刻意的:"我之前犯了个错"
+ *   命中,而"之前你说错了/上次你给的代码错了"(对模型的连续性反驳)不命中。
+ * - 不收:"易错点"(多为普通概念提问:"这个知识点有哪些易错点")、"复习"
+ *   (概念复习也命中,误伤面大)、裸"出错"(编译出错/运行出错是普通求助)、
+ *   "上次你说错"类反驳、宽松跨度形态(如"上次改的代码又错了")——宁可漏配
+ *   不误配:漏配只是回落基线行为,误配会在无关请求里平白加约束。
+ * - 暂不收英文措辞:学生 population 为中文,与 STATE_VERIFICATION_QUESTION_
+ *   PATTERN 同口径。
+ * - 与 STATE_VERIFICATION_QUESTION_PATTERN 正交:同一句可同时命中两类
+ *   (如"我上次错的地方现在还有几行"),两个 system 块各自独立注入,互不干扰。
+ */
+export const REVIEW_RECAP_PATTERN =
+	/复盘|错题|反复(出错|犯错|错)|(上次|上一次|上回)(犯|错|的错|那个错|那道错)|(之前|以前|以往|先前)(犯|做错|写错|的错)|犯过(的)?错(误)?|历史错误|总结[^，。？！]{0,6}的?(错误|错题)/;
+
+/**
  * 验证类问题下的历史证据声明:相邻轮次的自我事实污染防护(计划 7.8)。
  * 即使文件未变,上一轮回答中关于代码状态的错误声明也会被下一轮原样
  * 复述——显式声明历史陈述不是证据,一律以冻结工作区为准。
@@ -66,6 +89,20 @@ export const STATE_VERIFICATION_QUESTION_PATTERN =
 export const HISTORY_NOT_EVIDENCE_STATEMENT = [
 	'The student is asking about the CURRENT state of the code.',
 	'Statements in the conversation history about code state (line counts, empty/full bodies, done/not-done, comment status) are NOT evidence; verify them against the Frozen workspace data below and answer from what the files actually contain now.',
+].join(' ');
+
+/**
+ * 复盘类请求下的历史错题锚定声明:复盘措辞命中 REVIEW_RECAP_PATTERN 时注入,
+ * 无论 journeyDigestContext 存在与否(digest 缺失正是最需要防虚构的场景)。
+ * 三条铁律:只有 digest 块明确列出的条目才能以"你之前/上次"口吻描述为
+ * 学生犯过的错;当前代码里观察到的问题一律按"当前代码问题/值得检查的点"
+ * 表述,即使猜测它们就是历史错误的根源也不得声称学生过去犯过;digest
+ * 缺失时不得虚构或暗示任何历史错误记录。
+ */
+export const REVIEW_RECAP_GROUNDING_STATEMENT = [
+	'The student is asking you to review or recap their mistakes.',
+	'Describe an error as something the student previously made ONLY when it is explicitly listed in the Student debugging history digest block; if no such digest block is present in this request, there is NO history to cite, so never fabricate or imply any past error record.',
+	'Issues you observe in the current workspace code must be described as current-code problems or points worth checking, even when you suspect they caused past failures; do not claim the student made them before.',
 ].join(' ');
 
 function compactConversationHistory(
@@ -316,6 +353,15 @@ export class AnswerPromptBuilder {
 				? [{
 					role: 'system' as const,
 					content: HISTORY_NOT_EVIDENCE_STATEMENT,
+				}]
+				: []),
+			// 复盘类请求:历史错题指涉必须锚定 digest,当前代码问题不得包装成
+			// 历史错误。与 digest 有无无关——digest 缺失正是最需要防虚构的场景;
+			// 与上面的验证类声明正交,同一句可同时命中、两个块并存。
+			...(REVIEW_RECAP_PATTERN.test(input.userText)
+				? [{
+					role: 'system' as const,
+					content: REVIEW_RECAP_GROUNDING_STATEMENT,
 				}]
 				: []),
 			...(input.referenceTargets && input.referenceTargets.length > 0
