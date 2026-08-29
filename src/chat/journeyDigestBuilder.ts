@@ -249,8 +249,13 @@ export function buildJourneyDigest(
         if (episode.resolved) {
             continue;
         }
-        const isFirstEntryCompile = episode.entries[0]?.kind === 'compile_error';
-        if (isFirstEntryCompile) {
+        // 卡内条目已改为晚→早(2026-08-29),首条不再稳定是编译失败——未解决
+        // 编译卡的最新条目可能是后续的编辑/求助/run。编译卡判据改为「条目流
+        // 里含编译失败条目」:run 卡只有 run 条目,绝不误判。
+        const isCompileEpisode = episode.entries.some(
+            (entry) => entry.kind === 'compile_error'
+        );
+        if (isCompileEpisode) {
             items.push(markRelevant(
                 compileErrorItem(episode, nowMs),
                 episode.fileUri,

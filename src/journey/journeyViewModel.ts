@@ -85,7 +85,7 @@ export interface JourneyEpisodeVM {
     resolvedAt?: number;
     resolved: boolean;
     attemptsBeforeResolve: number;
-    /** 生命周期内按时间升序的条目(起始编译失败必为第一条)。 */
+    /** 生命周期内按时间降序(晚→早)的条目(最新动态在最上,与时间线整页方向一致)。 */
     entries: JourneyEntryVM[];
     /** run_error 独立 episode 专用:分类标签(kind 过滤与学生化文案用)。 */
     runErrorKind?: RunErrorKind;
@@ -311,7 +311,12 @@ function buildEntriesForLifecycle(
         }
     }
 
-    return entries.sort((a, b) => a.timestamp - b.timestamp);
+    // 卡内条目按时间降序(晚→早,2026-08-29 实测修复):时间线整页是自上而
+    // 下从晚到早(未解决置顶区、天组之间、卡之间都已倒序),唯独卡内条目是
+    // 早→晚,学生自上而下读时间线时方向打架,观感即"没有按晚到早排"。
+    // 起始编译失败因此不再稳定占据第一条;消费方不得依赖 entries[0] 的 kind
+    // (见 journeyDigestBuilder 的编译卡判定),渲染层按数组顺序直接画。
+    return entries.sort((a, b) => b.timestamp - a.timestamp);
 }
 
 function representativePosition(

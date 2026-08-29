@@ -128,7 +128,7 @@ describe('buildJourneyViewModel', () => {
         assert.deepStrictEqual(view.mistakeCards, []);
     });
 
-    it('编译失败→编辑→编译成功 生成一个已解决 episode,条目按时间升序', () => {
+    it('编译失败→编辑→编译成功 生成一个已解决 episode,条目按时间降序(晚→早)', () => {
         const view = buildJourneyViewModel([
             compileError(),
             codeModified(),
@@ -144,9 +144,11 @@ describe('buildJourneyViewModel', () => {
         assert.strictEqual(episode.fileName, 'main.cpp');
         assert.strictEqual(episode.line, 12);
 
+        // 卡内条目晚→早(2026-08-29 实测修复):最新动态在最上,
+        // 与时间线整页(天组/卡之间)的方向一致。
         const kinds = episode.entries.map((e) => e.kind);
-        assert.deepStrictEqual(kinds, ['compile_error', 'code_modified', 'compile_success']);
-        assert.strictEqual(episode.entries[0].label, '编译失败(1 个错误)');
+        assert.deepStrictEqual(kinds, ['compile_success', 'code_modified', 'compile_error']);
+        assert.strictEqual(episode.entries[2].label, '编译失败(1 个错误)');
         assert.strictEqual(episode.entries[1].changedLines, 2);
     });
 

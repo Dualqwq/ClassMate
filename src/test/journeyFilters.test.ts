@@ -12,7 +12,13 @@ import {
 } from '../journey/journeyFilters';
 import { buildJourneyViewModel } from '../journey/journeyViewModel';
 import type { JourneyEpisodeVM, JourneyViewModel, MistakeCardVM } from '../journey/journeyViewModel';
-import type { CompileErrorEvent, RunErrorEvent } from '../debug/types';
+import type {
+    CompileErrorEvent,
+    CodeModifiedEvent,
+    CompileSuccessEvent,
+    DebugEvent,
+    RunErrorEvent,
+} from '../debug/types';
 
 const NOW = new Date('2026-08-22T12:00:00').getTime();
 
@@ -500,5 +506,121 @@ describe('文件筛选与跨程序归并(2026-08-29 实测修复)', () => {
             NOW
         );
         assert.deepStrictEqual(flattenIds(byExe), ['r-a', 'c-a']);
+    });
+});
+
+describe('时间线晚→早排序(2026-08-29 实测修复)', () => {
+    // 多天真实事件流:3 天前仍未解决的编译错(置顶区)+ 昨天/今天各一至两张
+    // 已解决编译卡。锁定三个层级的「自上而下从晚到早」:天组之间、卡之间、
+    // 卡内条目(此前卡内是早→晚,与整页方向相反,学生实测观感为乱序)。
+    const HOUR = 3_600_000;
+
+    function compileErrorEvent2(
+        id: string,
+        timestamp: number,
+        message: string,
+        fileUri: string = 'file:///w/main.cpp'
+    ): CompileErrorEvent {
+        return {
+            id,
+            type: 'compile_error',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri,
+            stderr: `${fileUri}:12:5: error: ${message}`,
+            parsedErrors: [
+                {
+                    raw: `error: ${message}`,
+                    file: fileUri,
+                    line: 12,
+                    severity: 'error',
+                    message,
+                },
+            ],
+            exitCode: 1,
+            durationMs: 800,
+        };
+    }
+
+    function codeModifiedEvent(id: string, timestamp: number): CodeModifiedEvent {
+        return {
+            id,
+            type: 'code_modified',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri: 'file:///w/main.cpp',
+            before: 'int main() {\n    x\n}',
+            after: 'int main() {\n    int x;\n}',
+            diff: '-    x\n+    int x;',
+            trigger: 'post_compile_error',
+        };
+    }
+
+    function compileSuccessEvent(id: string, timestamp: number): CompileSuccessEvent {
+        return {
+            id,
+            type: 'compile_success',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri: 'file:///w/main.cpp',
+            exitCode: 0,
+            durationMs: 700,
+        };
+    }
+
+    /** 一个完整编译生命周期:失败(→可选编辑)→成功。 */
+    function lifecycle(id: string, errorAt: number, message: string, withEdit: boolean): DebugEvent[] {
+        const events: DebugEvent[] = [compileErrorEvent2(`${id}-err`, errorAt, message)];
+        if (withEdit) {
+            events.push(codeModifiedEvent(`${id}-edit`, errorAt + HOUR));
+        }
+        events.push(compileSuccessEvent(`${id}-ok`, errorAt + (withEdit ? 2 : 1) * HOUR));
+        return events;
+    }
+
+    it('天组之间晚→早,组内卡之间晚→早,未解决置顶区在最前', () => {
+        const view = buildJourneyViewModel([
+            ...lifecycle('y', NOW - 26 * HOUR, 'yday error', false),
+            ...lifecycle('t1', NOW - 3 * HOUR, 'today error one', true),
+            ...lifecycle('t2', NOW - 30 * 60_000, 'today error two', false),
+            // 置顶未解决卡用独立文件:同一文件的后续编译成功会把更早的失败
+            // 收编为同生命周期「再次编译失败」(attemptsBeforeResolve 既有设计),
+            // 不再是未解决卡。
+            compileErrorEvent2(
+                'old-un',
+                NOW - 72 * HOUR,
+                'old unresolved error',
+                'file:///w/legacy.cpp'
+            ),
+        ]);
+        const { unresolved, byDay } = buildTimelineSections(view, { ...EMPTY_FILTER }, NOW);
+
+        // 天组之间:今天 → 昨天 → 更早,晚→早。
+        assert.deepStrictEqual(byDay.map((g) => g.label), ['今天', '昨天']);
+        // 卡之间:每个日组内按首次出现晚→早。
+        assert.deepStrictEqual(
+            byDay[0].episodes.map((e) => e.errorEventId),
+            ['t2-err', 't1-err'],
+            '今天组内晚→早'
+        );
+        assert.deepStrictEqual(byDay[1].episodes.map((e) => e.errorEventId), ['y-err']);
+        // 未解决置顶区(设计:唯一的主动引导)自身也晚→早。
+        assert.deepStrictEqual(unresolved.map((e) => e.errorEventId), ['old-un']);
+    });
+
+    it('卡内条目晚→早:最新的动态排在最上', () => {
+        const view = buildJourneyViewModel(
+            lifecycle('t1', NOW - 3 * HOUR, 'today error one', true)
+        );
+        const card = view.episodes.find((e) => e.errorEventId === 't1-err');
+        assert.ok(card);
+        assert.deepStrictEqual(
+            card.entries.map((e) => e.kind),
+            ['compile_success', 'code_modified', 'compile_error'],
+            '卡内条目按时间降序(晚→早)'
+        );
     });
 });
