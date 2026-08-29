@@ -10,7 +10,9 @@ import {
     type JourneyFilterState,
     type MistakeCardGroup,
 } from '../journey/journeyFilters';
+import { buildJourneyViewModel } from '../journey/journeyViewModel';
 import type { JourneyEpisodeVM, JourneyViewModel, MistakeCardVM } from '../journey/journeyViewModel';
+import type { CompileErrorEvent, RunErrorEvent } from '../debug/types';
 
 const NOW = new Date('2026-08-22T12:00:00').getTime();
 
@@ -353,5 +355,150 @@ describe('run 条目过滤(#12b)', () => {
         assert.strictEqual(byProblem[0].cards.length, 2);
         assert.strictEqual(byProblem[1].label, '未关联题目');
         assert.strictEqual(byProblem[1].cards.length, 1);
+    });
+});
+
+describe('文件筛选与跨程序归并(2026-08-29 实测修复)', () => {
+    // FE3 遗留实测场景:同目录 a.cpp / b.cpp 共享同一题面材料(事件带同一
+    // problemKey),各自编译出自己的 exe。run 条目归并必须按「程序」判定而
+    // 不是「材料」:否则 b.exe 的运行条目会灌进 a.cpp 的编译卡,文件筛选
+    // 因此串卡(筛 b.exe 却看到 a.cpp 的编译错误)。
+    function compileErrorEvent(
+        id: string,
+        timestamp: number,
+        fileUri: string,
+        problemKey?: string
+    ): CompileErrorEvent {
+        return {
+            id,
+            type: 'compile_error',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri,
+            stderr: 'a.cpp:12:5: error: x was not declared in this scope',
+            parsedErrors: [
+                {
+                    raw: 'error: x was not declared in this scope',
+                    file: fileUri,
+                    line: 12,
+                    severity: 'error',
+                    message: 'x was not declared in this scope',
+                },
+            ],
+            exitCode: 1,
+            durationMs: 800,
+            ...(problemKey !== undefined ? { problemKey } : {}),
+        };
+    }
+
+    function runErrorEvent(
+        id: string,
+        timestamp: number,
+        fileUri: string,
+        overrides: Partial<RunErrorEvent> = {}
+    ): RunErrorEvent {
+        return {
+            id,
+            type: 'run_error',
+            timestamp,
+            sessionId: 'session',
+            workspaceId: 'ws',
+            fileUri,
+            executablePath: fileUri,
+            stderr: 'Segmentation fault (core dumped)',
+            exitCode: 139,
+            durationMs: 90,
+            kind: 'runtime_segmentation_fault',
+            ...overrides,
+        };
+    }
+
+    function flattenIds(sections: ReturnType<typeof buildTimelineSections>): string[] {
+        return [
+            ...sections.unresolved,
+            ...sections.byDay.flatMap((g) => g.episodes),
+        ].map((e) => e.errorEventId);
+    }
+
+    it('① 同目录两份源码共享题面材料:b.exe 运行条目不并进 a.cpp 编译卡,筛 b.exe 不见 a.cpp 编译条目', () => {
+        const view = buildJourneyViewModel([
+            compileErrorEvent('c-a', 1_000, 'file:///w/a.cpp', '两数之和'),
+            runErrorEvent('r-b', 2_000, 'file:///w/b.exe', {
+                sourceFileUri: 'file:///w/b.cpp',
+                problemKey: '两数之和',
+            }),
+        ]);
+
+        // 归并按程序判定:a.cpp 编译卡不再吸收 b.exe 的运行条目。
+        const compileCard = view.episodes.find((e) => e.errorEventId === 'c-a');
+        assert.ok(compileCard);
+        assert.ok(
+            !compileCard.entries.some((e) => e.kind === 'run_error'),
+            'b.exe 的运行条目不得并进 a.cpp 编译卡'
+        );
+
+        // 筛 b.exe:只见 b 程序自己的独立运行卡,a.cpp 编译卡(及其全部条目)隐藏。
+        const byB = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, file: 'file:///w/b.exe' },
+            NOW
+        );
+        assert.deepStrictEqual(flattenIds(byB), ['r-b']);
+
+        // 对照:筛 a.cpp 只见 a 程序的编译卡,b 程序的运行卡隐藏。
+        const byA = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, file: 'file:///w/a.cpp' },
+            NOW
+        );
+        assert.deepStrictEqual(flattenIds(byA), ['c-a']);
+    });
+
+    it('② a.cpp 编译 + a.exe 运行仍归并为一条时间线,筛 a.exe 能看到 a.cpp 编译条目', () => {
+        const view = buildJourneyViewModel([
+            compileErrorEvent('c-a', 1_000, 'file:///w/a.cpp', '两数之和'),
+            runErrorEvent('r-a', 2_000, 'file:///w/a.exe', {
+                sourceFileUri: 'file:///w/a.cpp',
+                problemKey: '两数之和',
+            }),
+        ]);
+
+        const compileCard = view.episodes.find((e) => e.errorEventId === 'c-a');
+        assert.ok(compileCard);
+        assert.ok(
+            compileCard.entries.some((e) => e.kind === 'run_error'),
+            '同一程序的运行条目仍镜像进编译卡条目流'
+        );
+
+        // 筛 a.exe(exe URI):同一程序的 a.cpp 编译卡可见(stem 感知),
+        // 独立 run 卡(归位到 a.cpp)也可见;未解决区晚→早。
+        const byExe = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, file: 'file:///w/a.exe' },
+            NOW
+        );
+        assert.deepStrictEqual(flattenIds(byExe), ['r-a', 'c-a']);
+    });
+
+    it('③ 旧事件(run 只有 exe fileUri、无归位字段)按 stem 归并不变,筛 a.exe 同样能看到 a.cpp 编译卡', () => {
+        const view = buildJourneyViewModel([
+            compileErrorEvent('c-a', 1_000, 'file:///w/a.cpp'),
+            runErrorEvent('r-a', 2_000, 'file:///w/a.exe'),
+        ]);
+
+        const compileCard = view.episodes.find((e) => e.errorEventId === 'c-a');
+        assert.ok(compileCard);
+        assert.ok(
+            compileCard.entries.some((e) => e.kind === 'run_error'),
+            '旧事件按 stem 兜底归并,行为不变'
+        );
+
+        const byExe = buildTimelineSections(
+            view,
+            { ...EMPTY_FILTER, file: 'file:///w/a.exe' },
+            NOW
+        );
+        assert.deepStrictEqual(flattenIds(byExe), ['r-a', 'c-a']);
     });
 });

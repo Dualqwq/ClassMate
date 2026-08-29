@@ -636,7 +636,7 @@ describe('run 条目归属:源文件归位与题目材料键(FE3 遗留)', () =>
         assert.strictEqual(episode.problemKey, '两数之和');
     });
 
-    it('同材料键归并:run 条目进入编译 episode 条目流(不靠文件名)', () => {
+    it('同题同程序(材料键一致且 stem 一致):run 条目进入编译 episode 条目流', () => {
         const view = buildJourneyViewModel([
             compileError({
                 id: 'err-p1',
@@ -659,7 +659,7 @@ describe('run 条目归属:源文件归位与题目材料键(FE3 遗留)', () =>
         );
     });
 
-    it('不同材料键且不同 stem:互不归并(不同目录的同名文件是不同题)', () => {
+    it('不同材料键:互不归并(不同目录的同名文件是不同题,stem 相同也被材料键否决)', () => {
         const view = buildJourneyViewModel([
             compileError({
                 id: 'err-p1',

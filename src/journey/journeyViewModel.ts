@@ -217,10 +217,6 @@ function buildEntriesForLifecycle(
     });
 
     const windowEnd = lifecycle.resolvedAt ?? Number.MAX_SAFE_INTEGER;
-    // run 条目按题目键归并(main.cpp / main.exe → main;有题目材料时用材料键):
-    // run 事件的 fileUri 是 exe 路径,与编译错误的源文件 URI 永不相等,精确
-    // 匹配会让运行记录永远进不了编译 episode 的条目流。
-    const errorProblemKey = eventProblemKey(errorEvent);
     for (const event of sortedEvents) {
         if (event.id === errorEvent.id) {
             continue;
@@ -228,25 +224,30 @@ function buildEntriesForLifecycle(
         if (event.timestamp <= errorEvent.timestamp || event.timestamp > windowEnd) {
             continue;
         }
-        // 只串同一文件的修复过程;无文件信息的错误不设此限制。run 条目用
-        // 题目键比较(见上),其余类型仍要求 fileUri 精确一致。
+        // 只串同一文件的修复过程;无文件信息的错误不设此限制。run 条目按
+        // 「同一程序」归并(见下),其余类型仍要求 fileUri 精确一致。
         if (errorEvent.fileUri && event.fileUri) {
             let sameSource: boolean;
             if (isRunError(event) || isRunSuccess(event)) {
-                // 题目键优先(新事件两侧都带材料键/事件字段);文件名 stem 作
-                // 第二判据兜底——覆盖升级窗口(旧编译事件 + 新 run 事件只有
-                // stem 可比)与无材料目录,保持与旧版 stem 归并完全兼容。
-                // 两侧都有材料键且不同时不再靠 stem 误并:材料键不同即不同题
-                // (不同目录的 main.cpp 各自是独立题目)。
-                const runKey = eventProblemKey(event);
+                // 归并双条件(2026-08-29 实测修复):①程序 stem 一致是必要条件
+                // ——run 事件的 fileUri 是 exe 路径,与编译错误的源文件 URI 永不
+                // 相等,精确匹配会让运行记录永远进不了编译 episode 的条目流,
+                // 故按「源文件→exe 同名」(main.cpp ↔ main.exe,优先
+                // sourceFileUri 归位)判定同一程序;②材料键只作否决不作充分
+                // 条件——同目录多份源码共享同一题面材料时材料键相同,单靠材料
+                // 键相等会把 b.exe 的运行条目并进 a.cpp 的编译卡(文件筛选因此
+                // 串卡);两侧都带材料键且不同(不同目录同名文件各属各题)绝不
+                // 归并,单侧缺键(旧事件/无材料目录)按 stem 兜底,升级窗口行为
+                // 与旧版一致。
                 const runStem = deriveProblemKey(event.sourceFileUri)
                     ?? deriveProblemKey(event.fileUri);
                 const compileStem = deriveProblemKey(errorEvent.fileUri);
-                const bothHaveMaterialKey =
-                    event.problemKey !== undefined && errorEvent.problemKey !== undefined;
+                const sameProblem =
+                    event.problemKey === undefined ||
+                    errorEvent.problemKey === undefined ||
+                    event.problemKey === errorEvent.problemKey;
                 sameSource =
-                    (runKey !== undefined && runKey === errorProblemKey) ||
-                    (!bothHaveMaterialKey && runStem !== undefined && runStem === compileStem);
+                    runStem !== undefined && runStem === compileStem && sameProblem;
             } else {
                 sameSource = event.fileUri === errorEvent.fileUri;
             }

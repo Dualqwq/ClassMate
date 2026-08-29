@@ -1,5 +1,6 @@
 import type { JourneyEntryVM, JourneyEpisodeVM, JourneyViewModel, MistakeCardVM } from './journeyViewModel';
 import { RUN_ERROR_KINDS, RUN_ERROR_KIND_LABELS, type RunErrorKind } from '../run/runErrorKind';
+import { deriveProblemKey } from '../debug/problemKey';
 
 /**
  * Journey 面板的过滤/分组纯函数(#12a)。
@@ -62,6 +63,25 @@ export interface EpisodeDayGroup {
     episodes: JourneyEpisodeVM[];
 }
 
+/**
+ * 文件档匹配(2026-08-29 实测修复):精确 URI 相等,或同一程序——文件名
+ * stem 相同(如 a.cpp ↔ a.exe)视为同一文件档。学生在文件下拉选 a.exe 时
+ * 理应看到 a.cpp 的编译错误:同一程序的编译+运行是一条时间线,而旧事件
+ * (run 只有 exe fileUri、无 sourceFileUri)的选项值只有 exe URI,纯精确
+ * 匹配会让 a.cpp 编译卡在筛 a.exe 时消失。
+ */
+function fileMatchesEpisode(episodeFileUri: string | undefined, filterFile: string): boolean {
+    if (episodeFileUri === filterFile) {
+        return true;
+    }
+    const filterStem = deriveProblemKey(filterFile);
+    return (
+        filterStem !== undefined &&
+        filterStem.length > 0 &&
+        filterStem === deriveProblemKey(episodeFileUri)
+    );
+}
+
 /** episode 是否通过级别/文件/未解决过滤(条目类型过滤只作用于条目列表)。 */
 function episodeMatchesFilter(episode: JourneyEpisodeVM, filter: JourneyFilterState): boolean {
     // 级别:VM 未带 severity 的旧数据按 error 兜底。
@@ -76,7 +96,7 @@ function episodeMatchesFilter(episode: JourneyEpisodeVM, filter: JourneyFilterSt
     if (filter.unresolvedOnly && episode.resolved) {
         return false;
     }
-    if (filter.file !== 'all' && episode.fileUri !== filter.file) {
+    if (filter.file !== 'all' && !fileMatchesEpisode(episode.fileUri, filter.file)) {
         return false;
     }
     return true;
