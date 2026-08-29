@@ -77,11 +77,12 @@ describe('knowledge cards', () => {
         const concepts = listKnowledgeConcepts();
         // 12 个 C/C++ 编译概念 + P0 新增 6 个(operator_operand_mismatch / lvalue_required /
         // array_out_of_bounds / overload_ambiguous / control_flow_return /
-        // pointer_dereference_mismatch) + 2 个 make 类概念(#8) + P5b 新增 6 个
+        // pointer_dereference_mismatch) + 2 个 make 类概念(#8) + member_not_found
+        // (has no member named 家族,含 ERROR_PATTERNS 条目) + P5b 新增 6 个
         // 模板/STL 概念(iterator_category_mismatch / comparator_not_defined /
         // map_value_type_const / stream_output_operator / dependent_name_typename /
         // vector_bool_proxy,只经签名表命中,无 ERROR_PATTERNS 条目)。
-        assert.strictEqual(concepts.length, 26);
+        assert.strictEqual(concepts.length, 27);
         for (const concept of concepts) {
             assert.ok(concept.title.length > 0, `${concept.tag} title empty`);
             assert.ok(concept.summary.length > 0, `${concept.tag} summary empty`);
@@ -200,6 +201,21 @@ describe('knowledge cards', () => {
             assert.strictEqual(cards.length, 1, `expected one card for "${c.message}"`);
             assert.strictEqual(cards[0].tag, c.expectedTag);
         }
+    });
+
+    it('generates a member_not_found card for a has-no-member diagnostic', () => {
+        // 2026-08-29 用户实测漏网:该家族此前不命中任何 pattern,错题本无知识标签。
+        const event = makeCompileError(
+            'e1',
+            "'class std::vector<int>' has no member named 'pushback'; did you mean 'push_back'?"
+        );
+        const events: DebugEvent[] = [event];
+        const lifecycles = buildErrorLifecycles(events);
+        const cards = generateKnowledgeCard(event, events, lifecycles);
+
+        assert.strictEqual(cards.length, 1);
+        assert.strictEqual(cards[0].tag, 'member_not_found');
+        assert.strictEqual(cards[0].title, '类中没有这个成员名');
     });
 
     it('merges cards by tag and sums frequency', () => {
@@ -401,6 +417,11 @@ describe('knowledge cards', () => {
             { message: "'test': must return a value", expectedTag: 'control_flow_return' },
             // C2227
             { message: "left of '->member' must point to class/struct/union/generic type", expectedTag: 'pointer_dereference_mismatch' },
+            // member_not_found 新增正则的 stderr 样本:GCC 完整形态(含 did you mean
+            // 附加句)/GCC 简短形态/Clang 形态
+            { message: "'class std::vector<int>' has no member named 'pushback'; did you mean 'push_back'?", expectedTag: 'member_not_found' },
+            { message: "'struct Point' has no member named 'SetX'", expectedTag: 'member_not_found' },
+            { message: "no member named 'pushback' in 'std::vector<int>'", expectedTag: 'member_not_found' },
         ];
 
         for (const c of cases) {

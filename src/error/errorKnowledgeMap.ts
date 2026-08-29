@@ -383,6 +383,24 @@ const CONCEPTS: Record<string, KnowledgeConcept> = {
         wrongExample: "app:\n    g++ main.cpp -o app\n# 行首是空格，make 无法识别",
         correctExample: "app:\n\tg++ main.cpp -o app\n# 行首是一个 Tab",
     },
+    member_not_found: {
+        tag: 'member_not_found',
+        title: '类中没有这个成员名',
+        summary: '编译器在这个对象的类型里找不到你写的成员名，报错落在调用处而不是定义处；GCC 通常还会附一句 "did you mean" 给出最接近的正确名字。',
+        commonCauses: [
+            '成员名拼写或大小写错误（如 pushback 应为 push_back）',
+            '把另一个类/容器的成员用在了这个对象上',
+            '漏包含头文件或类定义不完整，成员在当前类型里不存在',
+        ],
+        suggestedFixes: [
+            '按编译器 "did you mean" 提示改成正确的成员名',
+            '在对象后输入 . 或 ->，用编辑器补全查看该类型实际有哪些成员',
+            '确认对象的真实类型，再核对该类型的成员列表',
+        ],
+        checkMethod: '重新编译，确认 "has no member named" 报错消失。',
+        wrongExample: "std::vector<int> v;\nv.pushback(1); // 成员名拼错：pushback 不存在",
+        correctExample: "std::vector<int> v;\nv.push_back(1);",
+    },
 
     // ===== P5b 模板/STL 场景专属概念(经 templateKnowledgeSignatures 签名表匹配,
     // 不走 ERROR_PATTERNS 单消息匹配;语料 tmp-template-error-research/) =====
@@ -536,6 +554,15 @@ const ERROR_PATTERNS: PatternEntry[] = [
         tag: 'non_static_member',
         message: '非静态成员使用方式错误',
         concept: CONCEPTS.non_static_member,
+    },
+    {
+        // GCC: 'class std::vector<int>' has no member named 'pushback'
+        // Clang: no member named 'pushback' in 'std::vector<int>'
+        // (真实 MSVC C2039 诊断行 errorParser 尚不解析,见 CHANGELOG 已知边界)
+        pattern: /no member named/,
+        tag: 'member_not_found',
+        message: '访问了类不存在的成员名',
+        concept: CONCEPTS.member_not_found,
     },
     {
         pattern: /is private within this context/,
