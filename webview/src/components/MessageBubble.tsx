@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ChatMessage } from '../../../src/chat/types';
+import { prepareUserMarkdown } from '../../../src/chat/userMarkdown';
 import { getIntentDisplay } from '../utils/intentConfig';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { sendMessage } from '../vscodeApi';
@@ -246,7 +247,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 					</div>
 				)}
 				{isUser
-					? getDisplayContent(message)
+					? (
+						/* 用户消息复用助手同一 markdown 管线(含代码高亮),但:
+						   ①不传 references/codeFiles——不生成 classmate-ref 链接,
+						   openReference 等交互只属于助手消息;
+						   ②软换行先经 prepareUserMarkdown 升级为硬换行,单换行
+						   分段不被 markdown 合并(与旧纯文本 pre-wrap 观感一致);
+						   ③react-markdown 默认转义 HTML,无 XSS 注入面。
+						   原文本身不可改写,这里只是展示层预处理。 */
+						<MarkdownRenderer content={prepareUserMarkdown(getDisplayContent(message))} />
+					)
 					: showProcessingStage
 						? (
 							<div className="processing-stage" role="status" aria-live="polite">
