@@ -3,6 +3,7 @@ import { describe, it, beforeEach } from 'mocha';
 import * as vscode from 'vscode';
 import { JourneyService } from '../journey/journeyService';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
+import { getResolvedFileUri, getWorkspaceStorageUri } from '../debug/storagePath';
 import { buildRunOutcomeEvent } from '../run/runService';
 import type { RunRecord } from '../run/types';
 import type { JourneyExtensionToWebviewMessage } from '../chat/types';
@@ -122,6 +123,51 @@ describe('JourneyService', () => {
 
         assert.strictEqual((await store.getEvents()).length, 1);
         assert.ok(!presenter.messages.some((m) => m.message.type === 'journey:cleared'));
+        service.dispose();
+    });
+
+    it('清除失败:弹错误提示、不向调用方抛出,并按磁盘数据重推 sync', async () => {
+        await store.append(sampleEvent(1_000));
+        const errorMessages: string[] = [];
+        const service = new JourneyService(store, {
+            confirmClear: async () => true,
+            // 生产路径默认 void showErrorMessage(fire-and-forget);单测注入记录器。
+            notifyClearError: (message: string) => errorMessages.push(message),
+        });
+        const presenter = createPresenter();
+        await service.attach(presenter);
+
+        // 用真实文件系统制造不可删除的路径:resolved.json 位置放一个非空目录,
+        // clear() 删它必然失败(ENOTEMPTY 一族,非 FileNotFound),等价于真实
+        // 环境里杀软/索引器锁文件导致的删除失败;events.jsonl 保持真实可清。
+        const resolvedUri = getResolvedFileUri(
+            getWorkspaceStorageUri(context.globalStorageUri, 'test-workspace')
+        );
+        await vscode.workspace.fs.createDirectory(resolvedUri);
+        await vscode.workspace.fs.writeFile(
+            vscode.Uri.joinPath(resolvedUri, 'lock.txt'),
+            Buffer.from('locked')
+        );
+
+        // 不向调用方抛出:handleMessage 正常返回。
+        await service.handleMessage({ type: 'journey:clearAll' });
+
+        assert.deepStrictEqual(errorMessages, ['清除调试记录失败，请稍后重试。']);
+        // 清除中断(events.jsonl 已删、resolved 路径删除失败)不得广播 cleared,
+        // 重推的 sync 必须反映当前磁盘状态——UI 与磁盘保持一致,不呈现假象。
+        assert.ok(!presenter.messages.some((m) => m.message.type === 'journey:cleared'));
+        const syncs = presenter.messages.filter((m) => m.message.type === 'journey:sync');
+        assert.strictEqual(syncs.length, 2, 'attach 初始 sync + 失败后的重推 sync');
+        const diskCount = (await store.getEvents()).length;
+        const last = syncs[1].message as Extract<
+            JourneyExtensionToWebviewMessage,
+            { type: 'journey:sync' }
+        >;
+        assert.strictEqual(
+            last.view.metrics.totalEvents,
+            diskCount,
+            '失败后的 sync 必须与磁盘实际内容一致'
+        );
         service.dispose();
     });
 

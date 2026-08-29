@@ -134,6 +134,17 @@ function eventMatchesFilter(event: DebugEvent, filter: DebugEventFilter): boolea
 }
 
 /**
+ * 幂等清除只容忍「文件不存在」:workspace.fs 对缺失文件抛的是
+ * FileSystemError 且 code='FileNotFound'(extension host 会把底层
+ * EntryNotFound 复原成该实例,code 取工厂方法名)。
+ * 注:本 API 面(@types/vscode 1.125 / VS Code 1.128)没有
+ * `FileSystemError.isFileNotFoundError` 静态判定,按 code 判断是同语义的稳定口径。
+ */
+function isFileNotFoundError(err: unknown): boolean {
+    return err instanceof vscode.FileSystemError && err.code === 'FileNotFound';
+}
+
+/**
  * 幂等跳过的适用类型:错误类事件(compile_error/run_error)。它们是唯一
  * 存在「同一结果被多个触发源各写一次」结构性风险的类型;其余类型要么天然
  * 一次性(求助),要么有内容变化守卫(编辑),快速重复是学生真实动作。
@@ -250,20 +261,33 @@ export class DebugJourneyStore {
     }
 
     public async clear(): Promise<void> {
-        try {
-            await vscode.workspace.fs.delete(this._eventsUri, { useTrash: false });
-        } catch {
-            // File may not exist.
+        // 文件删除失败不许静默:杀软/索引器锁文件(EBUSY、Permission denied)
+        // 时若吞掉错误,「清除」会假成功——旧事件仍在磁盘上,digest 照样注入。
+        // 只有 FileNotFound(本就不存在,幂等清除的正常形态)才容忍。
+        for (const uri of [this._eventsUri, this._resolvedUri]) {
+            try {
+                await vscode.workspace.fs.delete(uri, { useTrash: false });
+            } catch (err) {
+                if (!isFileNotFoundError(err)) {
+                    throw err;
+                }
+                // File may not exist.
+            }
         }
-        try {
-            await vscode.workspace.fs.delete(this._resolvedUri, { useTrash: false });
-        } catch {
-            // File may not exist.
-        }
+        await this._writeIndex(createEmptyIndex());
+        // globalState 副本清理必须删「带 workspace 后缀」的键:三个写入端
+        // (_updateHotCache 的热缓存≤50 条、_writeIndex 的 index 轻量副本、
+        // _writeResolvedMarks 的 resolved 副本)写的全是 `${KEY}.${workspaceId}`,
+        // 此前误删无后缀键,导致清除后热缓存与 resolved 副本残留——清除后的
+        // 第一个新 append 会把最多 50 条旧事件重新并进热缓存。
+        // 无后缀键是历史遗留形态(旧版本写入/清理用的键),一并删除做升级清理。
+        const suffix = `.${this._workspaceId}`;
+        await this._context.globalState.update(`${EVENTS_STORAGE_KEY}${suffix}`, undefined);
+        await this._context.globalState.update(`${INDEX_STORAGE_KEY}${suffix}`, undefined);
+        await this._context.globalState.update(`${RESOLVED_STORAGE_KEY}${suffix}`, undefined);
         await this._context.globalState.update(EVENTS_STORAGE_KEY, undefined);
         await this._context.globalState.update(INDEX_STORAGE_KEY, undefined);
         await this._context.globalState.update(RESOLVED_STORAGE_KEY, undefined);
-        await this._writeIndex(createEmptyIndex());
     }
 
     public async getIndex(): Promise<DebugEventIndex> {

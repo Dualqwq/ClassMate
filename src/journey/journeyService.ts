@@ -23,7 +23,8 @@ const SYNC_THROTTLE_MS = 500;
  * - journey:openDiff → code_modified 快照注册 + 原生 vscode.diff(只读);
  * - journey:openFile → ADD2 分组预路由(#18 零闪屏);
  * - journey:requestHint → 聚焦聊天容器 + 权威草稿广播(发送权在学生);
- * - journey:clearAll → modal 二次确认 → store.clear();
+ * - journey:clearAll → modal 二次确认 → store.clear()(失败时弹错提示并按
+ *   当前数据重推 sync,不假成功);
  * - journey:exportNotebook → 既有 classmate.exportDebugNotebook 命令通路;
  * - journey:markResolved/markUnresolved → 学生手动「已解决」标记落 store,
  *   随后广播 sync(解决权完全在学生,run_success 等任何自动路径不翻转)。
@@ -33,6 +34,8 @@ export class JourneyService {
     private readonly _chatSession?: ChatSession;
     /** 可注入的二次确认(单测替换);默认 VS Code modal。 */
     private readonly _confirmClear: () => Promise<boolean>;
+    /** 可注入的清除失败提示(单测替换);默认原生 showErrorMessage。 */
+    private readonly _notifyClearError: (message: string) => void;
     private _presenter: { postMessage(message: JourneyExtensionToWebviewMessage): void } | undefined;
     private _syncTimer: ReturnType<typeof setTimeout> | undefined;
     private _disposed = false;
@@ -43,6 +46,7 @@ export class JourneyService {
         options?: {
             chatSession?: ChatSession;
             confirmClear?: () => Promise<boolean>;
+            notifyClearError?: (message: string) => void;
         }
     ) {
         this._store = store;
@@ -56,6 +60,12 @@ export class JourneyService {
                     '清除'
                 );
                 return choice === '清除';
+            });
+        this._notifyClearError =
+            options?.notifyClearError ??
+            ((message: string) => {
+                // fire-and-forget:弹窗不 await,不阻塞清除链路/UI。
+                void vscode.window.showErrorMessage(message);
             });
 
         // 学生继续编译/求助时新事件落盘 → 节流重算视图模型;面板未开时
@@ -157,7 +167,16 @@ export class JourneyService {
         if (!(await this._confirmClear())) {
             return;
         }
-        await this._store.clear();
+        try {
+            await this._store.clear();
+        } catch {
+            // 清除失败(如记录文件被杀软/索引器锁住)不假成功、不炸面板:
+            // 明确告知学生失败了(异步弹窗,不 await 阻塞),再按当前磁盘数据
+            // 重推一次 sync,让界面与磁盘保持一致;调用方不感知异常。
+            this._notifyClearError('清除调试记录失败，请稍后重试。');
+            await this.pushState();
+            return;
+        }
         this.post({ type: 'journey:cleared' });
         await this.pushState();
     }

@@ -121,6 +121,132 @@ describe('DebugJourneyStore', () => {
         assert.strictEqual(events.length, 0);
     });
 
+    it('clear 幂等:记录文件不存在时照常成功(重复清除也不报错)', async () => {
+        await store.append({
+            id: '1',
+            type: 'compile_success',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            exitCode: 0,
+            durationMs: 100,
+        });
+
+        await store.clear();
+        assert.strictEqual((await store.getEvents()).length, 0);
+
+        // 第二次清除:events.jsonl/resolved.json 已不存在,delete 会报
+        // FileNotFound,必须容忍(幂等清除不要求文件存在)而非把成功变失败。
+        await store.clear();
+        assert.strictEqual((await store.getEvents()).length, 0);
+        assert.deepStrictEqual(await store.getResolvedMarks(), {});
+    });
+
+    it('clear 遇到非 FileNotFound 删除错误时向上抛(不再静默假成功)', async () => {
+        // 用真实文件系统制造不可删除的路径:events.jsonl 位置放一个非空目录,
+        // 非递归 delete 必然失败(ENOTEMPTY 一族,非 FileNotFound),等价于
+        // 真实环境里杀软/索引器锁文件导致的删除失败。
+        const eventsUri = getEventsFileUri(
+            getWorkspaceStorageUri(context.globalStorageUri, 'test-workspace')
+        );
+        await vscode.workspace.fs.createDirectory(eventsUri);
+        const blocker = vscode.Uri.joinPath(eventsUri, 'lock.txt');
+        await vscode.workspace.fs.writeFile(blocker, Buffer.from('locked'));
+
+        await assert.rejects(
+            store.clear(),
+            (err: unknown) =>
+                !(err instanceof vscode.FileSystemError && err.code === 'FileNotFound')
+        );
+
+        // 失败如实暴露:占位目录与内容原样保留,没有被静默清理或假成功。
+        const stat = await vscode.workspace.fs.stat(eventsUri);
+        assert.strictEqual(stat.type & vscode.FileType.Directory, vscode.FileType.Directory);
+        await vscode.workspace.fs.stat(blocker);
+    });
+
+    it('clear 清空 globalState:三个带 workspace 后缀的键与无后缀历史旧键都删除', async () => {
+        await store.append({
+            id: '1',
+            type: 'compile_success',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            exitCode: 0,
+            durationMs: 100,
+        });
+        await store.markProblemResolved('main');
+        // 预置无后缀的历史遗留键(旧版本写入形态)。
+        const EVENTS_KEY = 'classmate.debugJourney.events.v1';
+        const INDEX_KEY = 'classmate.debugJourney.index.v1';
+        const RESOLVED_KEY = 'classmate.debugJourney.resolved.v1';
+        await context.globalState.update(EVENTS_KEY, [{ id: 'legacy' }]);
+        await context.globalState.update(INDEX_KEY, { total: 9 });
+        await context.globalState.update(RESOLVED_KEY, { main: 1 });
+
+        await store.clear();
+
+        const suffix = '.test-workspace';
+        assert.strictEqual(
+            context.globalState.get(`${EVENTS_KEY}${suffix}`),
+            undefined,
+            '热缓存(带后缀)必须清掉,否则清除后的第一个 append 会把旧事件并回来'
+        );
+        assert.strictEqual(
+            context.globalState.get(`${INDEX_KEY}${suffix}`),
+            undefined,
+            'index 轻量副本(带后缀)必须清掉'
+        );
+        assert.strictEqual(
+            context.globalState.get(`${RESOLVED_KEY}${suffix}`),
+            undefined,
+            'resolved 副本(带后缀)必须清掉'
+        );
+        assert.strictEqual(
+            context.globalState.get(EVENTS_KEY),
+            undefined,
+            '无后缀历史旧键一并清理'
+        );
+        assert.strictEqual(context.globalState.get(INDEX_KEY), undefined);
+        assert.strictEqual(context.globalState.get(RESOLVED_KEY), undefined);
+    });
+
+    it('clear 后首次 append:globalState 热缓存只含新事件(旧缓存不得回魂)', async () => {
+        await store.append({
+            id: 'old-1',
+            type: 'compile_success',
+            timestamp: 1,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/old.cpp',
+            exitCode: 0,
+            durationMs: 10,
+        });
+
+        await store.clear();
+
+        await store.append({
+            id: 'new-1',
+            type: 'compile_success',
+            timestamp: 2,
+            sessionId: 'session',
+            workspaceId: 'test-workspace',
+            fileUri: 'file:///w/new.cpp',
+            exitCode: 0,
+            durationMs: 10,
+        });
+
+        const cache = context.globalState.get<DebugEvent[]>(
+            'classmate.debugJourney.events.v1.test-workspace',
+            []
+        );
+        assert.deepStrictEqual(
+            cache.map((e) => e.id),
+            ['new-1'],
+            '清除后的热缓存只允许包含清除之后写入的新事件'
+        );
+    });
+
     it('appends incrementally: repeated appendMany keep order and content (O(1) 追加)', async () => {
         for (let round = 0; round < 3; round++) {
             await store.appendMany([
