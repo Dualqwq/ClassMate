@@ -2,7 +2,7 @@
   "name": "classmate",
   "displayName": "ClassMate",
   "description": "AI tutor for C/C++ beginners",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/Dualqwq/ClassMate.git"
