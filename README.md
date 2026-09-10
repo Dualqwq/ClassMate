@@ -121,7 +121,7 @@ ClassMate 会在本地记录你的编译、求助和代码修改过程，形成�
 
 ```bash
 git clone https://github.com/Dualqwq/ClassMate.git
-cd ClassMate/code/classmate
+cd ClassMate
 npm ci
 npm run compile
 ```
