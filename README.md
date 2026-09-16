@@ -155,4 +155,8 @@ npm run package
 
 ## License
 
-当前仓库尚未指定开源许可证。在添加许可证之前，默认不授予复制、修改或分发代码的权利。
+本项目采用 [Creative Commons 署名—非商业性使用 4.0 国际许可协议（CC BY-NC 4.0）](LICENSE)。版权署名为 `Dualqwq and ClassMate contributors`。
+
+你可以在遵守许可条件的前提下，为非商业目的分享和改编本项目；请保留适当署名、提供[许可协议链接](https://creativecommons.org/licenses/by-nc/4.0/)，并标注所作修改。商业使用须另行获得权利人的授权。完整条款见 [LICENSE](LICENSE)。
+
+第三方依赖及组件仍遵循其各自的许可证。
