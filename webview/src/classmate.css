@@ -726,6 +726,12 @@ label:focus-within {
 	color: var(--vscode-foreground);
 }
 
+.run-exe-status {
+	color: var(--vscode-editorWarning-foreground);
+	white-space: nowrap;
+	word-break: normal;
+}
+
 .run-notice {
 	color: var(--vscode-editorWarning-foreground);
 }

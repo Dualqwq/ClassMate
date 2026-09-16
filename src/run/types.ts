@@ -16,6 +16,9 @@ export type ExecutableSource =
 	/** 最后手段:用户在 showOpenDialog 里手动挑选。 */
 	| 'user-picked';
 
+/** 路径的文件存在性，与能否成功启动是不同概念。 */
+export type ExecutableAvailability = 'available' | 'missing' | 'unknown';
+
 /** 一次运行的持久化记录(stdout/stderr 已按 64KB 头尾截断)。 */
 export interface RunRecord {
 	id: string;
@@ -42,6 +45,8 @@ export interface RunPanelSnapshot {
 	executable?: {
 		path: string;
 		source: ExecutableSource;
+		/** unknown 表示暂时无法检查，不能当作路径已失效。 */
+		availability: ExecutableAvailability;
 	};
 	/** 发现失败/需要用户动作的兜底文案(如"请先编译")。 */
 	notice?: string;

@@ -116,6 +116,7 @@ export const RunPanel: React.FC = () => {
 						className="icon-button"
 						onClick={() => sendMessage({ type: 'run:pickExecutable' })}
 						title="手动选择可执行文件"
+						disabled={snapshot.running}
 					>
 						选择 exe
 					</button>
@@ -127,6 +128,8 @@ export const RunPanel: React.FC = () => {
 					{snapshot.executable ? (
 						<span className="run-exe-path" title={snapshot.executable.path}>
 							目标:{snapshot.executable.path}
+							{snapshot.executable.availability === 'missing' && <span className="run-exe-status">（已失效）</span>}
+							{snapshot.executable.availability === 'unknown' && <span className="run-exe-status">（暂无法检查）</span>}
 						</span>
 					) : (
 						<span className="run-notice">
@@ -134,6 +137,8 @@ export const RunPanel: React.FC = () => {
 						</span>
 					)}
 				</div>
+
+				{snapshot.executable && snapshot.notice && <div className="run-notice" role="status">{snapshot.notice}</div>}
 
 				<div className="run-stdin-block">
 					<label className="run-stdin-label" htmlFor="run-stdin">
@@ -153,7 +158,8 @@ export const RunPanel: React.FC = () => {
 					<button
 						className="primary-button run-start-button"
 						onClick={handleRun}
-						disabled={snapshot.running}
+						disabled={snapshot.running || snapshot.executable?.availability === 'missing'}
+						title={snapshot.executable?.availability === 'missing' ? '文件已不存在，请重新选择或先编译。' : undefined}
 					>
 						{snapshot.running ? '运行中…' : '运行'}
 					</button>
