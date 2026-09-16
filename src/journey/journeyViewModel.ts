@@ -1,3 +1,4 @@
+import { sameWarningTarget, type WarningLocation } from '../debug/warningLifecycle';
 import type { ParsedError } from '../error/errorParser';
 import { computeDebugMetrics } from '../debug/analytics';
 import { computeEventFingerprint, SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
@@ -68,6 +69,8 @@ export interface JourneyEpisodeVM {
     errorEventId: string;
     /** 首条错误原文 message(现象行)。 */
     message: string;
+    /** Locations of this warning in its most recent compile observation. */
+    warningLocations?: WarningLocation[];
     /**
      * 跳转位置:优先诊断真实报错文件(parsed.file,含头文件错误场景),
      * 事件级 fileUri(主翻译单元)只作兜底——否则头文件错误会错跳到
@@ -273,7 +276,7 @@ function buildEntriesForLifecycle(
                     event.problemKey === errorEvent.problemKey;
                 sameSource = sameProgramFile(runSourceUri, errorEvent.fileUri) && sameProblem;
             } else {
-                sameSource = event.fileUri === errorEvent.fileUri;
+                sameSource = lifecycle.warning ? sameWarningTarget(event, errorEvent) : event.fileUri === errorEvent.fileUri;
             }
             if (!sameSource) {
                 continue;
@@ -438,7 +441,7 @@ export function buildJourneyViewModel(
         for (const lifecycle of eventLifecycles) {
             // 折叠键含级别:同一位置的 error 与 warning 是不同的卡(签名
             // normalizedMessage 相同也不合并);跨事件重试史照旧各自成卡。
-            const key = `${signatureKey(lifecycle.signature, { mode: 'fuzzy' })}::${
+            const key = lifecycle.warning?.key ?? `${signatureKey(lifecycle.signature, { mode: 'fuzzy' })}::${
                 lifecycle.signature.severity ?? ''
             }`;
             const group = bySignature.get(key);
@@ -465,11 +468,12 @@ export function buildJourneyViewModel(
             // 卡面与跳转用该签名自己的诊断行:头文件错误指向真实报错文件
             // (parsed.file=b.h),而非主翻译单元的事件级 fileUri(a.cpp);
             // 级别取签名自带 severity(折叠键已按 error/warning 分组)。
-            const parsed = findParsedForSignature(errorEvent, representative.signature);
+            const parsed = representative.warning?.diagnostic ?? findParsedForSignature(errorEvent, representative.signature);
             const locationFile = parsed?.file ?? errorEvent.fileUri;
             episodes.push({
                 errorEventId: errorEvent.id,
                 message: parsed?.message ?? '',
+                ...(representative.warning ? { warningLocations: representative.warning.locations } : {}),
                 fileUri: locationFile,
                 fileName: baseFileName(locationFile),
                 ...(workspaceRoot !== undefined

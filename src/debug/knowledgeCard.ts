@@ -1,3 +1,4 @@
+import { warningIdentity } from './warningLifecycle';
 import type { ParsedError } from '../error/errorParser';
 import { getKnowledgeConcept, matchErrorToKnowledge } from '../error/errorKnowledgeMap';
 import { resolveAttributedError } from '../error/templateBacktrace';
@@ -7,7 +8,7 @@ import type { ErrorLifecycle } from './errorLifecycle';
 import { findFixingEdits } from './errorLifecycle';
 import { formatFixAsDiff, normalizeCodeForDiff } from './formatDiff';
 import { eventProblemKey } from './problemKey';
-import { hasCompileDiagnostics, isCompileSuccess, type CompileDiagnosticEvent, type DebugEvent, type RunErrorEvent } from './types';
+import { hasCompileDiagnostics, isCompileSuccess, isCodeModified, type CompileDiagnosticEvent, type DebugEvent, type RunErrorEvent } from './types';
 import {
     formatRunErrorPhenomenon,
     getRunErrorKnowledgeConcept,
@@ -135,6 +136,7 @@ export function generateKnowledgeCard(
     const maxConcreteExamples = options?.maxConcreteExamples ?? DEFAULT_MAX_CONCRETE_EXAMPLES;
     const fixingEdits = findFixingEdits(errorEvent, allEvents);
     const cards: KnowledgeCard[] = [];
+    const emittedWarningKeys = new Set<string>();
 
     for (const parsed of errorEvent.parsedErrors) {
         if ((parsed.severity !== 'error' && parsed.severity !== 'warning') ||
@@ -142,6 +144,13 @@ export function generateKnowledgeCard(
             continue;
         }
 
+        const warningLifecycle = parsed.severity === 'warning' ? lifecycles.find(l =>
+            l.errorEventId === errorEvent.id && l.warning?.key === warningIdentity(errorEvent, parsed)) : undefined;
+        if (parsed.severity === 'warning') {
+            const key = warningLifecycle?.warning?.key;
+            if (!key || emittedWarningKeys.has(key)) { continue; }
+            emittedWarningKeys.add(key);
+        }
         const signature = createErrorSignature(parsed, { includeCode: false, includeFile: false });
         const signatureKeyValue = signatureKey(signature, { mode: 'knowledge' });
 
@@ -161,14 +170,14 @@ export function generateKnowledgeCard(
         }
 
         const concept = getKnowledgeConcept(bestMatch.tag)!;
-        const lifecycle = lifecycles.find(
+        const lifecycle = warningLifecycle ?? lifecycles.find(
             (l) =>
                 l.errorEventId === errorEvent.id &&
                 signaturesMatch(l.signature, signature, { mode: 'knowledge' })
         );
-        const stats = computeCardStats(lifecycle, errorEvent.timestamp);
+        const stats = computeCardStats(lifecycle, warningLifecycle?.warning?.lastSeenAt ?? errorEvent.timestamp);
 
-        const fixingResult = fixingEdits.find(
+        const fixingResult = warningLifecycle ? { edit: allEvents.find(e => isCodeModified(e) && e.id === warningLifecycle.resolvingEditId) } : fixingEdits.find(
             (r) => signatureKey(r.signature, { mode: 'knowledge' }) === signatureKeyValue
         );
         const editIds: string[] = [];
@@ -188,7 +197,7 @@ export function generateKnowledgeCard(
             wrongExample: concept.wrongExample,
             correctExample: concept.correctExample,
             ...stats,
-            sourceEvents: [errorEvent.id],
+            sourceEvents: warningLifecycle?.warning?.eventIds ?? [errorEvent.id],
             correctingEditIds: editIds,
             concreteFixes,
             // 题目分组键(run 条目归属 ②):宿主写事件时算好的材料键;

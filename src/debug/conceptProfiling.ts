@@ -1,3 +1,4 @@
+import { warningIdentity } from './warningLifecycle';
 import type { DebugEvent } from './types';
 import { hasCompileDiagnostics, isCompileSuccess } from './types';
 import { matchErrorToKnowledge } from '../error/errorKnowledgeMap';
@@ -26,12 +27,16 @@ export function buildConceptProfile(
         const seenTags = new Set<string>();
         for (const parsed of event.parsedErrors) {
             if (isCompileSuccess(event) && parsed.severity !== 'warning') { continue; }
+            const warning = parsed.severity === 'warning' ? lifecycles.find(l =>
+                l.errorEventId === event.id && l.warning?.key === warningIdentity(event, parsed))?.warning : undefined;
+            if (parsed.severity === 'warning' && !warning) { continue; }
             const matches = matchErrorToKnowledge(parsed.message);
             for (const match of matches) {
-                if (seenTags.has(match.tag)) {
+                const occurrence = warning ? `${warning.key}::${match.tag}` : match.tag;
+                if (seenTags.has(occurrence)) {
                     continue;
                 }
-                seenTags.add(match.tag);
+                seenTags.add(occurrence);
 
                 let profile = profiles.get(match.tag);
                 if (!profile) {
@@ -47,7 +52,7 @@ export function buildConceptProfile(
                 }
 
                 profile.occurrenceCount += 1;
-                profile.lastSeenAt = Math.max(profile.lastSeenAt, event.timestamp);
+                profile.lastSeenAt = Math.max(profile.lastSeenAt, warning?.lastSeenAt ?? event.timestamp);
             }
         }
     }

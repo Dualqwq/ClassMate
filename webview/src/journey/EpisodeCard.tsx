@@ -118,6 +118,17 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 					</span>
 				)}
 			</div>
+			{episode.warningLocations && episode.warningLocations.length > 1 && (
+				<div className="journey-warning-locations">
+					<span>最近一次出现的位置：</span>
+					{episode.warningLocations.map((location, index) => (
+						<button key={index} className="journey-location-link"
+							onClick={() => location.fileUri && sendMessage({ type: 'journey:openFile', uri: location.fileUri, line: location.line })}>
+							{episode.fileLabel ?? episode.fileName ?? location.fileUri}{location.line ? ':' + location.line : ''}
+						</button>
+					))}
+				</div>
+			)}
 			<div className="journey-entry-list">
 				{episode.entries.map((entry) => (
 					<EntryLine key={`${entry.kind}-${entry.eventId}`} entry={entry} />

@@ -1,3 +1,4 @@
+import { buildWarningLifecycles, warningIdentity, type WarningJourney } from './warningLifecycle';
 import type { ParsedError } from '../error/errorParser';
 import type {
     CodeModifiedEvent,
@@ -17,6 +18,7 @@ export interface ErrorLifecycle {
     resolvingEditId?: string;
     attemptsBeforeResolve: number;
     subsequentCompilesChecked: number;
+    warning?: WarningJourney;
 }
 
 export interface ResolutionOptions {
@@ -62,6 +64,24 @@ export function isErrorResolved(
 
     if (targetSignatures.length === 0) {
         return { resolved: true, attempts: 0 };
+    }
+
+    if (targetSignatures.some(target => target.severity === 'warning')) {
+        const keys = new Set(errorEvent.parsedErrors.filter(p => p.severity === 'warning' &&
+            targetSignatures.some(target => signaturesMatch(target, createErrorSignature(p), matchOptions)))
+            .map(p => warningIdentity(errorEvent, p)));
+        const records = buildWarningLifecycles([errorEvent, ...subsequentEvents.filter(e =>
+            e.id !== errorEvent.id && e.timestamp > errorEvent.timestamp)], fileUri)
+            .filter(l => l.errorEventId === errorEvent.id && l.warning && keys.has(l.warning.key));
+        const outcomes: { resolved: boolean; resolvedAt?: number; resolvingEditId?: string; attempts: number }[] = records.map(l => ({ resolved: l.resolvedAt !== undefined, resolvedAt: l.resolvedAt,
+            resolvingEditId: l.resolvingEditId, attempts: l.attemptsBeforeResolve }));
+        outcomes.push(...targetSignatures.filter(target => target.severity !== 'warning').map(target =>
+            isErrorResolved(errorEvent, subsequentEvents, { ...options, targetSignature: target })));
+        const latest = [...outcomes].sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))[0];
+        const resolved = outcomes.length > 0 && outcomes.every(o => o.resolved);
+        return { resolved, resolvedAt: resolved ? latest?.resolvedAt : undefined,
+            resolvingEditId: resolved ? latest?.resolvingEditId : undefined,
+            attempts: Math.max(0, ...outcomes.map(o => o.attempts)) };
     }
 
     const laterEvents = subsequentEvents.filter((e) => e.timestamp > errorEvent.timestamp);
@@ -140,8 +160,7 @@ export function buildErrorLifecycles(
         }
 
         for (const parsed of event.parsedErrors) {
-            if ((parsed.severity !== 'error' && parsed.severity !== 'warning') ||
-                (isCompileSuccess(event) && parsed.severity !== 'warning')) {
+            if (parsed.severity !== 'error' || isCompileSuccess(event)) {
                 continue;
             }
 
@@ -164,7 +183,18 @@ export function buildErrorLifecycles(
         }
     }
 
-    return lifecycles;
+    // Preserve the original event/diagnostic order for equal-time timeline cards.
+    const eventOrder = new Map(events.map((event, index) => [event.id, index]));
+    const diagnosticOrder = (lifecycle: ErrorLifecycle): number => {
+        const event = events[eventOrder.get(lifecycle.errorEventId) ?? -1];
+        if (!event || !hasCompileDiagnostics(event)) { return 0; }
+        return event.parsedErrors.findIndex(parsed => lifecycle.warning
+            ? parsed.severity === 'warning' && warningIdentity(event, parsed) === lifecycle.warning.key
+            : parsed.severity === 'error' && signaturesMatch(lifecycle.signature, createErrorSignature(parsed), { mode: 'fuzzy' }));
+    };
+    return [...lifecycles, ...buildWarningLifecycles(events, options.fileUri)].sort((a, b) =>
+        (eventOrder.get(a.errorEventId) ?? 0) - (eventOrder.get(b.errorEventId) ?? 0) ||
+        diagnosticOrder(a) - diagnosticOrder(b));
 }
 
 export interface FixingEditResult {

@@ -1384,3 +1384,10 @@ label:focus-within {
 	word-break: break-word;
 	user-select: text;
 }
+
+.journey-warning-locations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0;
+}
