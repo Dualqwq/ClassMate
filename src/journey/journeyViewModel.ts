@@ -1,3 +1,4 @@
+import { logicalDiagnostics, diagnosticText, type LogicalDiagnostic, type DiagnosticDetail } from '../error/logicalDiagnostics';
 import type { ParsedError } from '../error/errorParser';
 import { computeDebugMetrics } from '../debug/analytics';
 import { computeEventFingerprint, SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
@@ -66,6 +67,8 @@ export interface JourneyEpisodeVM {
     errorEventId: string;
     /** 首条错误原文 message(现象行)。 */
     message: string;
+    /** Original compiler evidence for a grouped warning, including related locations. */
+    diagnosticDetails?: DiagnosticDetail[];
     /**
      * 跳转位置:优先诊断真实报错文件(parsed.file,含头文件错误场景),
      * 事件级 fileUri(主翻译单元)只作兜底——否则头文件错误会错跳到
@@ -227,7 +230,7 @@ function buildEntriesForLifecycle(
         eventId: errorEvent.id,
         kind: 'compile_error',
         timestamp: errorEvent.timestamp,
-        label: `编译失败(${describeDiagnosticCounts(errorEvent.parsedErrors)})`,
+        label: `编译失败(${describeDiagnosticCounts(logicalDiagnostics(errorEvent))})`,
     });
 
     const windowEnd = lifecycle.resolvedAt ?? Number.MAX_SAFE_INTEGER;
@@ -322,7 +325,7 @@ function buildEntriesForLifecycle(
                 eventId: event.id,
                 kind: 'compile_error',
                 timestamp: event.timestamp,
-                label: `再次编译失败(${describeDiagnosticCounts(event.parsedErrors)})`,
+                label: `再次编译失败(${describeDiagnosticCounts(logicalDiagnostics(event))})`,
             });
         }
     }
@@ -458,7 +461,8 @@ export function buildJourneyViewModel(
             const locationFile = parsed?.file ?? errorEvent.fileUri;
             episodes.push({
                 errorEventId: errorEvent.id,
-                message: parsed?.message ?? '',
+                message: parsed ? diagnosticText(parsed) : '',
+                ...(parsed?.diagnosticDetails ? { diagnosticDetails: parsed.diagnosticDetails } : {}),
                 fileUri: locationFile,
                 fileName: baseFileName(locationFile),
                 ...(workspaceRoot !== undefined
@@ -641,9 +645,9 @@ export function buildJourneyViewModel(
 function findParsedForSignature(
     errorEvent: CompileErrorEvent,
     signature: ErrorSignature
-): ParsedError | undefined {
+): LogicalDiagnostic | undefined {
     const key = signatureKey(signature, { mode: 'fuzzy' });
-    return errorEvent.parsedErrors.find(
+    return logicalDiagnostics(errorEvent).find(
         (p) =>
             (p.severity === 'error' || p.severity === 'warning') &&
             // 级别一致才可作为该签名的代表行:error 组不得拿 warning 行当门面。

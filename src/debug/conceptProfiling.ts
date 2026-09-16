@@ -1,3 +1,4 @@
+import { logicalDiagnostics } from '../error/logicalDiagnostics';
 import type { DebugEvent } from './types';
 import { isCompileError } from './types';
 import { matchErrorToKnowledge } from '../error/errorKnowledgeMap';
@@ -24,7 +25,7 @@ export function buildConceptProfile(
         }
 
         const seenTags = new Set<string>();
-        for (const parsed of event.parsedErrors) {
+        for (const parsed of logicalDiagnostics(event)) {
             const matches = matchErrorToKnowledge(parsed.message);
             for (const match of matches) {
                 if (seenTags.has(match.tag)) {

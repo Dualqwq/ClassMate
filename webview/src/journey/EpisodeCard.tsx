@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { JourneyEpisodeVM, JourneyEntryVM } from '../../../src/journey/journeyViewModel';
+import { buildJourneyHintText } from '../../../src/journey/episodePresentation';
 import { sendMessage } from '../vscodeApi';
 
 /**
@@ -22,16 +23,6 @@ function formatFirstSeen(timestamp: number): string {
 		return `昨天 ${clock}`;
 	}
 	return `${new Date(timestamp).getMonth() + 1}月${new Date(timestamp).getDate()}日 ${clock}`;
-}
-
-function buildHintText(episode: JourneyEpisodeVM): string {
-	// 位置优先用工作区相对路径(fileLabel,跨目录同名文件靠它区分),旧数据
-	// 回退裸文件名。
-	const displayName = episode.fileLabel ?? episode.fileName;
-	const location = displayName
-		? `(${displayName}${episode.line ? `:${episode.line}` : ''})`
-		: '';
-	return `我在修这个错但一直没搞定：「${episode.message}」${location}。请先告诉我下一步应该从哪里排查，不要直接给完整代码。`;
 }
 
 const EntryLine: React.FC<{ entry: JourneyEntryVM }> = ({ entry }) => (
@@ -118,6 +109,24 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 					</span>
 				)}
 			</div>
+			{episode.diagnosticDetails && (
+				<details className="journey-diagnostic-details">
+					<summary>查看完整警告（{episode.diagnosticDetails.length} 条关联诊断）</summary>
+					<ul>
+						{episode.diagnosticDetails.map((diagnostic, index) => (
+							<li key={index}>
+								<strong>{diagnostic.label}：</strong>{diagnostic.message}{' '}
+								{diagnostic.file && (
+									<button className="journey-location-link"
+										onClick={() => sendMessage({ type: 'journey:openFile', uri: diagnostic.file!, line: diagnostic.line })}>
+										{diagnostic.file}{diagnostic.line ? ':' + diagnostic.line : ''}
+									</button>
+								)}
+							</li>
+						))}
+					</ul>
+				</details>
+			)}
 			<div className="journey-entry-list">
 				{episode.entries.map((entry) => (
 					<EntryLine key={`${entry.kind}-${entry.eventId}`} entry={entry} />
@@ -144,7 +153,7 @@ export const EpisodeCard: React.FC<{ episode: JourneyEpisodeVM }> = ({ episode }
 				<button
 					className="journey-button"
 					onClick={() =>
-						sendMessage({ type: 'journey:requestHint', text: buildHintText(episode) })
+						sendMessage({ type: 'journey:requestHint', text: buildJourneyHintText(episode) })
 					}
 				>
 					求提示

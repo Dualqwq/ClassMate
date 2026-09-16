@@ -4,6 +4,8 @@ ClassMate 的重要变更记录在这里。
 
 ## [0.1.0]
 
+- Debug Journey 警告按完整诊断归组：GCC `-Wreorder` 的成员/构造函数三行仅形成一个问题，`-Woverloaded-virtual` 的 hidden/by 诊断合并显示中文完整现象；可展开原始诊断并跳转各位置，求提示与历史摘要携带完整关联证据。共享只读投影贯通生命周期、统计、树、知识卡与 Notebook，新旧历史都生效，不重写原始事件或指纹；只有完整且边界明确的组才合并，不完整、未知和普通警告保留，编译成功解决态与既有模糊签名合并语义不变。新增 15 条归组/旧历史/边界/消费者回归，全量 1019 passing / 1 pending；真实 VS Code 界面人工验收待用户执行。
+
 - 编译诊断码解析支持 GCC 参数化警告（如 `-Woverloaded-virtual=`、`=2`），保留完整 code、从显示消息剥离尾码，并保持多码选择与原始 stderr 不变。新增 4 条回归测试。
 
 - 文件筛选跨目录撞名修复(用户实测「工作区同时存在 problem1/a.cpp 与 problem2/a.cpp 时,Debug Journey 按文件筛选分不开」):`collectFileOptions` 的中间版收敛键(`deriveProblemKey` 裸 stem,2e3e53d 修「双 b.cpp 重复选项」的副产品)把不同目录的同名文件并成一个选项,`fileMatchesEpisode` 裸 stem 等值让任一方向筛选带出另一目录同名条目,`journeyViewModel` 编译卡运行条目归并在 stem 世界(无 question.md、两侧无材料键、材料键否决失效)同样互串。新增共享纯模块 `src/debug/fileIdentity.ts`(零 node/vscode 依赖,src 与 webview browser bundle 共用):`normalizeFilePath`(file:// URI percent 按段解码、反斜杠统一正斜杠、盘符路径剥前导斜杠)+ `deriveFileIdentity`(规范化目录+stem)+ `sameProgramFile`(**同目录 + 同 stem** 才算同一程序——盘符/大小写按 Windows 语义折叠;任一侧无目录证据(旧事件相对路径/裸名)退回 stem 兜底,升级窗口行为与旧版一致;同目录 a.cpp↔a.exe 归并语义保全)+ `formatFileDisplayPath`(根内→工作区相对路径正斜杠、根外→规范化绝对路径、根未知→原名)。三处消费统一换用;工作区根经 `JourneyService.buildView` 读 `workspaceFolders[0].fsPath` 放进 `JourneyViewModel.workspaceRoot` 随既有 `journey:sync` 载荷下发(零新消息类型、不动 extension.ts);文件下拉 label 改工作区相对路径(如 `problem1/a.cpp`),桶内优先源文件扩展名 episode 的 label(a.cpp↔a.exe 桶对学生叫 a.cpp 不叫 a.exe);时间线卡头链接与求助预填文案优先用新增的 `JourneyEpisodeVM.fileLabel`(跨目录同名 a.cpp 在卡头可区分;无根时不下发字段,旧视图形状逐字段不变)。已知残留:①根未知(无文件夹窗口)时下拉 label 退回原名可能同名,但 value 与筛选仍互不串(生产环境 JourneyService 恒有根);②相对目录诊断(make 输出 `src/main.cpp`)无目录证据,按 stem 兜底归并,与旧版一致。单测:fileIdentity 17 条口径 + 跨目录 fixture 6 条(problem1 旧形态 run/problem2 新形态 run:两个相对路径 label 互异、双向筛选互不串、筛 exe 仍见同目录编译卡、根未知退化形态);既有 journeyFilters.test 仅 2 个 fixture 常量改同目录(原 fixture 把 `c:\ws\b.cpp` 与 `file:///w/智理杯/b.*` 当同文件,本身编码了目录无关的错误前提),断言零修改;journeySameDirProgramIsolation.test 原样全绿。
@@ -172,4 +174,3 @@ ClassMate 的重要变更记录在这里。
 
 - 初始原型。
 - Journey 错误/警告分级呈现与筛选(FE1 复测):①指纹语义字段补 severity(eventEnvelope 四元组 file/line/severity/message)——同一位置的 error 与 warning 是不同事件,写入幂等与消费折叠都不得互相吞并;②episode 按「事件+签名+级别」折叠成卡,不同级别各自成卡,episode/MistakeCard VM 贯通 severity 字段,卡片头加分级徽章(错误红/警告黄,主题语义变量);③时间线条目计数拆分「N 个错误 · M 个警告」;④debugJourneyTree 树项分级图标(含 error 级标 error,纯 warning 标 warning,codicon);⑤JourneyFilterBar 增加级别多选 chips,与类型/文件/只看未解决正交组合、纯前端即时生效;⑥指标条「已修好 X · 还有 Y 没解决(错误 A · 警告 B)」跟随当前筛选(summarizeEpisodesBySeverity),记录总数与求助比例保持全量口径。单测:envelope severity 区分 1 条/viewModel 级别成卡+计数拆分 2 条/filters 级别过滤与汇总 1 条/tree 分级图标 1 条。
-

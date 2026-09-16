@@ -1,3 +1,4 @@
+import { logicalDiagnostics } from '../error/logicalDiagnostics';
 import type { ParsedError } from '../error/errorParser';
 import type {
     CodeModifiedEvent,
@@ -55,7 +56,7 @@ export function isErrorResolved(
 
     const targetSignatures: ErrorSignature[] = options.targetSignature
         ? [options.targetSignature]
-        : errorEvent.parsedErrors
+        : logicalDiagnostics(errorEvent)
               .filter((p) => p.severity === 'error' || p.severity === 'warning')
               .map((p) => createErrorSignature(p, { includeCode: false, includeFile: false }));
 
@@ -95,7 +96,7 @@ export function isErrorResolved(
 
         attempts += 1;
 
-        const currentSignatures: ErrorSignature[] = event.parsedErrors
+        const currentSignatures: ErrorSignature[] = logicalDiagnostics(event)
             .filter((p) => p.severity === 'error' || p.severity === 'warning')
             .map((p) => createErrorSignature(p, { includeCode: false, includeFile: false }));
 
@@ -138,7 +139,7 @@ export function buildErrorLifecycles(
             continue;
         }
 
-        for (const parsed of event.parsedErrors) {
+        for (const parsed of logicalDiagnostics(event)) {
             if (parsed.severity !== 'error' && parsed.severity !== 'warning') {
                 continue;
             }
@@ -186,7 +187,7 @@ export function findFixingEditForSignature(
     const matchOptions = options.matchOptions ?? { mode: 'fuzzy' };
 
     // Locate the parsed error in the event that matches the caller's signature.
-    const parsed = errorEvent.parsedErrors.find(
+    const parsed = logicalDiagnostics(errorEvent).find(
         (p) =>
             (p.severity === 'error' || p.severity === 'warning') &&
             signaturesMatch(
@@ -225,7 +226,7 @@ export function findFixingEdits(
     events: DebugEvent[],
     options: ResolutionOptions = {}
 ): FixingEditResult[] {
-    const signatures = errorEvent.parsedErrors
+    const signatures = logicalDiagnostics(errorEvent)
         .filter((p) => p.severity === 'error' || p.severity === 'warning')
         .map((p) => createErrorSignature(p, { includeCode: false, includeFile: false }));
 

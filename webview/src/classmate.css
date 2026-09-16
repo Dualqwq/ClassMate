@@ -1384,3 +1384,13 @@ label:focus-within {
 	word-break: break-word;
 	user-select: text;
 }
+
+
+/* A grouped warning keeps its original compiler messages and locations accessible. */
+.journey-diagnostic-details {
+    margin: 8px 0;
+    overflow-wrap: anywhere;
+}
+.journey-diagnostic-details summary { cursor: pointer; }
+.journey-diagnostic-details ul { padding-left: 20px; }
+.journey-diagnostic-details li { margin: 6px 0; }

@@ -1,3 +1,4 @@
+import { logicalDiagnostics, diagnosticText } from '../error/logicalDiagnostics';
 import * as vscode from 'vscode';
 import type {
     CompileErrorEvent,
@@ -74,14 +75,14 @@ export function buildDiffTooltip(before: string, after: string): vscode.Markdown
 }
 
 function buildCompileErrorNode(event: CompileErrorEvent): DebugJourneyNode {
-    const errors = event.parsedErrors.filter((p) => p.severity === 'error' || p.severity === 'warning');
-    const firstMessage = errors[0]?.message ?? 'Unknown compile error';
+    const errors = logicalDiagnostics(event).filter((p) => p.severity === 'error' || p.severity === 'warning');
+    const firstMessage = errors[0] ? diagnosticText(errors[0]) : 'Unknown compile error';
     // 分级图标:事件里只要有 error 级诊断就标 error,纯 warning 才标 warning。
     const hasErrors = errors.some((p) => p.severity === 'error');
     const summaryLines: string[] = [];
     for (const p of errors.slice(0, 8)) {
         const location = `${p.file ?? '?'}:${p.line ?? '?'}:${p.column ?? '?'}`;
-        summaryLines.push(`- **[${p.severity ?? 'error'}]** ${location}: ${p.message}`);
+        summaryLines.push(`- **[${p.severity ?? 'error'}]** ${location}: ${diagnosticText(p)}`);
     }
     if (errors.length > 8) {
         summaryLines.push(`- ... and ${errors.length - 8} more diagnostic(s)`);
