@@ -245,7 +245,7 @@ export function extractErrorLocation(line: string): ParsedError | undefined {
     }
 
     // Strip trailing diagnostic codes like [-Werror,-Wundefined-identifier] or [clang-diagnostic-error].
-    const codePattern = /\s*\[([-\w]+(?:,\s*[-\w]+)*)\]\s*$/;
+    const codePattern = /\s*\[([-\w]+(?:=[-\w]*)?(?:,\s*[-\w]+(?:=[-\w]*)?)*)\]\s*$/;
     const codeMatch = codePattern.exec(remainder);
     let message = remainder;
     let code: string | undefined;
@@ -622,3 +622,4 @@ export function normalizeCompileOutputSelection(
         expanded,
     };
 }
+
