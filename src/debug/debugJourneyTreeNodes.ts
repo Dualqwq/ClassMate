@@ -105,12 +105,15 @@ function buildCompileErrorNode(event: CompileErrorEvent): DebugJourneyNode {
 }
 
 function buildCompileSuccessNode(event: CompileSuccessEvent, fileUri?: string): DebugJourneyNode {
+    const warnings = event.parsedErrors?.filter(p => p.severity === 'warning') ?? [];
     return {
         id: `debug-journey::${fileUri ?? UNKNOWN_FILE_KEY}::${formatDateBucket(event.timestamp)}::${event.id}`,
         type: 'compileSuccessNode',
-        label: 'Compiled successfully',
+        label: warnings.length ? `编译成功(${warnings.length} 个警告)` : 'Compiled successfully',
+        tooltip: warnings.length ? new vscode.MarkdownString(warnings.map(p =>
+            `${p.file ?? '?'}:${p.line ?? '?'}: ${p.message}`).join('\n\n')) : undefined,
         description: formatTimeDescription(event.timestamp),
-        iconPath: new vscode.ThemeIcon('check'),
+        iconPath: new vscode.ThemeIcon(warnings.length ? 'warning' : 'check'),
         collapsibleState: vscode.TreeItemCollapsibleState.None,
         eventId: event.id,
         fileUri,

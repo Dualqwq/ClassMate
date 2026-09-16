@@ -17,12 +17,14 @@ import { deriveProblemKey, eventProblemKey } from '../debug/problemKey';
 import { formatFileDisplayPath, sameProgramFile } from '../debug/fileIdentity';
 import {
     isCodeModified,
+    hasCompileDiagnostics,
     isCompileError,
     isCompileSuccess,
     isHintRequested,
     isRunError,
     isRunSuccess,
-    type CompileErrorEvent,
+    type CompileDiagnosticEvent,
+    type CompileSuccessEvent,
     type DebugEvent,
 } from '../debug/types';
 import { formatRunErrorPhenomenon } from '../run/runErrorKnowledgeMap';
@@ -213,21 +215,27 @@ function describeRunOutcome(exitCode: number | null, kind?: RunErrorKind, detail
     return formatRunErrorPhenomenon(kind, exitCode, detail);
 }
 
+function describeSuccessfulCompile(event: CompileSuccessEvent): string {
+    const count = event.parsedErrors?.filter(p => p.severity === 'warning').length ?? 0;
+    return count > 0 ? `编译成功(${count} 个警告)` : '编译成功 ✓';
+}
+
 function buildEntriesForLifecycle(
     lifecycle: ErrorLifecycle,
     errorEvent: DebugEvent,
     sortedEvents: DebugEvent[]
 ): JourneyEntryVM[] {
     const entries: JourneyEntryVM[] = [];
-    if (!isCompileError(errorEvent)) {
+    if (!hasCompileDiagnostics(errorEvent)) {
         return entries;
     }
 
     entries.push({
         eventId: errorEvent.id,
-        kind: 'compile_error',
+        kind: errorEvent.type,
         timestamp: errorEvent.timestamp,
-        label: `编译失败(${describeDiagnosticCounts(errorEvent.parsedErrors)})`,
+        label: isCompileSuccess(errorEvent) ? describeSuccessfulCompile(errorEvent)
+            : `编译失败(${describeDiagnosticCounts(errorEvent.parsedErrors)})`,
     });
 
     const windowEnd = lifecycle.resolvedAt ?? Number.MAX_SAFE_INTEGER;
@@ -315,7 +323,10 @@ function buildEntriesForLifecycle(
                 eventId: event.id,
                 kind: 'compile_success',
                 timestamp: event.timestamp,
-                label: '编译成功 ✓',
+                label: lifecycle.signature.severity === 'warning' &&
+                    (event.parsedErrors === undefined || event.diagnosticsComplete === false)
+                    ? `${describeSuccessfulCompile(event)}（警告状态未完整核验）`
+                    : describeSuccessfulCompile(event),
             });
         } else if (isCompileError(event)) {
             entries.push({
@@ -419,7 +430,7 @@ export function buildJourneyViewModel(
     const episodes: JourneyEpisodeVM[] = [];
     for (const [errorEventId, eventLifecycles] of lifecyclesByEvent) {
         const errorEvent = sortedEvents.find((e) => e.id === errorEventId);
-        if (!errorEvent || !isCompileError(errorEvent)) {
+        if (!errorEvent || !hasCompileDiagnostics(errorEvent)) {
             continue;
         }
 
@@ -639,7 +650,7 @@ export function buildJourneyViewModel(
  * 供折叠后的 episode 卡展示真实 message 与跳转位置。
  */
 function findParsedForSignature(
-    errorEvent: CompileErrorEvent,
+    errorEvent: CompileDiagnosticEvent,
     signature: ErrorSignature
 ): ParsedError | undefined {
     const key = signatureKey(signature, { mode: 'fuzzy' });

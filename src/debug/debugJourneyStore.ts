@@ -58,6 +58,8 @@ function sanitizeEvent(event: DebugEvent): DebugEvent {
                 ...event,
                 stderr: truncateField(event.stderr),
             };
+        case 'compile_success':
+            return { ...event, stderr: event.stderr === undefined ? undefined : truncateField(event.stderr) };
         case 'run_error':
             return {
                 ...event,

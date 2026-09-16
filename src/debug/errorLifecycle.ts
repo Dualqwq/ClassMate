@@ -1,11 +1,12 @@
 import type { ParsedError } from '../error/errorParser';
 import type {
     CodeModifiedEvent,
+    CompileDiagnosticEvent,
     CompileErrorEvent,
     CompileSuccessEvent,
     DebugEvent,
 } from './types';
-import { isCodeModified, isCompileError, isCompileSuccess } from './types';
+import { hasCompileDiagnostics, isCodeModified, isCompileError, isCompileSuccess } from './types';
 import { createErrorSignature, type ErrorSignature, signaturesMatch, type MatchOptions } from './errorFingerprint';
 
 export interface ErrorLifecycle {
@@ -45,7 +46,7 @@ function filterCompileEvents(events: DebugEvent[], fileUri?: string): CompileOut
  * following `lookAheadCompiles` compile events for the same file.
  */
 export function isErrorResolved(
-    errorEvent: CompileErrorEvent,
+    errorEvent: CompileDiagnosticEvent,
     subsequentEvents: DebugEvent[],
     options: ResolutionOptions = {}
 ): { resolved: boolean; resolvedAt?: number; resolvingEditId?: string; attempts: number } {
@@ -64,12 +65,14 @@ export function isErrorResolved(
     }
 
     const laterEvents = subsequentEvents.filter((e) => e.timestamp > errorEvent.timestamp);
-    const compileEvents = filterCompileEvents(laterEvents, fileUri).slice(0, lookAhead);
+    const compileEvents = filterCompileEvents(laterEvents, fileUri);
 
     let attempts = 0;
+    let observedCompiles = 0;
     let lastCodeModified: CodeModifiedEvent | undefined;
 
     for (const event of compileEvents) {
+        if (observedCompiles >= lookAhead) { break; }
         // Track the most recent code modification before this compile event.
         const editsSinceLast = laterEvents.filter(
             (e): e is CodeModifiedEvent =>
@@ -82,25 +85,23 @@ export function isErrorResolved(
             lastCodeModified = editsSinceLast[editsSinceLast.length - 1];
         }
 
-        if (isCompileSuccess(event)) {
-            attempts += 1;
-            // A successful compile resolves all outstanding errors.
-            return {
-                resolved: true,
-                resolvedAt: event.timestamp,
-                resolvingEditId: lastCodeModified?.id,
-                attempts,
-            };
-        }
-
         attempts += 1;
-
-        const currentSignatures: ErrorSignature[] = event.parsedErrors
-            .filter((p) => p.severity === 'error' || p.severity === 'warning')
-            .map((p) => createErrorSignature(p, { includeCode: false, includeFile: false }));
-
-        const stillPresent = targetSignatures.some((target) =>
-            currentSignatures.some((current) => signaturesMatch(target, current, matchOptions))
+        const successful = isCompileSuccess(event);
+        const warningTargets = targetSignatures.filter(target => target.severity === 'warning');
+        if (successful && (event.parsedErrors === undefined || event.diagnosticsComplete === false) && warningTargets.length > 0) {
+            // Legacy/partial success does not prove an absent warning is gone.
+            // Unknown observations do not consume the diagnostic look-ahead budget.
+            continue;
+        }
+        observedCompiles += 1;
+        const currentSignatures = (event.parsedErrors ?? [])
+            .filter(p => p.severity === 'error' || p.severity === 'warning')
+            .map(p => createErrorSignature(p, { includeCode: false, includeFile: false }));
+        const stillPresent = targetSignatures.some(target =>
+            // Successful compilation resolves errors even if a same-message warning remains.
+            (!successful || target.severity === 'warning') &&
+            currentSignatures.some(current =>
+                (!successful || current.severity === 'warning') && signaturesMatch(target, current, matchOptions))
         );
 
         if (stillPresent) {
@@ -120,7 +121,7 @@ export function isErrorResolved(
 }
 
 /**
- * Build a lifecycle record for every error-level diagnostic in compile_error events.
+ * Build lifecycles for errors/warnings in failed builds and warnings in successful builds.
  */
 export function buildErrorLifecycles(
     events: DebugEvent[],
@@ -129,7 +130,7 @@ export function buildErrorLifecycles(
     const lifecycles: ErrorLifecycle[] = [];
 
     for (const event of events) {
-        if (!isCompileError(event)) {
+        if (!hasCompileDiagnostics(event)) {
             continue;
         }
 
@@ -139,7 +140,8 @@ export function buildErrorLifecycles(
         }
 
         for (const parsed of event.parsedErrors) {
-            if (parsed.severity !== 'error' && parsed.severity !== 'warning') {
+            if ((parsed.severity !== 'error' && parsed.severity !== 'warning') ||
+                (isCompileSuccess(event) && parsed.severity !== 'warning')) {
                 continue;
             }
 
@@ -178,7 +180,7 @@ export interface FixingEditResult {
  * matter.
  */
 export function findFixingEditForSignature(
-    errorEvent: CompileErrorEvent,
+    errorEvent: CompileDiagnosticEvent,
     events: DebugEvent[],
     signature: ErrorSignature,
     options: ResolutionOptions = {}
@@ -218,10 +220,10 @@ export function findFixingEditForSignature(
 
 /**
  * Find the likely fixing edit for every error/warning signature in a compile
- * error event. Unresolved signatures are included with `edit: undefined`.
+ * observation. Unresolved signatures are included with `edit: undefined`.
  */
 export function findFixingEdits(
-    errorEvent: CompileErrorEvent,
+    errorEvent: CompileDiagnosticEvent,
     events: DebugEvent[],
     options: ResolutionOptions = {}
 ): FixingEditResult[] {

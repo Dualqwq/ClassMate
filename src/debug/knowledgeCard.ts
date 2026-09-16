@@ -7,7 +7,7 @@ import type { ErrorLifecycle } from './errorLifecycle';
 import { findFixingEdits } from './errorLifecycle';
 import { formatFixAsDiff, normalizeCodeForDiff } from './formatDiff';
 import { eventProblemKey } from './problemKey';
-import type { CompileErrorEvent, DebugEvent, RunErrorEvent } from './types';
+import { hasCompileDiagnostics, isCompileSuccess, type CompileDiagnosticEvent, type DebugEvent, type RunErrorEvent } from './types';
 import {
     formatRunErrorPhenomenon,
     getRunErrorKnowledgeConcept,
@@ -127,7 +127,7 @@ function computeCardStats(
  * `mergeKnowledgeCards`.
  */
 export function generateKnowledgeCard(
-    errorEvent: CompileErrorEvent,
+    errorEvent: CompileDiagnosticEvent,
     allEvents: DebugEvent[],
     lifecycles: ErrorLifecycle[],
     options?: GenerateCardOptions
@@ -137,7 +137,8 @@ export function generateKnowledgeCard(
     const cards: KnowledgeCard[] = [];
 
     for (const parsed of errorEvent.parsedErrors) {
-        if (parsed.severity !== 'error' && parsed.severity !== 'warning') {
+        if ((parsed.severity !== 'error' && parsed.severity !== 'warning') ||
+            (isCompileSuccess(errorEvent) && parsed.severity !== 'warning')) {
             continue;
         }
 
@@ -393,8 +394,8 @@ export function mergeAndSortKnowledgeCards(cards: KnowledgeCard[]): KnowledgeCar
 
 export function pickRepresentativeError(card: KnowledgeCard, events: DebugEvent[]): ParsedError | undefined {
     for (const eventId of card.sourceEvents) {
-        const event = events.find((e) => e.id === eventId && e.type === 'compile_error');
-        if (!event || event.type !== 'compile_error') {
+        const event = events.find((e) => e.id === eventId && hasCompileDiagnostics(e));
+        if (!event || !hasCompileDiagnostics(event)) {
             continue;
         }
         for (const parsed of event.parsedErrors) {

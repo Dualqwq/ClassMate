@@ -1,3 +1,4 @@
+import { createCompileOutcome } from './debug/compileOutcome';
 import { buildNotebookInput, buildNotebookPrompt, formatNotebookFallback } from './debug/debugNotebook';
 import { DebugJourneyTreeProvider } from './ui/DebugJourneyTreeProvider';
 import { registerDebugSnapshotProvider, getSnapshotUri, registerSnapshot } from './debug/debugSnapshotProvider';
@@ -34,7 +35,7 @@ import { checkGppAvailability, detectMakeTool, findRootMakefile, isCompilableSou
 import { registerCompileOutputProvider, showCompileOutput, showMakeSetupGuide, buildCompileStartInfo, buildNoCompilableSourceGuidance, updateCompileOutput, COMPILE_OUTPUT_SCHEME, getCompileOutputContent } from './compiler/outputPanel';
 import { extractErrorLocation, extractFirstDiagnosticLine, normalizeCompileOutputSelection } from './error/errorParser';
 import type { CompileSelectionRange } from './error/errorParser';
-import { attachSelectionTemplateContext, parseCompilerStderrFull } from './error/templateBacktrace';
+import { attachSelectionTemplateContext } from './error/templateBacktrace';
 import { matchErrorToKnowledge } from './error/errorKnowledgeMap';
 import { matchTemplateErrorToKnowledge } from './error/templateKnowledgeSignatures';
 import { createSkillLoader } from './prompts/promptLoader';
@@ -62,8 +63,6 @@ import type { LLMTokenUsage } from './llm/types';
 import { startBrowserExtensionImportServer } from './browserExtensionImport/server';
 import type {
     CodeModifiedEvent,
-    CompileErrorEvent,
-    CompileSuccessEvent,
     HintRequestedEvent,
 } from './debug/types';
 
@@ -431,44 +430,16 @@ async function recordCompileOutcome(
 	workspaceId: string,
 	fileUri: string,
 	result: { exitCode: number | null; stderr: string; durationMs: number },
-	workspaceRoot?: string
+	workspaceRoot?: string,
+	diagnosticsComplete = true
 ): Promise<void> {
 	// 题目材料键算一次,成功/失败两种事件共用;失败不阻塞编译事件写入。
 	const problemKey = await deriveEventProblemKey(fileUri);
-	if (result.exitCode !== 0) {
-		// 带include栈传播 + 模板实例化回溯链的解析:头文件错误的归属是诊断行
-		// 自己的文件并携带 viaIncludes 链路;模板链(templateChain)把 STL 深处
-		// 的叶子 error 归因回学生代码行(错题本/划词解释用)。
-		const parsedErrors = parseCompilerStderrFull(result.stderr, { workspaceRoot });
-
-		const event: CompileErrorEvent = {
-			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-			type: 'compile_error',
-			timestamp: Date.now(),
-			sessionId,
-			workspaceId,
-			fileUri,
-			...(problemKey !== undefined ? { problemKey } : {}),
-			stderr: result.stderr,
-			parsedErrors,
-			exitCode: result.exitCode,
-			durationMs: result.durationMs,
-		};
-		await debugStore.append(event);
-	} else {
-		const event: CompileSuccessEvent = {
-			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-			type: 'compile_success',
-			timestamp: Date.now(),
-			sessionId,
-			workspaceId,
-			fileUri,
-			...(problemKey !== undefined ? { problemKey } : {}),
-			exitCode: result.exitCode,
-			durationMs: result.durationMs,
-		};
-		await debugStore.append(event);
-	}
+	await debugStore.append(createCompileOutcome({
+		id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+		timestamp: Date.now(), sessionId, workspaceId, fileUri,
+		...(problemKey !== undefined ? { problemKey } : {}),
+	}, result, workspaceRoot, diagnosticsComplete));
 }
 
 const MAKE_SETUP_GUIDE_FALLBACK = [
@@ -528,7 +499,8 @@ async function compileWithMakeAsync(
 
 		// 强刷=就地更新同一虚拟文档;不再调 showTextDocument,避免开出第二个 compile_result.txt。
 		updateCompileOutput(output);
-		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result, workspaceRoot);
+		// make may only rebuild a subset (or nothing); absent warnings are not proof of a fix.
+		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, result, workspaceRoot, false);
 	} catch (error) {
 		// spawn 级失败(超时/取消)也写回文档,不停留在"编译已开始"。
 		updateCompileOutput(`Make build failed: ${String(error)}`);
@@ -704,9 +676,6 @@ async function runCodeHandlerAsync(
 
 	const relatedErrorId = await getLastCompileErrorEventId(debugStore, fileUri, workspaceId);
 	await recordCodeModificationIfChanged(debugStore, sessionId, workspaceId, document, lastKnownSource, relatedErrorId);
-	// 题目材料键(question.md/PDF 标题)与 recordCompileOutcome 同口径:
-	// 编译/运行事件按同一题目键归并,run 条目才能挂进编译 episode。
-	const problemKey = await deriveEventProblemKey(fileUri);
 
 	try {
 		const compileResult = await spawnGpp(document.fileName);
@@ -722,42 +691,13 @@ async function runCodeHandlerAsync(
 				.join('\n');
 			await showCompileOutput(output);
 
-			const parsedErrors = parseCompilerStderrFull(
-				compileResult.stderr,
-				// 运行路径与编译路径同口径:模板链归因需要工作区根来区分
-				// 绝对路径帧是学生代码还是系统头。
-				{ workspaceRoot: vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath }
-			);
-
-			const event: CompileErrorEvent = {
-				id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-				type: 'compile_error',
-				timestamp: Date.now(),
-				sessionId,
-				workspaceId,
-				fileUri,
-				...(problemKey !== undefined ? { problemKey } : {}),
-				stderr: compileResult.stderr,
-				parsedErrors,
-				exitCode: compileResult.exitCode,
-				durationMs: compileResult.durationMs,
-			};
-			await debugStore.append(event);
+			await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, compileResult,
+				vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath);
 			return;
 		}
 
-		const successEvent: CompileSuccessEvent = {
-			id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-			type: 'compile_success',
-			timestamp: Date.now(),
-			sessionId,
-			workspaceId,
-			fileUri,
-			...(problemKey !== undefined ? { problemKey } : {}),
-			exitCode: compileResult.exitCode,
-			durationMs: compileResult.durationMs,
-		};
-		await debugStore.append(successEvent);
+		await recordCompileOutcome(debugStore, sessionId, workspaceId, fileUri, compileResult,
+				vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath);
 
 		// Compilation succeeded: run the executable in an interactive terminal.
 		runInTerminal(compileResult.outputPath);

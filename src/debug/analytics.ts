@@ -6,7 +6,7 @@ import type {
     DebugEvent,
     RunErrorEvent,
 } from './types';
-import { isCodeModified, isCompileError, isCompileSuccess, isHintRequested, isRunError } from './types';
+import { hasCompileDiagnostics, isCodeModified, isCompileError, isCompileSuccess, isHintRequested, isRunError } from './types';
 import { createErrorSignature } from './errorFingerprint';
 import type { ErrorLifecycle } from './errorLifecycle';
 
@@ -118,7 +118,14 @@ export function aggregateErrorStats(
     for (const event of filtered) {
         if (isCompileError(event)) {
             stats.totalCompileErrors += 1;
+        } else if (isCompileSuccess(event)) {
+            stats.totalCompileSuccesses += 1;
+        } else if (isRunError(event)) {
+            stats.totalRunErrors += 1;
+        }
+        if (hasCompileDiagnostics(event)) {
             for (const parsed of event.parsedErrors) {
+                if (isCompileSuccess(event) && parsed.severity !== 'warning') { continue; }
                 const code = parsed.code ?? 'unknown';
                 stats.byErrorCode[code] = (stats.byErrorCode[code] ?? 0) + 1;
 
@@ -134,10 +141,6 @@ export function aggregateErrorStats(
                     stats.byFile[parsed.file] = (stats.byFile[parsed.file] ?? 0) + 1;
                 }
             }
-        } else if (isCompileSuccess(event)) {
-            stats.totalCompileSuccesses += 1;
-        } else if (isRunError(event)) {
-            stats.totalRunErrors += 1;
         }
     }
 

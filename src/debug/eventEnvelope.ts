@@ -61,7 +61,12 @@ function semanticPayload(event: DebugEvent): unknown {
                     .map((p) => [p.file ?? '', p.line ?? -1, p.severity ?? 'error', p.message]),
             };
         case 'compile_success':
-            return { type: event.type, fileUri: event.fileUri };
+            return { type: event.type, fileUri: event.fileUri,
+                // Preserve the exact legacy payload when evidence is missing.
+                ...(event.parsedErrors !== undefined ? { diagnosticsComplete: event.diagnosticsComplete !== false, diagnostics: event.parsedErrors
+                    .filter(p => p.severity === 'warning')
+                    .map(p => [p.file ?? '', p.line ?? -1, p.severity, p.message]) } : {}),
+            };
         case 'run_success':
             return { type: event.type, fileUri: event.fileUri };
         case 'code_modified':

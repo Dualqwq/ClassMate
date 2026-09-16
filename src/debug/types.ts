@@ -43,8 +43,21 @@ export interface CompileErrorEvent extends BaseDebugEvent {
 
 export interface CompileSuccessEvent extends BaseDebugEvent {
     type: 'compile_success';
+    /** Missing in legacy records means unknown, while [] explicitly records no diagnostics. */
+    parsedErrors?: ParsedError[];
+    /** false for incremental make: emitted warnings are evidence, missing ones are not. */
+    diagnosticsComplete?: boolean;
+    stderr?: string;
     exitCode: number | null;
     durationMs: number;
+}
+
+/** A compile observation whose diagnostic evidence is actually available. */
+export type CompileDiagnosticEvent = CompileErrorEvent | (CompileSuccessEvent & { parsedErrors: ParsedError[] });
+
+export function hasCompileDiagnostics(event: DebugEvent): event is CompileDiagnosticEvent {
+    return event.type === 'compile_error' ||
+        (event.type === 'compile_success' && Array.isArray(event.parsedErrors));
 }
 
 export interface RunSuccessEvent extends BaseDebugEvent {

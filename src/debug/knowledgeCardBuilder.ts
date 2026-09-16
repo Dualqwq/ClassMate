@@ -6,7 +6,7 @@ import {
     mergeAndSortKnowledgeCards,
     type KnowledgeCard,
 } from './knowledgeCard';
-import { isCompileError, isRunError, type DebugEvent } from './types';
+import { hasCompileDiagnostics, isRunError, type DebugEvent } from './types';
 
 export interface BuildKnowledgeCardsOptions {
     fileUri?: string;
@@ -29,7 +29,7 @@ export function buildKnowledgeCardsFromEvents(
     const lifecycles = options?.lifecycles ?? buildErrorLifecycles(events);
     const allCards: KnowledgeCard[] = [];
     for (const event of events) {
-        if (isCompileError(event)) {
+        if (hasCompileDiagnostics(event)) {
             allCards.push(...generateKnowledgeCard(event, events, lifecycles, {
                 maxConcreteExamples: options?.maxConcreteExamples,
             }));

@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import { describe, it, beforeEach } from 'mocha';
 import * as vscode from 'vscode';
 import { DebugJourneyStore } from '../debug/debugJourneyStore';
-import { isCompileError, isRunError, type DebugEvent } from '../debug/types';
+import { isCompileSuccess, isCompileError, isRunError, type DebugEvent } from '../debug/types';
 import { SEMANTIC_DEDUPE_WINDOW_MS } from '../debug/eventEnvelope';
 import { getEventsFileUri, getWorkspaceStorageUri } from '../debug/storagePath';
 
@@ -527,4 +527,34 @@ describe('DebugJourneyStore 学生手动「已解决」标记(problemKey 粒度)
         assert.deepStrictEqual(await store.getEvents(), []);
         assert.deepStrictEqual(await store.getResolvedMarks(), {});
     });
+    it('preserves successful warning evidence and distinguishes legacy missing fields from an empty observation', async () => {
+        const base = { type: 'compile_success' as const, timestamp: 1, sessionId: 's', workspaceId: 'test-workspace', fileUri: 'main.cpp', exitCode: 0, durationMs: 1 };
+        await store.appendMany([
+            { ...base, id: 'legacy' },
+            { ...base, id: 'clean', stderr: '', parsedErrors: [], diagnosticsComplete: true },
+            { ...base, id: 'partial', stderr: 'main.cpp:3:2: warning: x', diagnosticsComplete: false,
+                parsedErrors: [{ raw: 'main.cpp:3:2: warning: x', message: 'x', file: 'main.cpp', line: 3, severity: 'warning' }] },
+        ]);
+        const events = await store.getEvents();
+        assert.strictEqual(events.length, 3);
+        assert.ok(events.every(isCompileSuccess));
+        if (!events.every(isCompileSuccess)) { return; }
+        assert.strictEqual(events[0].parsedErrors, undefined);
+        assert.deepStrictEqual(events[1].parsedErrors, []);
+        assert.strictEqual(events[1].diagnosticsComplete, true);
+        assert.strictEqual(events[2].parsedErrors?.[0].message, 'x');
+        assert.strictEqual(events[2].diagnosticsComplete, false);
+        assert.strictEqual(new Set(events.map(e => e.fingerprint)).size, 3);
+        assert.strictEqual((await store.getEvents({ types: ['compile_error'] })).length, 0);
+    });
+    it('bounds successful stderr while preserving parsed diagnostic evidence', async () => {
+        await store.append({ id: 'success', type: 'compile_success', timestamp: 1, sessionId: 's', workspaceId: 'test-workspace',
+            exitCode: 0, durationMs: 1, stderr: 'x'.repeat(20000), parsedErrors: [], diagnosticsComplete: true });
+        const event = (await store.getEvents())[0];
+        assert.ok(isCompileSuccess(event));
+        assert.ok(event.stderr!.length < 20000);
+        assert.ok(event.stderr!.endsWith('<truncated>'));
+        assert.deepStrictEqual(event.parsedErrors, []);
+    });
+
 });

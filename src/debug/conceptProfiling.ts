@@ -1,5 +1,5 @@
 import type { DebugEvent } from './types';
-import { isCompileError } from './types';
+import { hasCompileDiagnostics, isCompileSuccess } from './types';
 import { matchErrorToKnowledge } from '../error/errorKnowledgeMap';
 import type { ErrorLifecycle } from './errorLifecycle';
 
@@ -19,12 +19,13 @@ export function buildConceptProfile(
     const profiles = new Map<string, ConceptProfile>();
 
     for (const event of events) {
-        if (!isCompileError(event)) {
+        if (!hasCompileDiagnostics(event)) {
             continue;
         }
 
         const seenTags = new Set<string>();
         for (const parsed of event.parsedErrors) {
+            if (isCompileSuccess(event) && parsed.severity !== 'warning') { continue; }
             const matches = matchErrorToKnowledge(parsed.message);
             for (const match of matches) {
                 if (seenTags.has(match.tag)) {

@@ -251,9 +251,9 @@ export function buildJourneyDigest(
         }
         // 卡内条目已改为晚→早(2026-08-29),首条不再稳定是编译失败——未解决
         // 编译卡的最新条目可能是后续的编辑/求助/run。编译卡判据改为「条目流
-        // 里含编译失败条目」:run 卡只有 run 条目,绝不误判。
+        // 里含编译结果条目(成功编译也可能有 warning)」:run 卡只有 run 条目,绝不误判。
         const isCompileEpisode = episode.entries.some(
-            (entry) => entry.kind === 'compile_error'
+            (entry) => entry.kind === 'compile_error' || entry.kind === 'compile_success'
         );
         if (isCompileEpisode) {
             items.push(markRelevant(
