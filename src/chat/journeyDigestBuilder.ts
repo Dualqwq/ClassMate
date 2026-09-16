@@ -157,7 +157,10 @@ function compileErrorItem(
 ): DigestItem {
     const file = baseName(episode.fileUri);
     const location = file ? `${file}${episode.line ? `:${episode.line}` : ''}` : '(未知文件)';
-    const label = conceptLabelForMessage(episode.message ?? '');
+    const label = episode.diagnosticDetails?.length
+        ? `${episode.message}（关联诊断：${episode.diagnosticDetails.map(d =>
+            `${d.file ?? '?'}:${d.line ?? '?'} ${d.message}`).join('；')}）`
+        : conceptLabelForMessage(episode.message ?? '');
     return {
         sectionIndex: SECTION_COMPILE,
         // 新鲜度标注与 recency 同源(firstSeenAt):「显示的年龄」与「同级内

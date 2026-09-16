@@ -1,3 +1,4 @@
+import { logicalDiagnostics, type LogicalDiagnostic } from '../error/logicalDiagnostics';
 import type { ParsedError } from '../error/errorParser';
 import { createErrorSignature, normalizeErrorMessage } from './errorFingerprint';
 import type { ErrorLifecycle } from './errorLifecycle';
@@ -14,7 +15,7 @@ export interface WarningJourney {
     key: string;
     eventIds: string[];
     lastSeenAt: number;
-    diagnostic: ParsedError;
+    diagnostic: LogicalDiagnostic;
     /** All locations in the most recent observation, not a claim about current source. */
     locations: WarningLocation[];
 }
@@ -72,9 +73,9 @@ export function buildWarningLifecycles(events: DebugEvent[], fileUri?: string): 
             continue;
         }
         if (!isCompileError(event) && !isCompileSuccess(event)) { continue; }
-        const observed = new Map<string, ParsedError[]>();
+        const observed = new Map<string, LogicalDiagnostic[]>();
         if (hasCompileDiagnostics(event)) {
-            for (const parsed of event.parsedErrors) {
+            for (const parsed of logicalDiagnostics(event)) {
                 if (parsed.severity !== 'warning') { continue; }
                 const key = warningIdentity(event, parsed);
                 const group = observed.get(key) ?? [];

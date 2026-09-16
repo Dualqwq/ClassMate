@@ -1,3 +1,4 @@
+import { logicalDiagnostics } from '../error/logicalDiagnostics';
 import type { MessageIntent } from '../chat/types';
 import type {
     CodeModifiedEvent,
@@ -124,7 +125,7 @@ export function aggregateErrorStats(
             stats.totalRunErrors += 1;
         }
         if (hasCompileDiagnostics(event)) {
-            for (const parsed of event.parsedErrors) {
+            for (const parsed of logicalDiagnostics(event)) {
                 if (isCompileSuccess(event) && parsed.severity !== 'warning') { continue; }
                 const code = parsed.code ?? 'unknown';
                 stats.byErrorCode[code] = (stats.byErrorCode[code] ?? 0) + 1;

@@ -1,4 +1,5 @@
 import { buildWarningLifecycles, warningIdentity, type WarningJourney } from './warningLifecycle';
+import { logicalDiagnostics } from '../error/logicalDiagnostics';
 import type { ParsedError } from '../error/errorParser';
 import type {
     CodeModifiedEvent,
@@ -58,7 +59,7 @@ export function isErrorResolved(
 
     const targetSignatures: ErrorSignature[] = options.targetSignature
         ? [options.targetSignature]
-        : errorEvent.parsedErrors
+        : logicalDiagnostics(errorEvent)
               .filter((p) => p.severity === 'error' || p.severity === 'warning')
               .map((p) => createErrorSignature(p, { includeCode: false, includeFile: false }));
 
@@ -67,7 +68,7 @@ export function isErrorResolved(
     }
 
     if (targetSignatures.some(target => target.severity === 'warning')) {
-        const keys = new Set(errorEvent.parsedErrors.filter(p => p.severity === 'warning' &&
+        const keys = new Set(logicalDiagnostics(errorEvent).filter(p => p.severity === 'warning' &&
             targetSignatures.some(target => signaturesMatch(target, createErrorSignature(p), matchOptions)))
             .map(p => warningIdentity(errorEvent, p)));
         const records = buildWarningLifecycles([errorEvent, ...subsequentEvents.filter(e =>
@@ -114,7 +115,7 @@ export function isErrorResolved(
             continue;
         }
         observedCompiles += 1;
-        const currentSignatures = (event.parsedErrors ?? [])
+        const currentSignatures = (hasCompileDiagnostics(event) ? logicalDiagnostics(event) : [])
             .filter(p => p.severity === 'error' || p.severity === 'warning')
             .map(p => createErrorSignature(p, { includeCode: false, includeFile: false }));
         const stillPresent = targetSignatures.some(target =>
@@ -159,7 +160,7 @@ export function buildErrorLifecycles(
             continue;
         }
 
-        for (const parsed of event.parsedErrors) {
+        for (const parsed of logicalDiagnostics(event)) {
             if (parsed.severity !== 'error' || isCompileSuccess(event)) {
                 continue;
             }
@@ -188,7 +189,7 @@ export function buildErrorLifecycles(
     const diagnosticOrder = (lifecycle: ErrorLifecycle): number => {
         const event = events[eventOrder.get(lifecycle.errorEventId) ?? -1];
         if (!event || !hasCompileDiagnostics(event)) { return 0; }
-        return event.parsedErrors.findIndex(parsed => lifecycle.warning
+        return logicalDiagnostics(event).findIndex(parsed => lifecycle.warning
             ? parsed.severity === 'warning' && warningIdentity(event, parsed) === lifecycle.warning.key
             : parsed.severity === 'error' && signaturesMatch(lifecycle.signature, createErrorSignature(parsed), { mode: 'fuzzy' }));
     };
@@ -218,7 +219,7 @@ export function findFixingEditForSignature(
     const matchOptions = options.matchOptions ?? { mode: 'fuzzy' };
 
     // Locate the parsed error in the event that matches the caller's signature.
-    const parsed = errorEvent.parsedErrors.find(
+    const parsed = logicalDiagnostics(errorEvent).find(
         (p) =>
             (p.severity === 'error' || p.severity === 'warning') &&
             signaturesMatch(
@@ -257,7 +258,7 @@ export function findFixingEdits(
     events: DebugEvent[],
     options: ResolutionOptions = {}
 ): FixingEditResult[] {
-    const signatures = errorEvent.parsedErrors
+    const signatures = logicalDiagnostics(errorEvent)
         .filter((p) => p.severity === 'error' || p.severity === 'warning')
         .map((p) => createErrorSignature(p, { includeCode: false, includeFile: false }));
 

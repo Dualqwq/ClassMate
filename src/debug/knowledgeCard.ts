@@ -1,4 +1,5 @@
 import { warningIdentity } from './warningLifecycle';
+import { logicalDiagnostics, diagnosticText } from '../error/logicalDiagnostics';
 import type { ParsedError } from '../error/errorParser';
 import { getKnowledgeConcept, matchErrorToKnowledge } from '../error/errorKnowledgeMap';
 import { resolveAttributedError } from '../error/templateBacktrace';
@@ -138,7 +139,7 @@ export function generateKnowledgeCard(
     const cards: KnowledgeCard[] = [];
     const emittedWarningKeys = new Set<string>();
 
-    for (const parsed of errorEvent.parsedErrors) {
+    for (const parsed of logicalDiagnostics(errorEvent)) {
         if ((parsed.severity !== 'error' && parsed.severity !== 'warning') ||
             (isCompileSuccess(errorEvent) && parsed.severity !== 'warning')) {
             continue;
@@ -195,6 +196,7 @@ export function generateKnowledgeCard(
             suggestedFixes: [...concept.suggestedFixes],
             checkMethod: concept.checkMethod,
             wrongExample: concept.wrongExample,
+            ...(parsed.explanation ? { phenomenon: diagnosticText(parsed) } : {}),
             correctExample: concept.correctExample,
             ...stats,
             sourceEvents: warningLifecycle?.warning?.eventIds ?? [errorEvent.id],
@@ -407,7 +409,7 @@ export function pickRepresentativeError(card: KnowledgeCard, events: DebugEvent[
         if (!event || !hasCompileDiagnostics(event)) {
             continue;
         }
-        for (const parsed of event.parsedErrors) {
+        for (const parsed of logicalDiagnostics(event)) {
             const matches = matchErrorToKnowledge(parsed.message);
             const templateMatches = matchTemplateErrorToKnowledge(parsed);
             if (matches.some((m) => m.tag === card.tag) || templateMatches.some((m) => m.tag === card.tag)) {
