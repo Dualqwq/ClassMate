@@ -1,5 +1,4 @@
 import * as path from 'path';
-import { stat } from 'fs/promises';
 import * as vscode from 'vscode';
 import { getCompileOutputContent } from '../compiler/outputPanel';
 import { deriveProblemKeyFromMaterial } from '../debug/problemMaterial';
@@ -7,10 +6,12 @@ import type { DebugJourneyStore } from '../debug/debugJourneyStore';
 import type { RunErrorEvent, RunSuccessEvent } from '../debug/types';
 import { RunHistoryStore, truncateOutput } from '../storage/runHistoryStore';
 import { discoverExecutable, findSourceFileForExecutable } from './executableDiscovery';
+import { checkExecutableAvailability } from './executableAvailability';
 import { runExecutable } from './runner';
 import { runInIntegratedTerminal } from './runTerminal';
 import { classifyRunError } from './runErrorClassifier';
 import type {
+	ExecutableAvailability,
 	ExecutableSource,
 	RunExtensionToWebviewMessage,
 	RunPanelSnapshot,
@@ -18,7 +19,7 @@ import type {
 	RunWebviewToExtensionMessage,
 } from './types';
 
-/** 面板打开后未找到 exe 时的自动发现轮询间隔(ms)。 */
+/** 面板状态维护间隔：未选择时发现，已选择时检查原路径。 */
 const AUTO_DISCOVER_INTERVAL_MS = 2000;
 
 /**
@@ -42,29 +43,40 @@ export class RunService {
 	 * (source-derived,exe 由该源文件推导)有值;其余发现来源在写事件时
 	 * 走同目录 stem 匹配兜底。sourcePath 不进面板快照(webview 契约不变)。
 	 */
-	private _selectedExecutable: { path: string; source: ExecutableSource; sourcePath?: string } | undefined;
+	private _selectedExecutable: { path: string; source: ExecutableSource; sourcePath?: string; availability: ExecutableAvailability } | undefined;
 	private _notice: string | undefined;
 	private _discoverInterval: ReturnType<typeof setInterval> | undefined;
 
+	private readonly _checkExecutable: typeof checkExecutableAvailability;
+	private _availabilityCheck?: { selection: NonNullable<RunService['_selectedExecutable']>; promise: Promise<boolean> };
+	private _maintenanceInFlight = false;
+	private _selectionRevision = 0;
+	private _lifecycleRevision = 0;
+	private _pushRevision = 0;
+
 	constructor(
 		context: vscode.ExtensionContext,
-		options?: { debugStore?: DebugJourneyStore; sessionId?: string }
+		options?: { debugStore?: DebugJourneyStore; sessionId?: string; checkExecutable?: typeof checkExecutableAvailability }
 	) {
 		this._context = context;
 		this._debugStore = options?.debugStore;
 		this._sessionId = options?.sessionId;
+		this._checkExecutable = options?.checkExecutable ?? checkExecutableAvailability;
 		const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri.toString();
 		this._store = new RunHistoryStore(context.globalStorageUri.fsPath, workspaceUri);
 	}
 
 	/** 面板 attach/detach;同一时刻至多一个 Run 面板。 */
 	public attach(presenter: { postMessage(message: RunExtensionToWebviewMessage): void }): void {
+		this._lifecycleRevision++;
 		this._presenter = presenter;
 		void this.pushState();
 		this._startAutoDiscover();
 	}
 
 	public detach(): void {
+		this._lifecycleRevision++;
+		this._pushRevision++;
 		this._presenter = undefined;
 		this._stopAutoDiscover();
 	}
@@ -95,6 +107,8 @@ export class RunService {
 	 * (make 场景)showOpenDialog → 兜底文案;g++ 场景由 active 源文件推导。
 	 */
 	public async resolveExecutable(options?: { allowDialog?: boolean }): Promise<RunPanelSnapshot['executable']> {
+		const revision = this._selectionRevision;
+		const lifecycle = this._lifecycleRevision;
 		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		if (!workspaceRoot) {
 			this._notice = '请先打开一个工作区文件夹再运行。';
@@ -113,17 +127,22 @@ export class RunService {
 			makeOutput = '';
 		}
 		const result = await discoverExecutable(workspaceRoot, activeSource, makeOutput || undefined);
+		if (revision !== this._selectionRevision || lifecycle !== this._lifecycleRevision) {
+			return this._selectedExecutable;
+		}
 		if (result.exePath && result.source) {
+			this._selectionRevision++;
 			this._notice = undefined;
 			this._selectedExecutable = {
 				path: result.exePath,
 				source: result.source,
+				availability: 'unknown',
 				// g++ 场景:exe 由该源文件推导,归位所需的映射在这里捕获。
 				...(result.source === 'source-derived' && activeSource
 					? { sourcePath: activeSource }
 					: {}),
 			};
-			this._stopAutoDiscover();
+			await this._refreshAvailability();
 			return this._selectedExecutable;
 		}
 		if (result.makeScenario && options?.allowDialog) {
@@ -138,6 +157,9 @@ export class RunService {
 
 	/** showOpenDialog 用户挑 exe(make 场景最后手段;面板按钮同入口)。 */
 	public async pickExecutable(): Promise<RunPanelSnapshot['executable']> {
+		if (this._running) { return this._selectedExecutable; }
+		const revision = ++this._selectionRevision;
+		const lifecycle = this._lifecycleRevision;
 		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		const picked = await vscode.window.showOpenDialog({
 			title: '选择要运行的可执行文件',
@@ -147,13 +169,15 @@ export class RunService {
 			defaultUri: workspaceRoot ? vscode.Uri.file(workspaceRoot) : undefined,
 			filters: process.platform === 'win32' ? { '可执行文件': ['exe'] } : undefined,
 		});
+		if (this._running || revision !== this._selectionRevision || lifecycle !== this._lifecycleRevision) {
+			return this._selectedExecutable;
+		}
 		if (!picked || picked.length === 0) {
 			await this.pushState();
 			return this._selectedExecutable;
 		}
-		this._selectedExecutable = { path: picked[0].fsPath, source: 'user-picked' };
+		this._selectedExecutable = { path: picked[0].fsPath, source: 'user-picked', availability: 'unknown' };
 		this._notice = undefined;
-		this._stopAutoDiscover();
 		await this.pushState();
 		return this._selectedExecutable;
 	}
@@ -174,16 +198,17 @@ export class RunService {
 			return;
 		}
 
-		// 友好处理"有路径但文件已被删除"(#11 G2 修复)。
-		if (!(await fileExists(executable.path))) {
-			this._selectedExecutable = undefined;
-			this._notice = '选中的可执行文件已不存在,请重新选择或先编译。';
+		// 运行前再次检查，保留用户选择；维护周期不能代替这道竞态守卫。
+		await this._refreshAvailability();
+		if (executable !== this._selectedExecutable || this._running) { return; }
+		if (executable.availability === 'missing') {
+			this._notice = undefined;
 			this._lastResult = undefined;
 			await this.pushState();
-			this._startAutoDiscover();
 			return;
 		}
 
+		this._notice = undefined;
 		this._running = true;
 		this._currentStartedAt = Date.now();
 		this._lastResult = undefined;
@@ -199,13 +224,11 @@ export class RunService {
 				},
 			});
 		} catch (error) {
-			// spawn 失败(exe 被删/权限不足等):清掉选中,给出兜底文案。
+			// spawn 失败后复检：权限/格式错误不等于文件消失，保留选择。
 			this._running = false;
 			this._currentStartedAt = undefined;
-			this._selectedExecutable = undefined;
 			this._notice = `无法启动 ${executable.path}:${error instanceof Error ? error.message : String(error)}`;
 			await this.pushState();
-			this._startAutoDiscover();
 			return;
 		}
 
@@ -291,11 +314,13 @@ export class RunService {
 	/** 组装面板快照:当前选中 + 上次结果 + 按 exe 分组的历史(新的在前)。 */
 	public async buildSnapshot(): Promise<RunPanelSnapshot> {
 		const grouped = await this._store.readAll();
+		await this._refreshAvailability();
 		return {
 			executable: this._selectedExecutable
 				? {
 					path: this._selectedExecutable.path,
 					source: this._selectedExecutable.source,
+					availability: this._selectedExecutable.availability,
 				}
 				: undefined,
 			notice: this._notice,
@@ -317,19 +342,43 @@ export class RunService {
 		if (!this._presenter) {
 			return;
 		}
-		this._presenter.postMessage({ type: 'run:state', state: await this.buildSnapshot() });
+		const presenter = this._presenter;
+		const revision = ++this._pushRevision;
+		const state = await this.buildSnapshot();
+		// 慢磁盘读取/旧面板的异步快照不能覆盖较新的广播。
+		if (revision === this._pushRevision && presenter === this._presenter) {
+			presenter.postMessage({ type: 'run:state', state });
+		}
 	}
 
-	/**
-	 * 自动发现轮询:面板打开后若尚无 exe,每隔一段时间尝试发现,
-	 * 新编译出 exe 时自动同步到面板(G2 修复)。
-	 */
+	/** 同一个选择只允许一个 stat 在途，慢检查不得把旧路径状态写到新选择。 */
+	private async _refreshAvailability(): Promise<boolean> {
+		const selection = this._selectedExecutable;
+		if (!selection || this._running) { return false; }
+		if (this._availabilityCheck?.selection === selection) {
+			return this._availabilityCheck.promise;
+		}
+		const promise = (async () => {
+			const availability = await this._checkExecutable(selection.path);
+			if (selection !== this._selectedExecutable || this._running) { return false; }
+			const changed = selection.availability !== availability;
+			selection.availability = availability;
+			return changed;
+		})();
+		const check = { selection, promise };
+		this._availabilityCheck = check;
+		try {
+			return await promise;
+		} finally {
+			if (this._availabilityCheck === check) { this._availabilityCheck = undefined; }
+		}
+	}
+
+	/** 面板挂载期间维护原路径；只有未选路径才做自动发现。 */
 	private _startAutoDiscover(): void {
 		this._stopAutoDiscover();
-		if (this._selectedExecutable || this._running) {
-			return;
-		}
-		void this._autoDiscoverTick();
+		if (!this._presenter) { return; }
+		if (!this._selectedExecutable) { void this._autoDiscoverTick(); }
 		this._discoverInterval = setInterval(() => void this._autoDiscoverTick(), AUTO_DISCOVER_INTERVAL_MS);
 	}
 
@@ -341,24 +390,20 @@ export class RunService {
 	}
 
 	private async _autoDiscoverTick(): Promise<void> {
-		if (this._selectedExecutable || this._running || !this._presenter) {
-			this._stopAutoDiscover();
-			return;
+		// 运行中不主动广播状态，避免扰动输出；结束后的 pushState 立即复检。
+		if (this._maintenanceInFlight || this._running || !this._presenter) { return; }
+		this._maintenanceInFlight = true;
+		const lifecycle = this._lifecycleRevision;
+		try {
+			const changed = this._selectedExecutable
+				? await this._refreshAvailability()
+				: Boolean(await this.resolveExecutable({ allowDialog: false }));
+			if (changed && lifecycle === this._lifecycleRevision) { await this.pushState(); }
+		} catch (error) {
+			console.warn('[ClassMate] failed to refresh executable availability', error);
+		} finally {
+			this._maintenanceInFlight = false;
 		}
-		const resolved = await this.resolveExecutable({ allowDialog: false });
-		if (resolved) {
-			this._stopAutoDiscover();
-			await this.pushState();
-		}
-	}
-}
-
-async function fileExists(candidate: string): Promise<boolean> {
-	try {
-		const info = await stat(candidate);
-		return info.isFile();
-	} catch {
-		return false;
 	}
 }
 
