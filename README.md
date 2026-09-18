@@ -1,6 +1,6 @@
 # ClassMate
 
-> 面向 C/C++ 与数据结构初学者的 VS Code AI 学习助手。当前版本 `0.1.0`。
+> 面向 C/C++ 与数据结构初学者的 VS Code AI 学习助手。当前版本 `0.1.1`。
 
 ClassMate 不直接给你完整答案，而是先给提示、再逐步展开细节，帮你真正理解题目、代码和错误。
 
@@ -12,6 +12,11 @@ ClassMate 不直接给你完整答案，而是先给提示、再逐步展开细�
 
 ## 安装
 
+### 在 VS Code 插件市场安装
+
+直接在 VS Code 插件市场搜索 `ClassMateTHU` 然后点击 `Install` 即可。
+
+### 从 github 上安装
 1. 下载或编译生成 `classmate-*.vsix` 文件。
 2. 打开 VS Code，进入**扩展**页面。
 3. 点击右上角 `…`，选择 **Install from VSIX…**。

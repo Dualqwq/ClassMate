@@ -1,8 +1,9 @@
 {
-  "name": "classmate",
-  "displayName": "ClassMate",
+  "name": "ClassmateTHU",
+  "displayName": "ClassMateTHU",
   "description": "AI tutor for C/C++ beginners",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "publisher": "Dualqwq",
   "license": "CC-BY-NC-4.0",
   "repository": {
     "type": "git",
