@@ -237,7 +237,7 @@
           "id": "classmate.chatView",
           "name": "Chat",
           "type": "webview",
-          "when": "classmate.chatContainer == 'view'",
+          "when": "classmate.chatContainer != 'panel' && classmate.chatContainer != 'hidden'",
           "initialSize": 2
         },
         {
