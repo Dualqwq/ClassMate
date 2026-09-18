@@ -32,3 +32,6 @@ LANGGRAPH_FLOW_*.md
 LANGGRAPH_FLOW_*.pdf
 V4_*.md
 MVP进展*.md
+benchmark/**
+eval-courseware/**
+eval-solution-request/**
