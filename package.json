@@ -3,6 +3,7 @@
   "displayName": "ClassMateTHU",
   "description": "AI tutor for C/C++ beginners",
   "version": "0.1.2",
+  "icon": "icon.png",
   "publisher": "Dualqwq",
   "license": "CC-BY-NC-4.0",
   "repository": {
