@@ -33,7 +33,7 @@ ClassMate 需要一个大模型 API 才能进行 AI 对话。首次打开对话�
 
 API Key 会保存在 VS Code 的 Secret Storage 中，不会写入项目文件。
 
-> 清华大学同学可通过 [EasyCompute](https://easycompute.cs.tsinghua.edu.cn/login) 领取算力资源，API URL 通常为 `https://llmapi.paratera.com`，具体以平台页面为准。
+> 清华大学同学可通过 [EasyCompute](https://easycompute.cs.tsinghua.edu.cn/login) 领取算力资源，API URL 通常为 `https://llmapi.paratera.com/v1/`，具体以平台页面为准。
 
 ## 核心功能
 
