@@ -570,32 +570,39 @@ label:focus-within {
 }
 
 /* 浅色主题覆盖(Light+ 语义色) */
-.vscode-light .kind-func {
+.vscode-light .kind-func,
+.vscode-high-contrast-light .kind-func {
 	color: var(--classmate-ref-func, #795e26);
 }
 
-.vscode-light .kind-type {
+.vscode-light .kind-type,
+.vscode-high-contrast-light .kind-type {
 	color: var(--classmate-ref-type, #267f99);
 }
 
-.vscode-light .kind-var {
+.vscode-light .kind-var,
+.vscode-high-contrast-light .kind-var {
 	color: var(--classmate-ref-var, #001080);
 }
 
-.vscode-light .kind-macro {
+.vscode-light .kind-macro,
+.vscode-high-contrast-light .kind-macro {
 	color: var(--classmate-ref-macro, #af00db);
 }
 
-.vscode-light .kind-std {
+.vscode-light .kind-std,
+.vscode-high-contrast-light .kind-std {
 	color: var(--classmate-ref-std, #008000);
 }
 
 /* 高对比度:不依赖颜色,始终可分辨 */
-.vscode-high-contrast .ref-code-link {
+.vscode-high-contrast .ref-code-link,
+.vscode-high-contrast-light .ref-code-link {
 	text-decoration: underline;
 }
 
-.vscode-high-contrast .ref-code-link .code-chip {
+.vscode-high-contrast .ref-code-link .code-chip,
+.vscode-high-contrast-light .ref-code-link .code-chip {
 	border-color: currentColor;
 }
 

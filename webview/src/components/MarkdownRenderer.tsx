@@ -2,7 +2,7 @@ import * as React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { coldarkCold, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { ChatReference } from '../../../src/chat/types';
 import { planCodeBlockFold } from '../../../src/chat/codeBlockFold';
 import { isBlockLevelCode } from '../../../src/chat/codeBlockRender';
@@ -17,6 +17,19 @@ interface MarkdownRendererProps {
 	codeFiles?: string[];
 }
 
+function getCodeBlockTheme() {
+	return document.body.matches('.vscode-light, .vscode-high-contrast-light')
+		? coldarkCold
+		: vscDarkPlus;
+}
+
+function subscribeToCodeBlockTheme(onChange: () => void): () => void {
+	// VS Code 切换主题时更新 body class;无需等待聊天消息或重新打开面板。
+	const observer = new MutationObserver(onChange);
+	observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+	return () => observer.disconnect();
+}
+
 const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 	className,
 	children,
@@ -24,6 +37,7 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 	const match = /language-(\w+)/.exec(className || '');
 	const language = match ? match[1] : 'text';
 	const code = String(children).replace(/\n$/, '');
+	const theme = React.useSyncExternalStore(subscribeToCodeBlockTheme, getCodeBlockTheme);
 	// 折叠计划由代码内容唯一决定(同内容同渲染,流式期间也确定);expanded
 	// 只表达学生的手动选择,内容增长不会重置已展开的块。
 	const fold = planCodeBlockFold(code);
@@ -35,7 +49,7 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 			{/*
 			 * 代码块形状单源:全应用唯一的块级代码块渲染点,用户/助手两种
 			 * 气泡共用本组件;形状属性(圆角/内边距/背景/滚动/换行)在此
-			 * 显式钉死,不依赖 vscDarkPlus 主题隐式值,气泡层只允许主题色
+			 * 显式钉死,不依赖语法主题隐式值,气泡层只允许主题色
 			 * 差异,禁止形状分叉。显式 wordBreak:'normal' 抵消气泡容器
 			 * wordBreak:'break-word' 的继承,防止长行破坏代码几何形状。
 			 * 长行选横向滚动(overflow auto + whiteSpace pre)而非 wrap:
@@ -44,7 +58,7 @@ const CodeBlock: React.FC<{ className?: string; children: string } > = ({
 			 */}
 			<SyntaxHighlighter
 				language={language}
-				style={vscDarkPlus}
+				style={theme}
 				customStyle={{
 					margin: '8px 0',
 					padding: '8px 12px',
